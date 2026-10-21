@@ -33,7 +33,7 @@ function trial(pid: ProfileId, ch: Channel, seed: number, len = 48) {
   if (ratio !== 1) sig = resample(sig, ratio);
   const rxFs = ch.rxRate ?? fs;
   const offset = Math.floor(r() * rxFs);
-  let stream = mix(offset + sig.length + rxFs / 2, [[offset, sig]], 0, r);
+  let stream: Float32Array = mix(offset + sig.length + rxFs / 2, [[offset, sig]], 0, r);
   if (ch.snrDb !== undefined) stream = addNoise(stream, ch.snrDb, r);
   const frames = listen(stream, rxFs);
   return frames.length === 1 && frames[0].payload.join() === payload.join() ? frames[0] : null;
