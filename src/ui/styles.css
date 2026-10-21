@@ -647,6 +647,9 @@ input[type='radio'] {
   background: currentColor;
   flex: none;
 }
+.air-status.off .dot {
+  background: #5d665f;
+}
 .air-status.idle .dot {
   background: var(--teal);
   animation: breathe 2.4s ease-in-out infinite;
@@ -778,6 +781,9 @@ input[type='radio'] {
 }
 .airlog .lost .dir {
   color: #ff7a62;
+}
+.airlog .sync {
+  opacity: 0.6;
 }
 .airlog .sync .dir {
   color: #98a29a;
@@ -970,7 +976,7 @@ input[type='radio'] {
 }
 
 /* ---------- beacon ---------- */
-.beacon {
+.beacon-page {
   min-height: 100dvh;
   background: var(--screen);
   color: #e9e4d6;
@@ -987,7 +993,7 @@ input[type='radio'] {
   max-width: 1200px;
   margin: 0 auto;
 }
-.beacon .waterfall {
+.beacon-page .waterfall {
   padding: 0;
 }
 .stats.huge {

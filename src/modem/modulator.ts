@@ -35,12 +35,13 @@ export function modulate(payload: Uint8Array, p: Profile, fs: number): Float32Ar
   const amp = 0.9 / p.groups;
   symbols.forEach((byte, k) => {
     const a = Math.round(symStart + k * symLen);
-    const n = Math.round(symStart + (k + 1) * symLen) - a;
+    // Each tone rings on for one ramp past its symbol, into the next symbol's guard interval,
+    // so the receiver's integration window only ever sees it at full, steady amplitude.
+    const n = Math.round(symStart + (k + 1) * symLen) - a + r;
     for (let g = 0; g < p.groups; g++) {
       const nibble = g === 0 ? byte >> 4 : byte & 15;
       const w = (2 * Math.PI * toneHz(p, k, g, nibble)) / fs;
-      // Phase referenced to the frame start keeps every tone continuous inside its symbol.
-      for (let i = 0; i < n; i++) out[a + i] += amp * ramp(i, n, r) * Math.cos(w * (a + i));
+      for (let i = 0; i < n && a + i < out.length; i++) out[a + i] += amp * ramp(i, n, r) * Math.cos(w * (a + i));
     }
   });
   return out;

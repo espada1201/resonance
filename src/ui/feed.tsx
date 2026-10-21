@@ -147,7 +147,7 @@ export function FeedItemView({ station, item, position }: { station: Station; it
         {b.geo && (
           <p class="geo small">
             <Pin size={14} />
-            {there ? `${formatDistance(there.d)} ${compassPoint(there.brg)} of you` : `${b.geo.lat.toFixed(4)}, ${b.geo.lon.toFixed(4)}`} · ±{b.geo.accuracyM} m
+            {there ? (there.d < 10 ? 'Right next to you' : `${formatDistance(there.d)} ${compassPoint(there.brg)} of you`) : `${b.geo.lat.toFixed(4)}, ${b.geo.lon.toFixed(4)}`} · ±{b.geo.accuracyM} m
           </p>
         )}
         <div class="actions">

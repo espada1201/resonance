@@ -46,7 +46,7 @@ function Beacon() {
     ['Up', live ? uptime(Date.now() - station.startedAt) : '—'],
   ];
   return (
-    <div class="beacon">
+    <div class="beacon-page">
       <header class="top">
         <a class="brand" href="./">
           <Logo size={22} />

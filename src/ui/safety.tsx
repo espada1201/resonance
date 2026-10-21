@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { bearingDeg, compassPoint, distanceM, formatDistance, locate } from '../geo';
 import type { Geo, Status } from '../mesh/payloads';
-import type { FeedItem, Station } from '../station';
+import { type FeedItem, type Station, nodeHex } from '../station';
 import { who } from './feed';
 import { STATUS_TEXT, ago } from './format';
 import { Compass, Pin } from './icons';
@@ -15,6 +15,9 @@ export function latestCheckIns(feed: FeedItem[]): CheckIn[] {
   for (const i of feed) if (i.body?.kind === 'checkin' && !by.has(i.src)) by.set(i.src, i as CheckIn);
   return [...by.values()].sort((a, b) => URGENCY[a.body.status] - URGENCY[b.body.status] || b.at - a.at);
 }
+
+const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
+const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
 
 type OrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 
@@ -41,7 +44,8 @@ function useHeading(): [number | null, () => void] {
 
 function Radar({ me, people, heading }: { me: Geo; people: CheckIn[]; heading: number | null }) {
   const pts = people.filter((p) => p.body.geo).map((p) => ({ p, d: distanceM(me, p.body.geo!), b: bearingDeg(me, p.body.geo!) }));
-  const max = Math.max(50, ...pts.map((x) => x.d)) * 1.15;
+  const far = Math.max(20, ...pts.map((x) => x.d)) * 1.1;
+  const max = NICE.find((n) => n >= far) ?? far;
   const R = 130;
   const rot = heading ?? 0;
   const scale = (d: number) => (Math.sqrt(d / max) * R);
@@ -50,8 +54,8 @@ function Radar({ me, people, heading }: { me: Geo; people: CheckIn[]; heading: n
       {[0.25, 0.5, 1].map((f) => (
         <g key={f}>
           <circle r={scale(max * f)} class="ring" />
-          <text x={4} y={-scale(max * f) - 3} class="ring-label">
-            {formatDistance(max * f)}
+          <text x={scale(max * f) * 0.71 + 3} y={scale(max * f) * 0.71 + 11} class="ring-label">
+            {ringLabel(max * f)}
           </text>
         </g>
       ))}
@@ -67,7 +71,7 @@ function Radar({ me, people, heading }: { me: Geo; people: CheckIn[]; heading: n
             <g key={p.id} transform={`translate(${Math.sin(a) * r} ${-Math.cos(a) * r})`} class={`blip s-${p.body.status}`}>
               <circle r={6} />
               <text x={9} y={4} transform={`rotate(${rot})`}>
-                {p.body.nick || p.src.toString(16).slice(0, 4)}
+                {p.body.nick || `#${nodeHex(p.src).slice(0, 4)}`}
               </text>
             </g>
           );
@@ -153,7 +157,8 @@ export function Safety({ station }: { station: Station }) {
         {people.length === 0 && <li class="empty small">No check-ins heard yet.</li>}
         {people.map((p) => {
           const g = p.body.geo;
-          const rel = g && me ? `${formatDistance(distanceM(me, g))} ${compassPoint(bearingDeg(me, g))}` : g ? 'position attached' : 'no position';
+          const d = g && me ? distanceM(me, g) : null;
+          const rel = g && me && d !== null ? (d < 10 ? 'right next to you' : `${formatDistance(d)} ${compassPoint(bearingDeg(me, g))}`) : g ? 'position attached' : 'no position';
           return (
             <li key={p.id} class={`s-${p.body.status}`}>
               <span class="status-word">{STATUS_TEXT[p.body.status]}</span>

@@ -27,6 +27,49 @@ const RHO_THRESHOLD = 0.09;
 const MAX_CLOCK_SKEW = 0.012;
 const TRACK_STEP_SEC = 0.0005;
 
+export interface SymbolDecision {
+  byte: number;
+  /** 1 - (runner-up energy / winner energy), worst group. Low values become RS erasures. */
+  conf: number;
+  /** Winner energy / all energy in its group, averaged over groups. Drives timing. */
+  purity: number;
+  /** Winner energy / mean of the other tones (linear). */
+  snr: number;
+}
+
+/**
+ * Non-coherent square-law detection of one symbol: for every group, measure the energy of all
+ * 16 candidate tones over exactly one tone period (so they are orthogonal) and keep the largest.
+ * `start` is the sample index (in x) where symbol k begins, guard interval included; `r` is the
+ * transmitter/receiver clock ratio, which scales every frequency and duration.
+ */
+export function demodSymbol(x: Float32Array, start: number, p: Profile, k: number, r: number, fs: number): SymbolDecision {
+  const from = Math.round(start + (p.guardSec * fs) / r);
+  const n = Math.round((windowSec(p) * fs) / r);
+  let byte = 0;
+  let conf = 1;
+  let purity = 0;
+  let snr = 0;
+  for (let g = 0; g < p.groups; g++) {
+    const tones = groupTones(p, k, g);
+    let best = 0, e1 = 0, e2 = 0, sum = 0;
+    for (let v = 0; v < tones.length; v++) {
+      const e = goertzel(x, from, n, tones[v] * r, fs);
+      sum += e;
+      if (e > e1) {
+        e2 = e1;
+        e1 = e;
+        best = v;
+      } else if (e > e2) e2 = e;
+    }
+    byte = (byte << 4) | best;
+    conf = Math.min(conf, e1 > 0 ? 1 - e2 / e1 : 0);
+    purity += sum > 0 ? e1 / sum : 0;
+    snr += e1 / Math.max(1e-12, (sum - e1) / (tones.length - 1));
+  }
+  return { byte, conf, purity: purity / p.groups, snr: snr / p.groups };
+}
+
 /** Append-only sample store addressed by absolute index; old samples are discarded on trim. */
 class SampleStore {
   data = new Float32Array(1 << 16);
@@ -50,10 +93,6 @@ class SampleStore {
     this.data.copyWithin(0, drop, this.length);
     this.length -= drop;
     this.base += drop;
-  }
-  /** Energy at `hz` over n samples starting at absolute index `abs`. */
-  tone(abs: number, n: number, hz: number, fs: number) {
-    return goertzel(this.data.subarray(0, this.length), Math.round(abs - this.base), n, hz, fs);
   }
   view(abs: number, n: number): Float32Array {
     const out = new Float32Array(n);
@@ -194,29 +233,9 @@ class ProfileDecoder {
     return pd.s0 + symbols * this.symbolSamples(pd.r) + 0.01 * this.fs;
   }
 
-  /** Demodulates symbol k; returns the byte, its confidence and its tone purity. */
   private demod(pd: Pending, k: number, tau: number) {
-    const { p, fs } = this;
-    const start = pd.s0 + tau + k * this.symbolSamples(pd.r) + (p.guardSec * fs) / pd.r;
-    const n = Math.round((windowSec(p) * fs) / pd.r);
-    let byte = 0;
-    let conf = 1;
-    let purity = 0;
-    let snr = 0;
-    for (let g = 0; g < p.groups; g++) {
-      const tones = groupTones(p, k, g);
-      let best = -1, e1 = 0, e2 = 0, sum = 0;
-      for (let v = 0; v < tones.length; v++) {
-        const e = this.store.tone(start, n, tones[v] * pd.r, fs);
-        sum += e;
-        if (e > e1) { e2 = e1; e1 = e; best = v; } else if (e > e2) e2 = e;
-      }
-      byte = (byte << 4) | Math.max(0, best);
-      conf = Math.min(conf, e1 > 0 ? 1 - e2 / e1 : 0);
-      purity += sum > 0 ? e1 / sum : 0;
-      snr += e1 / Math.max(1e-12, (sum - e1) / (tones.length - 1));
-    }
-    return { byte, conf, purity: purity / p.groups, snr: snr / p.groups };
+    const start = pd.s0 + tau + k * this.symbolSamples(pd.r);
+    return demodSymbol(this.store.data.subarray(0, this.store.length), start - this.store.base, this.p, k, pd.r, this.fs);
   }
 
   private advancePending() {

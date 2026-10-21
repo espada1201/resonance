@@ -73,8 +73,8 @@ export function App({ station }: { station: Station }) {
           #{nodeHex(station.id)}
           {station.settings.nick && <b>{station.settings.nick}</b>}
         </span>
-        {station.transport.kind === 'simulated' && <span class="chip sim">Simulated air</span>}
-        <div class="top-right">{live ? <AirStatus station={station} /> : null}</div>
+        {station.transport.kind === 'simulated' && <span class="chip sim">{wide ? 'Simulated air' : 'Sim'}</span>}
+        <div class="top-right">{live && !wide ? <AirStatus station={station} compact /> : null}</div>
       </header>
 
       <nav class="tabs" role="tablist" aria-label="Sections">

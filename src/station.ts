@@ -179,7 +179,7 @@ export class Station {
           void this.radio.tick();
         }, 200),
       );
-      const hello = () => this.mesh.hello(this.settings.nick || this.role, this.role);
+      const hello = () => this.mesh.hello(this.settings.nick, this.role);
       setTimeout(hello, 1500 + Math.random() * 3000);
       this.timers.push(setInterval(hello, HELLO_MS[this.role] * (0.85 + Math.random() * 0.3)));
     } catch (err) {
@@ -237,7 +237,11 @@ export class Station {
     this.logAir({
       dir: 'rx',
       profile: f.profile,
-      label: p ? `${TYPE_LABEL[p.type]} from ${nodeHex(p.src)}${p.hops ? ` · hop ${p.hops}` : ''}` : 'not a Resonance packet',
+      label: !p
+        ? 'not a Resonance packet'
+        : p.src === this.id
+          ? `echo of your ${TYPE_LABEL[p.type]}: a neighbour repeated it`
+          : `${TYPE_LABEL[p.type]} from ${nodeHex(p.src)}${p.hops ? ` · hop ${p.hops}` : ''}`,
       bytes: f.payload.length,
       airtimeSec: f.airtimeSec,
       toneSnrDb: f.toneSnrDb,

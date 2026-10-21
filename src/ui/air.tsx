@@ -51,6 +51,9 @@ export function Waterfall({ station, height = 220 }: { station: Station; height?
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
     let columns: Array<number | null> = [];
+    // Per-column noise floor, so steady hiss fades to black and anything new (a chirp, a voice,
+    // a tone) stands out whatever the microphone gain.
+    let floor = new Float32Array(0);
     const resize = () => {
       const w = Math.max(1, Math.round(canvas.clientWidth * Math.min(2, devicePixelRatio)));
       if (canvas.width === w) return;
@@ -59,6 +62,7 @@ export function Waterfall({ station, height = 220 }: { station: Station; height?
       ctx.fillStyle = '#090b0a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       columns = Array.from({ length: w }, (_, x) => columnHz(x / w));
+      floor = new Float32Array(w).fill(-90);
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -75,7 +79,9 @@ export function Waterfall({ station, height = 220 }: { station: Station; height?
           r = g = b = 22;
         } else {
           const db = bins[Math.min(bins.length - 1, Math.round(hz / binHz))];
-          const v = Math.max(0, Math.min(255, ((db + 105) / 70) * 255)) | 0;
+          // Track the mean level of the hiss; let loud moments barely move it.
+          floor[x] += (db - floor[x]) * (db < floor[x] + 6 ? 0.03 : 0.002);
+          const v = Math.max(0, Math.min(255, ((db - floor[x] - 5) / 35) * 255)) | 0;
           r = LUT[v * 3];
           g = LUT[v * 3 + 1];
           b = LUT[v * 3 + 2];
@@ -104,7 +110,7 @@ export function Waterfall({ station, height = 220 }: { station: Station; height?
         {BANDS.map((b) => {
           const p = PROFILES[b.id];
           const lo = (p.baseHz / 1000).toFixed(1);
-          const hi = ((p.baseHz + p.binHz * (p.hopSets * p.groups * TONES_PER_GROUP - 1)) / 1000).toFixed(1);
+          const hi = (Math.round((p.baseHz + p.binHz * (p.hopSets * p.groups * TONES_PER_GROUP - 1)) / 100) / 10).toFixed(1);
           return (
             <span key={b.id} style={{ flex: b.share }} class={active === b.id ? (station.transmitting ? 'band tx' : 'band rx') : 'band'}>
               <b>{b.name}</b> {lo}–{hi} kHz
@@ -116,21 +122,24 @@ export function Waterfall({ station, height = 220 }: { station: Station; height?
   );
 }
 
-function stateLine(s: Station): { text: string; tone: 'idle' | 'rx' | 'tx' | 'warn' } {
-  if (s.status === 'error') return { text: 'Microphone unavailable', tone: 'warn' };
-  if (s.status !== 'listening') return { text: s.status === 'starting' ? 'Starting audio…' : 'Not listening', tone: 'idle' };
-  if (s.transmitting) return { text: `Transmitting · ${seconds(s.transmitting.seconds)}`, tone: 'tx' };
-  if (s.receiving) return { text: `Receiving ${s.receiving === 'audible' ? 'audible' : 'quiet'} frame…`, tone: 'rx' };
-  return { text: s.radio.length ? `Waiting for clear air · ${s.radio.length} queued` : 'Listening', tone: 'idle' };
+type Tone = 'off' | 'idle' | 'rx' | 'tx' | 'warn';
+
+function stateLine(s: Station, compact: boolean): { text: string; tone: Tone } {
+  if (s.status === 'error') return { text: compact ? 'No mic' : 'Microphone unavailable', tone: 'warn' };
+  if (s.status !== 'listening') return { text: s.status === 'starting' ? 'Starting…' : 'Not listening', tone: 'off' };
+  if (s.transmitting) return { text: compact ? `Sending ${seconds(s.transmitting.seconds)}` : `Transmitting · ${seconds(s.transmitting.seconds)}`, tone: 'tx' };
+  if (s.receiving) return { text: compact ? 'Receiving…' : `Receiving ${s.receiving === 'audible' ? 'audible' : 'quiet'} frame…`, tone: 'rx' };
+  if (s.radio.length) return { text: compact ? `${s.radio.length} queued` : `Waiting for clear air · ${s.radio.length} queued`, tone: 'idle' };
+  return { text: 'Listening', tone: 'idle' };
 }
 
-export function AirStatus({ station }: { station: Station }) {
-  const st = stateLine(station);
+export function AirStatus({ station, compact = false }: { station: Station; compact?: boolean }) {
+  const st = stateLine(station, compact);
   return (
     <div class={`air-status ${st.tone}`} role="status" aria-live="polite">
       <span class="dot" aria-hidden="true" />
       {st.text}
-      {station.transmitting && <TxProgress started={station.transmitting.started} seconds={station.transmitting.seconds} />}
+      {station.transmitting && !compact && <TxProgress started={station.transmitting.started} seconds={station.transmitting.seconds} />}
     </div>
   );
 }
