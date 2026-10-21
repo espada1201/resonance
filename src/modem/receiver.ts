@@ -1,7 +1,8 @@
 import { goertzel, nextPow2 } from './dsp';
-import { HEADER_SYMBOLS, bodySymbols, decodeBody, decodeHeader } from './framing';
+import { HEADER_BYTES, bodyBytes, decodeBody, decodeHeader } from './framing';
 import { MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
-import { type Profile, type ProfileId, groupTones, preambleSec, symbolSec, windowSec } from './profiles';
+import { OFDM_RATE, type Spectrum, bodyOffset, cpSize, derotate, fftSize, headerSteps, ofdmSymbols, readBytes, spectrum, stepSlope, stepSlopes, steps } from './ofdm';
+import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bytesPerSymbol, groupTones, preambleSec, symbolSec, windowSec } from './profiles';
 
 export interface DecodedFrame {
   payload: Uint8Array;
@@ -11,7 +12,7 @@ export interface DecodedFrame {
   airtimeSec: number;
   /** Estimated transmitter/receiver sample-clock ratio. 1.003 = sender's clock 0.3% fast. */
   clockRatio: number;
-  /** Mean ratio of the winning tone to the other tones in its group, in dB. */
+  /** Link quality in dB: winning tone over its rivals (MFSK), or phase-noise SNR of the steps (OFDM). */
   toneSnrDb: number;
   /** Bytes repaired by Reed-Solomon. */
   corrected: number;
@@ -24,6 +25,14 @@ export interface ReceiverListener {
 }
 
 const RHO_THRESHOLD = 0.09;
+/** Sync needs a score this many times the RMS score of the last ~50 ms (see PeakPicker). */
+const RHO_CFAR = 4;
+/**
+ * RMS score, over ~200 ms, above which data symbols of some frame are on air even though we
+ * missed its preamble. Measured: white noise 0.019, synthetic speech under 0.025, music 0.026,
+ * Resonance data symbols 0.037 to 0.069.
+ */
+const HUM_BUSY = 0.03;
 const MAX_CLOCK_SKEW = 0.012;
 const TRACK_STEP_SEC = 0.0005;
 
@@ -43,7 +52,7 @@ export interface SymbolDecision {
  * `start` is the sample index (in x) where symbol k begins, guard interval included; `r` is the
  * transmitter/receiver clock ratio, which scales every frequency and duration.
  */
-export function demodSymbol(x: Float32Array, start: number, p: Profile, k: number, r: number, fs: number): SymbolDecision {
+export function demodSymbol(x: Float32Array, start: number, p: MfskProfile, k: number, r: number, fs: number): SymbolDecision {
   const from = Math.round(start + (p.guardSec * fs) / r);
   const n = Math.round((windowSec(p) * fs) / r);
   let byte = 0;
@@ -100,18 +109,29 @@ class SampleStore {
     for (let i = Math.max(0, -from); i < n && from + i < this.length; i++) out[i] = this.data[from + i];
     return out;
   }
+  /** Cubic interpolation at a fractional absolute position (0 outside what is stored). */
+  at(pos: number): number {
+    const x = pos - this.base;
+    const i = Math.floor(x);
+    const f = x - i;
+    const y = (j: number) => (j >= 0 && j < this.length ? this.data[j] : 0);
+    const y0 = y(i - 1), y1 = y(i), y2 = y(i + 1), y3 = y(i + 2);
+    return y1 + 0.5 * f * (y2 - y0 + f * (2 * y0 - 5 * y1 + 4 * y2 - y3 + f * (3 * (y1 - y2) + y3 - y0)));
+  }
 }
 
 interface Pending {
+  /** Absolute sample where the first symbol after the preamble begins. */
   s0: number;
   r: number;
+  /** Fine timing: offset of the MFSK symbol grid (receiver samples) or of the OFDM FFT windows (OFDM_RATE samples). */
   tau: number;
   len?: number;
   started: number;
 }
 
-/** Streaming matched filter + frame decoder for one profile. */
-class ProfileDecoder {
+/** Streaming matched filter and chirp-pair sync for one profile; subclasses demodulate the frame. */
+abstract class FrameDecoder<P extends Profile> {
   private readonly filter: MatchedFilter;
   private readonly picker: PeakPicker;
   private readonly D: number;
@@ -119,16 +139,20 @@ class ProfileDecoder {
   private blockedUntil = 0;
   pending: Pending | null = null;
   lastActivity = -Infinity;
+  /** Mean square score over the last ~200 ms (see HUM_BUSY). */
+  hum = 0;
+  private readonly humAlpha: number;
 
   constructor(
-    readonly p: Profile,
-    private readonly fs: number,
-    private readonly store: SampleStore,
+    readonly p: P,
+    protected readonly fs: number,
+    protected readonly store: SampleStore,
     private readonly listener: ReceiverListener,
   ) {
     this.filter = new MatchedFilter(chirpTemplate(p.chirpLowHz, p.chirpHighHz, Math.round(p.chirpSec * fs) / fs, fs));
-    this.picker = new PeakPicker(RHO_THRESHOLD, this.filter.M / 2);
+    this.picker = new PeakPicker(RHO_THRESHOLD, this.filter.M / 2, 0, 0.5, RHO_CFAR, 1 / (0.05 * fs));
     this.D = (p.chirpSec + p.chirpGapSec) * fs;
+    this.humAlpha = 1 / (0.2 * fs);
   }
 
   /** Oldest absolute sample this decoder still needs. */
@@ -138,10 +162,11 @@ class ProfileDecoder {
 
   process() {
     this.filter.run(this.store.end, (abs, n) => this.store.view(abs, n), (pos, rho) => {
+      this.hum += (rho * rho - this.hum) * this.humAlpha;
       const peak = this.picker.push(pos, rho);
       if (peak) this.onPeak(peak);
     });
-    this.advancePending();
+    if (this.pending) this.advance(this.pending);
   }
 
   private onPeak(peak: Peak) {
@@ -162,6 +187,30 @@ class ProfileDecoder {
     this.listener.sync?.(this.p.id, best.pos);
   }
 
+  /** Decodes as much of the pending frame as the stored samples allow. */
+  protected abstract advance(pd: Pending): void;
+
+  protected finish(pd: Pending, failure: 'header' | 'body' | null, end: number) {
+    this.pending = null;
+    this.blockedUntil = failure === 'header' ? pd.s0 : end;
+    if (failure) this.listener.lost?.(this.p.id, failure);
+  }
+
+  protected emit(pd: Pending, end: number, payload: Uint8Array, toneSnrDb: number, corrected: number) {
+    this.finish(pd, null, end);
+    this.listener.frame({
+      payload,
+      profile: this.p.id,
+      startSample: pd.started,
+      airtimeSec: (end - pd.started) / this.fs,
+      clockRatio: pd.r,
+      toneSnrDb,
+      corrected,
+    });
+  }
+}
+
+class MfskDecoder extends FrameDecoder<MfskProfile> {
   private symbolSamples(r: number) {
     return (symbolSec(this.p) * this.fs) / r;
   }
@@ -175,73 +224,113 @@ class ProfileDecoder {
     return demodSymbol(this.store.data.subarray(0, this.store.length), start - this.store.base, this.p, k, pd.r, this.fs);
   }
 
-  private advancePending() {
-    const pd = this.pending;
-    if (!pd) return;
+  protected advance(pd: Pending) {
     const maxTau = 0.005 * this.fs;
     if (pd.len === undefined) {
-      if (this.store.end < this.needed(pd, HEADER_SYMBOLS) + maxTau) return;
+      if (this.store.end < this.needed(pd, HEADER_BYTES) + maxTau) return;
       // Fine timing: pick the offset that makes header tones cleanest.
       let bestTau = 0, bestScore = -1;
       for (let tau = -maxTau; tau <= maxTau + 1e-9; tau += 0.001 * this.fs) {
         let score = 0;
-        for (let k = 0; k < HEADER_SYMBOLS; k++) score += this.demod(pd, k, tau).purity;
+        for (let k = 0; k < HEADER_BYTES; k++) score += this.demod(pd, k, tau).purity;
         if (score > bestScore) { bestScore = score; bestTau = tau; }
       }
       pd.tau = bestTau;
-      const sym = new Uint8Array(HEADER_SYMBOLS);
-      const conf = new Float64Array(HEADER_SYMBOLS);
-      for (let k = 0; k < HEADER_SYMBOLS; k++) {
+      const sym = new Uint8Array(HEADER_BYTES);
+      const conf = new Float64Array(HEADER_BYTES);
+      for (let k = 0; k < HEADER_BYTES; k++) {
         const d = this.demod(pd, k, pd.tau);
         sym[k] = d.byte;
         conf[k] = d.conf;
       }
       const len = decodeHeader(sym, conf);
-      if (len === null) return this.finish(pd, 'header', HEADER_SYMBOLS);
+      if (len === null) return this.finish(pd, 'header', pd.s0);
       pd.len = len;
     }
-    const total = HEADER_SYMBOLS + bodySymbols(pd.len);
-    if (this.store.end < this.needed(pd, total) + maxTau) return;
-    this.decodeBodyNow(pd, pd.len, total);
-  }
-
-  private decodeBodyNow(pd: Pending, len: number, total: number) {
-    const nb = total - HEADER_SYMBOLS;
+    const total = HEADER_BYTES + bodyBytes(pd.len);
+    const end = this.needed(pd, total);
+    if (this.store.end < end + maxTau) return;
+    const nb = total - HEADER_BYTES;
     const sym = new Uint8Array(nb);
     const conf = new Float64Array(nb);
     const step = TRACK_STEP_SEC * this.fs;
     let tau = pd.tau;
     let snr = 0;
-    for (let k = HEADER_SYMBOLS; k < total; k++) {
+    for (let k = HEADER_BYTES; k < total; k++) {
       // Early-late timing tracker absorbs residual clock error over long frames.
       const mid = this.demod(pd, k, tau);
       const early = this.demod(pd, k, tau - step).purity;
       const late = this.demod(pd, k, tau + step).purity;
       if (late > mid.purity && late > early) tau += step / 2;
       else if (early > mid.purity && early > late) tau -= step / 2;
-      sym[k - HEADER_SYMBOLS] = mid.byte;
-      conf[k - HEADER_SYMBOLS] = mid.conf;
+      sym[k - HEADER_BYTES] = mid.byte;
+      conf[k - HEADER_BYTES] = mid.conf;
       snr += mid.snr;
     }
-    const res = decodeBody(len, sym, conf);
-    if (!res) return this.finish(pd, 'body', total);
-    const start = pd.started;
-    this.finish(pd, null, total);
-    this.listener.frame({
-      payload: res.payload,
-      profile: this.p.id,
-      startSample: start,
-      airtimeSec: (this.needed(pd, total) - start) / this.fs,
-      clockRatio: pd.r,
-      toneSnrDb: 10 * Math.log10(snr / nb),
-      corrected: res.corrected,
-    });
+    const res = decodeBody(pd.len, sym, conf);
+    if (!res) return this.finish(pd, 'body', end);
+    this.emit(pd, end, res.payload, 10 * Math.log10(snr / nb), res.corrected);
+  }
+}
+
+/**
+ * Reads OFDM frames by resampling the stream onto the OFDM_RATE grid (which also undoes the
+ * measured clock ratio), timing every FFT window off the reference symbol, then deciding the
+ * phase step each carrier took from one symbol to the next.
+ */
+class OfdmDecoder extends FrameDecoder<OfdmProfile> {
+  private readonly S = fftSize(this.p) + cpSize(this.p);
+  private readonly read = (pos: number) => this.store.at(pos);
+
+  /** Receiver samples per OFDM_RATE sample. */
+  private stride(pd: Pending) {
+    return this.fs / (OFDM_RATE * pd.r);
   }
 
-  private finish(pd: Pending, failure: 'header' | 'body' | null, symbols: number) {
-    this.pending = null;
-    this.blockedUntil = failure === 'header' ? pd.s0 : this.needed(pd, symbols);
-    if (failure) this.listener.lost?.(this.p.id, failure);
+  /** Absolute sample by which `symbols` symbols (and room for a late window) have arrived. */
+  private end(pd: Pending, symbols: number) {
+    return pd.s0 + (symbols * this.S + cpSize(this.p)) * this.stride(pd) + 4;
+  }
+
+  private spectra(pd: Pending, symbols: number, offset: number): Spectrum[] {
+    const k = this.stride(pd);
+    return Array.from({ length: symbols }, (_, m) => spectrum(this.p, this.read, pd.s0 + (m * this.S + offset) * k, k));
+  }
+
+  protected advance(pd: Pending) {
+    const cp = cpSize(this.p);
+    if (pd.len === undefined) {
+      if (this.store.end < this.end(pd, 2)) return;
+      // Silence precedes the reference, so a window anywhere inside its prefix sees it whole. Look
+      // early enough to forgive a late sync, then put every window 1 ms ahead of the first path's body.
+      const probe = cp - 160;
+      pd.tau = probe + bodyOffset(this.p, this.spectra(pd, 1, probe)[0]) - 48;
+      const z = steps(this.p, this.spectra(pd, 2, pd.tau), 1);
+      const h = readBytes(headerSteps(this.p, derotate(this.p, z, stepSlope(this.p, [z]))), HEADER_BYTES);
+      const len = decodeHeader(h.bytes, h.conf);
+      if (len === null) return this.finish(pd, 'header', pd.s0);
+      pd.len = len;
+    }
+    const total = ofdmSymbols(this.p, pd.len);
+    const end = this.end(pd, total);
+    if (this.store.end < end) return;
+    const spectra = this.spectra(pd, total, pd.tau);
+    const zs = Array.from({ length: total - 2 }, (_, i) => steps(this.p, spectra, i + 2));
+    const slopes = stepSlopes(this.p, zs);
+    const B = bytesPerSymbol(this.p);
+    const bytes = new Uint8Array(zs.length * B);
+    const conf = new Float64Array(zs.length * B);
+    let err2 = 0;
+    zs.forEach((z, i) => {
+      const d = readBytes(derotate(this.p, z, slopes[i]), B);
+      bytes.set(d.bytes, i * B);
+      conf.set(d.conf, i * B);
+      err2 += d.err2;
+    });
+    const nb = bodyBytes(pd.len);
+    const res = decodeBody(pd.len, bytes.subarray(0, nb), conf.subarray(0, nb));
+    if (!res) return this.finish(pd, 'body', end);
+    this.emit(pd, end, res.payload, 10 * Math.log10(zs.length / (2 * err2)), res.corrected);
   }
 }
 
@@ -251,24 +340,28 @@ class ProfileDecoder {
  */
 export class Receiver {
   private readonly store = new SampleStore();
-  private readonly decoders: ProfileDecoder[];
+  private readonly decoders: Array<FrameDecoder<Profile>>;
 
   constructor(
     readonly fs: number,
     profiles: Profile[],
     listener: ReceiverListener,
   ) {
-    this.decoders = profiles.map((p) => new ProfileDecoder(p, fs, this.store, listener));
+    this.decoders = profiles.map((p) => (p.kind === 'ofdm' ? new OfdmDecoder(p, fs, this.store, listener) : new MfskDecoder(p, fs, this.store, listener)));
   }
 
   get samplesSeen() {
     return this.store.end;
   }
 
-  /** True while a frame is arriving or a preamble was heard in the last half second. */
+  /**
+   * Carrier sense: true while a frame is arriving, a preamble was heard in the last half second,
+   * or the air hums with data symbols whose preamble we missed (we joined mid-frame, or were deaf
+   * while sending).
+   */
   get busy() {
     const recent = this.store.end - 0.5 * this.fs;
-    return this.decoders.some((d) => d.pending || d.lastActivity > recent);
+    return this.decoders.some((d) => d.pending || d.lastActivity > recent || d.hum > HUM_BUSY ** 2);
   }
 
   push(chunk: Float32Array) {

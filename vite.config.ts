@@ -17,7 +17,8 @@ self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) 
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
-  e.respondWith(caches.match(e.request, { ignoreSearch: true }).then((r) => r || fetch(e.request)));
+  // ignoreVary: preview servers send Vary: Origin, and module scripts are fetched with an Origin header the precache never had.
+  e.respondWith(caches.match(e.request, { ignoreSearch: true, ignoreVary: true }).then((r) => r || fetch(e.request)));
 });
 `;
       this.emitFile({ type: 'asset', fileName: 'sw.js', source });
@@ -33,5 +34,6 @@ export default defineConfig({
     rollupOptions: { input: { main: 'index.html', beacon: 'beacon.html' } },
   },
   worker: { format: 'es' },
-  test: { include: ['src/**/*.test.ts'] },
+  // Channel simulations are CPU-heavy; shared CI runners need headroom.
+  test: { include: ['src/**/*.test.ts'], testTimeout: 60_000 },
 });

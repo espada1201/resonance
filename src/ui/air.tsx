@@ -1,15 +1,17 @@
 import { useEffect, useRef } from 'preact/hooks';
-import { PROFILES, type ProfileId, TONES_PER_GROUP } from '../modem/profiles';
+import { PROFILES, type ProfileId, bandHz } from '../modem/profiles';
 import type { AirEvent, Station } from '../station';
 import { clock, seconds } from './format';
 
 // The waterfall shows the two slices of the spectrum Resonance actually uses, side by side,
 // newest sound at the top. It is the app's way of making the invisible visible.
 
-const BANDS: Array<{ id: ProfileId; lo: number; hi: number; share: number; name: string }> = [
-  { id: 'audible', lo: 700, hi: 5000, share: 0.6, name: 'Audible' },
-  { id: 'ultrasonic', lo: 17000, hi: 19700, share: 0.4, name: 'Quiet' },
+const BANDS: Array<{ ids: ProfileId[]; lo: number; hi: number; share: number; name: string }> = [
+  { ids: ['audible', 'fast'], lo: 700, hi: 7000, share: 0.6, name: 'Audible' },
+  { ids: ['ultrasonic'], lo: 17000, hi: 19700, share: 0.4, name: 'Quiet' },
 ];
+
+const PROFILE_NAME: Record<ProfileId, string> = { audible: 'audible', fast: 'fast', ultrasonic: 'quiet' };
 const GAP = 0.02;
 const ROW = 2;
 
@@ -108,11 +110,11 @@ export function Waterfall({ station, height = 220 }: { station: Station; height?
       <canvas ref={ref} style={{ height: `${height}px` }} role="img" aria-label="Live spectrum of the microphone, newest sound at the top" />
       <figcaption class="bands">
         {BANDS.map((b) => {
-          const p = PROFILES[b.id];
-          const lo = (p.baseHz / 1000).toFixed(1);
-          const hi = (Math.round((p.baseHz + p.binHz * (p.hopSets * p.groups * TONES_PER_GROUP - 1)) / 100) / 10).toFixed(1);
+          const edges = b.ids.flatMap((id) => bandHz(PROFILES[id]));
+          const lo = (Math.min(...edges) / 1000).toFixed(1);
+          const hi = (Math.max(...edges) / 1000).toFixed(1);
           return (
-            <span key={b.id} style={{ flex: b.share }} class={active === b.id ? (station.transmitting ? 'band tx' : 'band rx') : 'band'}>
+            <span key={b.name} style={{ flex: b.share }} class={active && b.ids.includes(active) ? (station.transmitting ? 'band tx' : 'band rx') : 'band'}>
               <b>{b.name}</b> {lo}–{hi} kHz
             </span>
           );
@@ -128,7 +130,7 @@ function stateLine(s: Station, compact: boolean): { text: string; tone: Tone } {
   if (s.status === 'error') return { text: compact ? 'No mic' : 'Microphone unavailable', tone: 'warn' };
   if (s.status !== 'listening') return { text: s.status === 'starting' ? 'Starting…' : 'Not listening', tone: 'off' };
   if (s.transmitting) return { text: compact ? `Sending ${seconds(s.transmitting.seconds)}` : `Transmitting · ${seconds(s.transmitting.seconds)}`, tone: 'tx' };
-  if (s.receiving) return { text: compact ? 'Receiving…' : `Receiving ${s.receiving === 'audible' ? 'audible' : 'quiet'} frame…`, tone: 'rx' };
+  if (s.receiving) return { text: compact ? 'Receiving…' : `Receiving ${PROFILE_NAME[s.receiving]} frame…`, tone: 'rx' };
   if (s.radio.length) return { text: compact ? `${s.radio.length} queued` : `Waiting for clear air · ${s.radio.length} queued`, tone: 'idle' };
   return { text: 'Listening', tone: 'idle' };
 }

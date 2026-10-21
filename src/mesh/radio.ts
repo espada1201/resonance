@@ -4,19 +4,24 @@ import type { MeshClock } from './node';
 // randomly while someone else is on air, and send one frame at a time.
 
 export interface RadioIO {
-  /** True while the receiver hears a frame or a preamble. */
+  /** True while the receiver hears another transmission. */
   busy(): boolean;
   /** Plays one frame; resolves when it has finished on air. */
   send(bytes: Uint8Array): Promise<void>;
+  /** Called once a frame has finished and the queue has moved on. */
+  sent?(): void;
 }
 
 const SENSE_BACKOFF_MS: [number, number] = [250, 1500];
+/** Longest the queue defers to a busy channel: carrier sense can be fooled, and silence forever is worse. */
+const MAX_DEFER_MS = 12_000;
 const QUEUE_LIMIT = 64;
 
 export class TxQueue {
   private queue: Uint8Array[] = [];
   private sending = false;
   private notBefore = 0;
+  private deferringSince: number | null = null;
   sent = 0;
   deferrals = 0;
   /** While paused nothing new starts; a frame already on air finishes. */
@@ -48,12 +53,15 @@ export class TxQueue {
   /** Call frequently; starts the next transmission when the air is clear. */
   async tick(): Promise<void> {
     if (this.paused || this.sending || !this.queue.length || this.clock.now() < this.notBefore) return;
-    if (this.io.busy()) {
+    const now = this.clock.now();
+    if (this.io.busy() && now - (this.deferringSince ?? now) < MAX_DEFER_MS) {
+      this.deferringSince ??= now;
       this.deferrals++;
       const [lo, hi] = SENSE_BACKOFF_MS;
-      this.notBefore = this.clock.now() + lo + this.clock.random() * (hi - lo);
+      this.notBefore = now + lo + this.clock.random() * (hi - lo);
       return;
     }
+    this.deferringSince = null;
     const next = this.queue.shift()!;
     this.sending = true;
     try {
@@ -63,6 +71,7 @@ export class TxQueue {
       this.sending = false;
       // A short random gap lets other nodes grab the channel between our frames.
       this.notBefore = this.clock.now() + 150 + this.clock.random() * 600;
+      this.io.sent?.();
     }
   }
 }

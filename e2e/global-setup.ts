@@ -1,5 +1,5 @@
-import { fakeMicSenderVar, writeFakeMic } from './fake-mic';
+import { FAKE_MIC_SENDER, writeFakeMic } from './fake-mic';
 
 export default function globalSetup() {
-  for (const profile of ['audible', 'ultrasonic'] as const) process.env[fakeMicSenderVar(profile)] = writeFakeMic(profile);
+  process.env[FAKE_MIC_SENDER] = writeFakeMic();
 }

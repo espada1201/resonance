@@ -2,11 +2,12 @@ import { crc32, crc8 } from './crc';
 import { rsDecode, rsEncode } from './rs';
 
 // Frame = header codeword (len, version, crc8 + 6 parity) followed by interleaved RS blocks of
-// (payload || crc32). One byte rides on one acoustic symbol, so a lost symbol is a lost byte.
+// (payload || crc32). On MFSK one byte rides on one symbol, so a lost symbol is a lost byte; on
+// OFDM a byte rides on four adjacent carriers, so a notch in the room's response costs few bytes.
 
 export const MAX_PAYLOAD = 255;
 export const HEADER_NSYM = 6;
-export const HEADER_SYMBOLS = 3 + HEADER_NSYM;
+export const HEADER_BYTES = 3 + HEADER_NSYM;
 const VERSION = 1;
 const MAX_BLOCK_DATA = 40;
 
@@ -39,7 +40,7 @@ export function planBlocks(payloadLen: number): Block[] {
   return blocks;
 }
 
-export const bodySymbols = (payloadLen: number) =>
+export const bodyBytes = (payloadLen: number) =>
   planBlocks(payloadLen).reduce((s, b) => s + b.k + b.nsym, 0);
 
 /** Order in which codeword bytes go on air: round-robin across blocks so bursts spread out. */

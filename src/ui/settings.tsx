@@ -6,6 +6,7 @@ import { Compass, Lock, Relay, Upload } from './icons';
 
 const PROFILE_TEXT: Record<ProfileId, string> = {
   audible: 'Chirps you can hear. Carries across a room or down a corridor, through walls with the volume up.',
+  fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s, so a 4 KB photo arrives in under a minute instead of about five.',
   ultrasonic: 'Near the top of human hearing: quiet for most adults, short range, best for devices on the same table. Some speakers cannot play it.',
 };
 
@@ -54,7 +55,7 @@ export function Settings({ station }: { station: Station }) {
             </span>
           </label>
         ))}
-        <p class="muted small">This device always listens on both.</p>
+        <p class="muted small">This device always listens on all three.</p>
       </fieldset>
 
       <label class="field">

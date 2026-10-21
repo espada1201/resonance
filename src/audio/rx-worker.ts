@@ -21,7 +21,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   const m = e.data;
   if (m.type === 'init') {
     const fs = m.sampleRate;
-    rx = new Receiver(fs, [PROFILES.audible, PROFILES.ultrasonic], {
+    rx = new Receiver(fs, Object.values(PROFILES), {
       frame: (f) => post({ type: 'frame', frame: f }),
       sync: (profile) => post({ type: 'sync', profile }),
       lost: (profile, stage) => post({ type: 'lost', profile, stage }),

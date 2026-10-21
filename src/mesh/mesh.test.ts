@@ -258,4 +258,20 @@ describe('transmit queue', () => {
     expect(sent).toEqual([0, 1, 2]);
     expect(q.deferrals).toBe(1);
   });
+
+  it('stops deferring after 12 s of busy air, and reports each finished frame', async () => {
+    // Carrier sense can be fooled (a fridge, a stuck decoder); staying silent forever is worse.
+    let t = 0;
+    let finished = 0;
+    const sent: number[] = [];
+    const q = new TxQueue({ busy: () => true, send: async (b) => void sent.push(b[0]), sent: () => finished++ }, { now: () => t, random: () => 0.5 });
+    q.enqueue(Uint8Array.of(7));
+    for (; t < 11_500; t += 500) await q.tick();
+    expect(sent).toEqual([]);
+    expect(finished).toBe(0);
+    for (; t < 13_000; t += 500) await q.tick();
+    expect(sent).toEqual([7]);
+    expect(finished).toBe(1);
+    expect(q.length).toBe(0);
+  });
 });

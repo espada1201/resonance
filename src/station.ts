@@ -139,7 +139,7 @@ export class Station {
     });
     this.mesh.config.relay = this.settings.relay;
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];
-    this.radio = new TxQueue({ busy: () => this.workerBusy, send: (b) => this.sendFrame(b) }, clock);
+    this.radio = new TxQueue({ busy: () => this.workerBusy, send: (b) => this.sendFrame(b), sent: () => this.changed() }, clock);
     this.ranger = new Ranger({
       id: this.id,
       sampleRate: () => this.sampleRate || 48000,
@@ -476,7 +476,7 @@ export class Station {
       for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / audio.numberOfChannels;
     }
     const frames: DecodedFrame[] = [];
-    const rx = new Receiver(audio.sampleRate, [PROFILES.audible, PROFILES.ultrasonic], { frame: (f) => frames.push(f) });
+    const rx = new Receiver(audio.sampleRate, Object.values(PROFILES), { frame: (f) => frames.push(f) });
     for (let i = 0; i < mono.length; i += 4096) rx.push(mono.subarray(i, i + 4096));
     rx.push(new Float32Array(audio.sampleRate));
     frames.forEach((f) => this.onFrame(f));

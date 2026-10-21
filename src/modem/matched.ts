@@ -90,16 +90,23 @@ export interface Peak {
  * nothing larger has appeared for `holdoff` samples. With `lookback` > 0 it reports the first
  * arrival instead — the earliest local maximum within `lookback` samples before the largest one
  * that reaches `firstFrac` of it — because the loudest path in a room is often a reflection.
+ * With `cfar` > 0 the threshold also rises to `cfar` times the recent RMS score (a constant
+ * false-alarm-rate detector): other transmissions' data raise the score everywhere, and only a
+ * true chirp stands that far above it.
  */
 export class PeakPicker {
   private readonly hist: Float32Array;
   private cand: Peak | null = null;
+  private level = 0;
 
   constructor(
     private readonly threshold: number,
     private readonly holdoff: number,
     private readonly lookback = 0,
     private readonly firstFrac = 0.5,
+    private readonly cfar = 0,
+    /** Weight of each new score in the running mean square (1 / its time constant in samples). */
+    private readonly alpha = 0,
   ) {
     this.hist = new Float32Array(Math.ceil(holdoff + lookback) + 8);
   }
@@ -110,8 +117,10 @@ export class PeakPicker {
 
   push(pos: number, rho: number): Peak | null {
     this.hist[pos % this.hist.length] = rho;
+    const threshold = Math.max(this.threshold, this.cfar * Math.sqrt(this.level));
+    this.level += (rho * rho - this.level) * this.alpha;
     const c = this.cand;
-    if (rho > this.threshold && (!c || rho > c.rho)) {
+    if (rho > threshold && (!c || rho > c.rho)) {
       this.cand = { pos, rho };
       return null;
     }

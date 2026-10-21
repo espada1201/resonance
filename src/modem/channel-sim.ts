@@ -25,11 +25,14 @@ export function addNoise(x: Float32Array, snrDb: number, r: () => number): Float
   return x.map((v) => v + sigma * gaussian(r));
 }
 
-/** Plays `x` through a sample clock that runs `ratio` times faster (cubic interpolation). */
-export function resample(x: Float32Array, ratio: number): Float32Array {
-  const out = new Float32Array(Math.floor((x.length - 3) / ratio));
+/**
+ * Plays `x` through a sample clock that runs `ratio` times faster, gliding linearly to `endRatio`
+ * by the end (a sender that speeds up mid-frame). Cubic interpolation.
+ */
+export function resample(x: Float32Array, ratio: number, endRatio = ratio): Float32Array {
+  const out = new Float32Array(Math.floor((x.length - 3) / Math.max(ratio, endRatio)));
   for (let n = 0; n < out.length; n++) {
-    const t = n * ratio;
+    const t = n * ratio + ((endRatio - ratio) * n * n) / (2 * out.length);
     const i = Math.floor(t);
     const f = t - i;
     const y0 = x[i - 1] ?? 0, y1 = x[i], y2 = x[i + 1], y3 = x[i + 2];
