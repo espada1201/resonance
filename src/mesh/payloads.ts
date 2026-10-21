@@ -18,7 +18,8 @@ export type Body =
   | { kind: 'contact'; ts: number; name: string; phone: string; note: string }
   | { kind: 'file'; fileId: number; index: number; total: number; meta?: FileMeta; data: Uint8Array }
   | { kind: 'ack'; msgId: number; attempt: number }
-  | { kind: 'hello'; role: 'phone' | 'beacon'; nick: string; have: number[] }
+  /** `hashes` and `bits` are a Bloom filter of the newest message ids the sender holds (see bloom.ts). */
+  | { kind: 'hello'; role: 'phone' | 'beacon'; nick: string; hashes: number; bits: Uint8Array }
   | { kind: 'filereq'; fileSrc: number; fileId: number; missing: number[] }
   | { kind: 'range'; phase: 'request' | 'report'; session: number; intervalUs: number };
 
@@ -145,9 +146,7 @@ export function encodeBody(body: Body): Uint8Array {
     case 'ack':
       return w.u32(body.msgId).u8(body.attempt).done();
     case 'hello':
-      w.u8(body.role === 'beacon' ? 1 : 0).str(body.nick, MAX_NICK).u8(body.have.length);
-      for (const id of body.have) w.u32(id);
-      return w.done();
+      return w.u8(body.role === 'beacon' ? 1 : 0).str(body.nick, MAX_NICK).u8(body.hashes).raw(body.bits).done();
     case 'filereq': {
       w.u24(body.fileSrc).u16(body.fileId);
       const mask = new Uint8Array(32);
@@ -187,8 +186,7 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
       case PacketType.Hello: {
         const role = r.u8() ? 'beacon' : 'phone';
         const nick = r.str();
-        const have = Array.from({ length: r.u8() }, () => r.u32());
-        return { kind: 'hello', role, nick, have };
+        return { kind: 'hello', role, nick, hashes: r.u8(), bits: r.rest() };
       }
       case PacketType.FileRequest: {
         const fileSrc = r.u24();

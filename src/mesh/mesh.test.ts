@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rng } from '../modem/channel-sim';
+import { Bloom, MAX_BLOOM_IDS } from './bloom';
 import { deriveCircle, open, seal } from './crypto';
 import { MeshNode } from './node';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './packet';
@@ -107,7 +108,8 @@ describe('packet + payload codecs', () => {
     { kind: 'file', fileId: 513, index: 0, total: 4, meta: { name: 'map.png', mime: 'image/png', size: 600 }, data: Uint8Array.of(9, 9) },
     { kind: 'file', fileId: 513, index: 3, total: 4, data: Uint8Array.of(1, 2, 3) },
     { kind: 'ack', msgId: 0xfffffffe, attempt: 1 },
-    { kind: 'hello', role: 'beacon', nick: 'roof', have: [1, 0xffffffff, 7] },
+    { kind: 'hello', role: 'beacon', nick: 'roof', hashes: 7, bits: Uint8Array.of(1, 0, 255) },
+    { kind: 'hello', role: 'phone', nick: '', hashes: 0, bits: new Uint8Array() },
     { kind: 'filereq', fileSrc: 0xabcdef, fileId: 9, missing: [0, 5, 63, 200] },
     { kind: 'range', phase: 'request', session: 0, intervalUs: 0 },
     { kind: 'range', phase: 'report', session: 0xffff, intervalUs: 1234567 },
@@ -236,6 +238,57 @@ describe('mesh flooding', () => {
     expect(w.inbox.get('C')!.map((p) => decodeBody(p.type, p.body)?.kind)).toEqual(['checkin']);
     expect(b.stats.carried).toBe(1);
     expect(b.neighbors.get(3)?.nick).toBe('cal');
+  });
+});
+
+describe('HELLO summaries', () => {
+  it('a summary never misses an id it holds and rarely claims one it does not', () => {
+    const r = rng(7);
+    const u32 = () => Math.floor(r() * 2 ** 32);
+    let wrong = 0;
+    let trials = 0;
+    for (let f = 0; f < 200; f++) {
+      const ids = Array.from({ length: MAX_BLOOM_IDS }, u32);
+      const have = Bloom.of(ids, u32());
+      expect(have.bits.length).toBeLessThanOrEqual(58);
+      for (const id of ids) expect(have.has(id)).toBe(true);
+      for (let i = 0; i < 100; i++, trials++) wrong += Number(have.has(u32()));
+    }
+    // 9.6 bits per id with 7 hashes: about 1% false positives in theory.
+    expect(wrong / trials).toBeLessThan(0.02);
+    expect(Bloom.of([], 1).bits.length).toBe(0);
+    expect(Bloom.of([], 1).has(0)).toBe(false);
+  });
+
+  it('a new salt on every HELLO makes false positives independent', () => {
+    // A packet hidden by a false positive in one HELLO must not stay hidden from the next.
+    const r = rng(8);
+    const u32 = () => Math.floor(r() * 2 ** 32);
+    const ids = Array.from({ length: MAX_BLOOM_IDS }, u32);
+    const [first, second] = [Bloom.of(ids, u32()), Bloom.of(ids, u32())];
+    const fooled = Array.from({ length: 50_000 }, u32).filter((id) => first.has(id));
+    expect(fooled.length).toBeGreaterThan(100);
+    expect(fooled.filter((id) => second.has(id)).length / fooled.length).toBeLessThan(0.03);
+  });
+
+  it('pushes back only what a neighbour lacks, even among its older packets', () => {
+    const w = new World();
+    const [a, b] = ['A', 'B'].map((n, i) => w.add(n, i + 1));
+    for (const n of [a, b]) n.config.relay = false;
+    // Both heard 30 broadcasts from far away, a second apart, but B missed two old ones.
+    const ids = Array.from({ length: 30 }, (_, i) => 1000 + i);
+    for (const msgId of ids) {
+      const bytes = encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId, src: 99, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(text(`#${msgId}`)) });
+      a.receive(bytes);
+      if (msgId !== 1003 && msgId !== 1010) b.receive(bytes);
+      w.t += 1000;
+    }
+    w.link('AB');
+    b.hello('bo', 'phone');
+    w.run(20_000);
+    const carried = w.tx.filter((t) => t.reason === 'carry').map((t) => t.packet.msgId);
+    expect(carried.sort()).toEqual([1003, 1010]);
+    expect(b.store.size).toBe(30);
   });
 });
 

@@ -1,3 +1,4 @@
+import { Bloom, MAX_BLOOM_IDS } from './bloom';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './packet';
 import { decodeBody, encodeBody } from './payloads';
 
@@ -149,21 +150,23 @@ export class MeshNode {
     return p;
   }
 
-  /** Announces this node and the newest packets it holds. */
+  /** Announces this node with a summary of the newest packets it holds. */
   hello(nick: string, role: 'phone' | 'beacon') {
-    const have = [...this.store.values()]
+    const msgId = (this.clock.random() * 2 ** 32) >>> 0;
+    const ids = [...this.store.values()]
       .sort((a, b) => b.firstHeard - a.firstHeard)
-      .slice(0, 8)
+      .slice(0, MAX_BLOOM_IDS)
       .map((s) => decodePacket(s.bytes)!.msgId);
+    const have = Bloom.of(ids, msgId);
     return this.originate({
       type: PacketType.Hello,
       encrypted: false,
       ackRequested: false,
-      msgId: (this.clock.random() * 2 ** 32) >>> 0,
+      msgId,
       dst: BROADCAST,
       ttl: 1,
       channel: 0,
-      body: encodeBody({ kind: 'hello', role, nick, have }),
+      body: encodeBody({ kind: 'hello', role, nick, hashes: have.hashes, bits: have.bits }),
     });
   }
 
@@ -175,15 +178,15 @@ export class MeshNode {
     if (p.dst === this.id && this.acks.delete(body.msgId)) this.events.delivery?.(body.msgId, true);
   }
 
-  /** A neighbour said hello: push back up to three stored packets it does not list. */
+  /** A neighbour said hello: push back up to three stored packets its summary lacks. */
   private onHello(p: Packet) {
     const body = decodeBody(PacketType.Hello, p.body);
     if (body?.kind !== 'hello') return;
     const src = p.src;
     const now = this.clock.now();
     this.touchNeighbor(src, now, body.nick, body.role);
-    const theirs = new Set(body.have);
-    for (const id of body.have) this.echoes.delete(id);
+    const theirs = new Bloom(body.hashes, body.bits, p.msgId);
+    for (const id of this.echoes.keys()) if (theirs.has(id)) this.echoes.delete(id);
     const offers = [...this.store.values()]
       .map((s) => ({ s, p: decodePacket(s.bytes)! }))
       .filter(({ s, p }) => p && p.src !== src && !theirs.has(p.msgId) && now - s.lastPushed > this.config.carryCooldownMs)
