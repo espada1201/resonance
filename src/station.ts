@@ -151,6 +151,8 @@ export class Station {
     this.ranger.answering = this.settings.answerFind;
     this.restore();
     if (this.settings.passphrase) void this.setPassphrase(this.settings.passphrase);
+    // The browser drops the wake lock whenever the page is hidden; take it back on return.
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.status === 'listening' && void this.keepAwake());
   }
 
   get busy() {
@@ -188,6 +190,7 @@ export class Station {
       this.transport.setVolume(this.settings.volume);
       this.toWorker({ type: 'init', sampleRate: this.sampleRate });
       this.status = 'listening';
+      void this.keepAwake();
       this.timers.push(
         setInterval(() => {
           this.mesh.tick();
@@ -215,6 +218,15 @@ export class Station {
     this.worker = null;
     this.status = 'idle';
     this.changed();
+  }
+
+  /** Phones stop the microphone when the screen locks, so a listening station keeps it on. */
+  private async keepAwake() {
+    try {
+      await navigator.wakeLock?.request('screen');
+    } catch {
+      // Unsupported, or refused in battery saver: everything still works while the screen is on.
+    }
   }
 
   private toWorker(m: ToWorker, transfer: Transferable[] = []) {

@@ -20,22 +20,11 @@ function uptime(ms: number) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-async function keepAwake() {
-  try {
-    await (navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<unknown> } }).wakeLock?.request('screen');
-  } catch {
-    // Not supported or denied: the beacon still works while the screen is on.
-  }
-}
-
 function Beacon() {
   useStation(station);
   useTicker(5_000);
   useEffect(() => {
     if (sim) void station.start();
-    const again = () => document.visibilityState === 'visible' && station.status === 'listening' && void keepAwake();
-    document.addEventListener('visibilitychange', again);
-    return () => document.removeEventListener('visibilitychange', again);
   }, []);
   const m = station.mesh.stats;
   const live = station.status === 'listening';
@@ -63,17 +52,14 @@ function Beacon() {
           <section class="gate">
             <h1>Leave this device here as a relay.</h1>
             <p class="lede">
-              It listens on both bands, repeats every message it hears, stores them for 12 hours and hands them to any phone that comes within
+              It listens in all three modes, repeats every message it hears, stores them for 12 hours and hands them to any phone that comes within
               earshot. Plug it in, turn the volume up, keep the lid open.
             </p>
             {station.status === 'error' && <p class="error" role="alert">{station.error}</p>}
             <button
               type="button"
               class="primary large"
-              onClick={() => {
-                void station.start();
-                void keepAwake();
-              }}
+              onClick={() => void station.start()}
             >
               <Mic size={18} /> Start beacon
             </button>
