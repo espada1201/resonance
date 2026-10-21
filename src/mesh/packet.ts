@@ -19,6 +19,7 @@ export enum PacketType {
   Ack = 5,
   Hello = 6,
   FileRequest = 7,
+  Range = 8,
 }
 
 export interface Packet {

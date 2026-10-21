@@ -11,6 +11,7 @@ import { MAX_PAYLOAD } from './modem/framing';
 import { airtimeSec, modulate } from './modem/modulator';
 import { PROFILES, type ProfileId } from './modem/profiles';
 import { type DecodedFrame, Receiver } from './modem/receiver';
+import { Ranger } from './ranger';
 
 // The station is the whole app minus pixels: it owns the audio transport, the demodulator
 // worker, the mesh node, the transmit queue, encryption and persistence.
@@ -53,6 +54,8 @@ export interface Settings {
   relay: boolean;
   volume: number;
   passphrase: string;
+  /** Answer other devices' Find (distance) requests. */
+  answerFind: boolean;
 }
 
 export interface Spectrum {
@@ -64,7 +67,7 @@ export interface Spectrum {
 export const DEFAULT_TTL = 5;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
 const KEY = 'resonance:v1:';
-const TYPE_LABEL: Record<number, string> = { 1: 'message', 2: 'check-in', 3: 'contact', 4: 'file chunk', 5: 'ack', 6: 'hello', 7: 'file request' };
+const TYPE_LABEL: Record<number, string> = { 1: 'message', 2: 'check-in', 3: 'contact', 4: 'file chunk', 5: 'ack', 6: 'hello', 7: 'file request', 8: 'ranging' };
 
 const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -93,6 +96,7 @@ export class Station {
   totals = { rxBits: 0, rxSec: 0, txBits: 0, txSec: 0, lost: 0 };
   readonly mesh: MeshNode;
   readonly radio: TxQueue;
+  readonly ranger: Ranger;
   readonly startedAt = Date.now();
 
   private circle: Circle | null = null;
@@ -104,6 +108,7 @@ export class Station {
   private chunkIds = new Map<string, Map<number, number>>();
   private airSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private frameInFlight: DecodedFrame | null = null;
   private readonly prefix: string;
 
   constructor(
@@ -121,6 +126,7 @@ export class Station {
       relay: true,
       volume: 1,
       passphrase: '',
+      answerFind: true,
       ...load<Partial<Settings>>(storage, this.prefix + 'settings'),
     };
     if (role === 'beacon') this.settings.relay = true;
@@ -134,6 +140,15 @@ export class Station {
     this.mesh.config.relay = this.settings.relay;
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];
     this.radio = new TxQueue({ busy: () => this.workerBusy, send: (b) => this.sendFrame(b) }, clock);
+    this.ranger = new Ranger({
+      id: this.id,
+      sampleRate: () => this.sampleRate || 48000,
+      modulate: (bytes) => modulate(bytes, PROFILES.audible, this.sampleRate || 48000),
+      playExclusive: (wave, label) => this.playExclusive(wave, label),
+      sendUrgent: (bytes) => this.radio.enqueue(bytes, true),
+      changed: () => this.changed(),
+    });
+    this.ranger.answering = this.settings.answerFind;
     this.restore();
     if (this.settings.passphrase) void this.setPassphrase(this.settings.passphrase);
   }
@@ -192,6 +207,7 @@ export class Station {
   }
 
   stop() {
+    this.ranger.stop();
     this.timers.forEach(clearInterval);
     this.timers = [];
     this.transport.stop();
@@ -223,6 +239,8 @@ export class Station {
         this.totals.lost++;
         this.logAir({ dir: 'lost', profile: m.profile, label: m.stage === 'header' ? 'header unreadable' : 'too damaged to repair' });
         return;
+      case 'ping':
+        return this.ranger.onPing(m.pos, m.rho);
       case 'frame':
         this.receiving = null;
         this.onFrame(m.frame);
@@ -248,27 +266,48 @@ export class Station {
       corrected: f.corrected,
       clockRatio: f.clockRatio,
     });
+    this.frameInFlight = f;
     this.mesh.receive(f.payload);
+    this.frameInFlight = null;
     this.changed();
   }
 
-  private async sendFrame(bytes: Uint8Array) {
+  private sendFrame(bytes: Uint8Array) {
     const profile = this.settings.profile;
     const fs = this.sampleRate || 48000;
-    const wave = modulate(bytes, PROFILES[profile], fs);
-    const seconds = wave.length / fs;
     const p = decodePacket(bytes);
-    this.transmitting = { profile, seconds, started: Date.now() };
-    this.logAir({ dir: 'tx', profile, label: p ? `${TYPE_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame', bytes: bytes.length, airtimeSec: seconds });
+    const label = p ? `${TYPE_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
     this.totals.txBits += bytes.length * 8;
+    return this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
+  }
+
+  private async playWave(wave: Float32Array, profile: ProfileId, label: string, bytes?: number) {
+    const fs = this.sampleRate || 48000;
+    const seconds = wave.length / fs;
+    this.transmitting = { profile, seconds, started: Date.now() };
+    this.logAir({ dir: 'tx', profile, label, bytes, airtimeSec: seconds });
     this.totals.txSec += seconds;
+    // Our own frames would otherwise be decoded as if a neighbour had repeated them.
     this.toWorker({ type: 'mute', on: true });
     try {
       await this.transport.play(wave, fs);
     } finally {
       this.transmitting = null;
-      setTimeout(() => this.toWorker({ type: 'mute', on: false }), 150);
+      setTimeout(() => this.toWorker({ type: 'mute', on: false }), 150 + (this.transport.captureDelayMs ?? 0));
       this.changed();
+    }
+  }
+
+  /** Plays audio ahead of the queue once the speaker and the air are free (used by Find). */
+  private async playExclusive(wave: Float32Array, label: string) {
+    this.radio.paused = true;
+    try {
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      while (this.radio.onAir) await sleep(50);
+      for (let waited = 0; this.workerBusy && waited < 4000; waited += 100) await sleep(100);
+      await this.playWave(wave, 'audible', label);
+    } finally {
+      this.radio.paused = false;
     }
   }
 
@@ -309,7 +348,7 @@ export class Station {
     if (HEADER_LEN + base.body.length > MAX_PAYLOAD) throw new Error('That is too long for one sound packet.');
     const p = this.mesh.originate(base);
     if (body.kind === 'file') this.trackChunk(this.id, body.fileId, body.index, p.msgId);
-    else if (body.kind !== 'ack' && body.kind !== 'hello' && body.kind !== 'filereq') {
+    else if (body.kind === 'text' || body.kind === 'checkin' || body.kind === 'contact') {
       this.addFeed({ ...this.itemBase(p, true), body, delivery: dst !== BROADCAST ? 'sending' : undefined });
     }
     this.changed();
@@ -352,6 +391,7 @@ export class Station {
   }
 
   private async onDeliver(p: Packet) {
+    const frame = this.frameInFlight;
     let plain: Uint8Array | null = p.body;
     if (p.encrypted) plain = this.circle ? await open(this.circle, p) : null;
     if (!plain) {
@@ -367,6 +407,8 @@ export class Station {
       if (!this.feed.some((i) => i.id === id)) this.addFeed({ ...this.itemBase(p, false), id, fileKey: f.key });
     } else if (body.kind === 'filereq') {
       this.answerFileRequest(body.fileSrc, body.fileId, body.missing);
+    } else if (body.kind === 'range') {
+      void this.ranger.onPacket(p, body, frame);
     } else if (body.kind === 'text' || body.kind === 'checkin' || body.kind === 'contact') {
       this.addFeed({ ...this.itemBase(p, false), body });
     }
@@ -447,6 +489,7 @@ export class Station {
     this.settings = { ...this.settings, ...patch };
     if (patch.relay !== undefined) this.mesh.config.relay = this.role === 'beacon' || patch.relay;
     if (patch.volume !== undefined) this.transport.setVolume(patch.volume);
+    if (patch.answerFind !== undefined) this.ranger.answering = patch.answerFind;
     this.changed();
   }
 

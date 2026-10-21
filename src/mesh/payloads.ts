@@ -19,7 +19,8 @@ export type Body =
   | { kind: 'file'; fileId: number; index: number; total: number; meta?: FileMeta; data: Uint8Array }
   | { kind: 'ack'; msgId: number; attempt: number }
   | { kind: 'hello'; role: 'phone' | 'beacon'; nick: string; have: number[] }
-  | { kind: 'filereq'; fileSrc: number; fileId: number; missing: number[] };
+  | { kind: 'filereq'; fileSrc: number; fileId: number; missing: number[] }
+  | { kind: 'range'; phase: 'request' | 'report'; session: number; intervalUs: number };
 
 export interface FileMeta {
   name: string;
@@ -35,6 +36,7 @@ export const typeOf: Record<Body['kind'], PacketType> = {
   ack: PacketType.Ack,
   hello: PacketType.Hello,
   filereq: PacketType.FileRequest,
+  range: PacketType.Range,
 };
 
 class Writer {
@@ -154,6 +156,8 @@ export function encodeBody(body: Body): Uint8Array {
       while (len > 0 && mask[len - 1] === 0) len--;
       return w.u8(len).raw(mask.slice(0, len)).done();
     }
+    case 'range':
+      return w.u8(body.phase === 'report' ? 1 : 0).u16(body.session).u32(body.intervalUs).done();
   }
 }
 
@@ -196,6 +200,8 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
         });
         return { kind: 'filereq', fileSrc, fileId, missing };
       }
+      case PacketType.Range:
+        return { kind: 'range', phase: r.u8() ? 'report' : 'request', session: r.u16(), intervalUs: r.u32() };
     }
   } catch {
     return null;

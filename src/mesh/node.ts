@@ -294,7 +294,7 @@ export class MeshNode {
   }
 
   private isStorable(p: Packet) {
-    return p.type !== PacketType.Ack && p.type !== PacketType.Hello && p.type !== PacketType.FileRequest;
+    return p.type !== PacketType.Ack && p.type !== PacketType.Hello && p.type !== PacketType.FileRequest && p.type !== PacketType.Range;
   }
 
   private remember(p: Packet) {

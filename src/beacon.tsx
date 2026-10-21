@@ -10,8 +10,10 @@ import './ui/styles.css';
 // A laptop left in a hallway: listens forever, relays everything, and hands stored messages
 // to anyone who walks past and says hello.
 
-const sim = new URLSearchParams(location.search).get('air') === 'sim';
-const station = new Station(sim ? new SimulatedAir() : new MicTransport(), 'beacon', sim ? null : undefined);
+const params = new URLSearchParams(location.search);
+const sim = params.get('air') === 'sim';
+const [x = 0, y = 0] = (params.get('at') ?? '').split(',').map(Number).filter(Number.isFinite);
+const station = new Station(sim ? new SimulatedAir({ x, y }) : new MicTransport(), 'beacon', sim ? null : undefined);
 
 function uptime(ms: number) {
   const m = Math.floor(ms / 60_000);

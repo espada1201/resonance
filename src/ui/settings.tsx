@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { MAX_NICK } from '../mesh/payloads';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
 import type { Station } from '../station';
-import { Lock, Relay, Upload } from './icons';
+import { Compass, Lock, Relay, Upload } from './icons';
 
 const PROFILE_TEXT: Record<ProfileId, string> = {
   audible: 'Chirps you can hear. Carries across a room or down a corridor, through walls with the volume up.',
@@ -66,6 +66,12 @@ export function Settings({ station }: { station: Station }) {
         <input type="checkbox" checked={s.relay} disabled={station.role === 'beacon'} onChange={(e) => station.update({ relay: (e.target as HTMLInputElement).checked })} />
         <Relay size={16} /> Relay messages for others
         <span class="muted small block">Your device repeats what it hears so messages reach people further away. It waits its turn and stays quiet when enough neighbours already repeated.</span>
+      </label>
+
+      <label class="toggle field">
+        <input type="checkbox" checked={s.answerFind} onChange={(e) => station.update({ answerFind: (e.target as HTMLInputElement).checked })} />
+        <Compass size={16} /> Answer distance requests
+        <span class="muted small block">Lets someone nearby use Find to measure how far away you are by timing chirps. Useful for being found; turn off if you would rather not be.</span>
       </label>
 
       <form class="field" onSubmit={applyPass}>

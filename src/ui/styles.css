@@ -934,8 +934,55 @@ input[type='radio'] {
   gap: 8px;
   align-items: center;
 }
-.nodes li button {
+.node-actions {
   grid-row: span 2;
+  display: flex;
+  gap: 6px;
+}
+.find {
+  border: 1px solid color-mix(in srgb, var(--teal) 45%, var(--line));
+  background: color-mix(in srgb, var(--teal) 6%, var(--surface));
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+}
+.find header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.distance {
+  font: 700 clamp(56px, 12vw, 96px) / 1 var(--mono);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--teal);
+}
+.distance .unit {
+  font-size: 0.35em;
+  margin-left: 6px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.trend {
+  font: 600 14px var(--mono);
+  color: var(--muted);
+}
+.trend.closer {
+  color: var(--green);
+}
+.trend.further {
+  color: var(--coral);
+}
+.spark {
+  width: 100%;
+  height: 48px;
+}
+.spark polyline {
+  fill: none;
+  stroke: var(--teal);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 .field {
   display: grid;

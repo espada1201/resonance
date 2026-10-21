@@ -11,4 +11,5 @@ export type FromWorker =
   | { type: 'sync'; profile: ProfileId }
   | { type: 'lost'; profile: ProfileId; stage: 'header' | 'body' }
   | { type: 'spectrum'; bins: Float32Array; peak: number; fs: number }
-  | { type: 'busy'; busy: boolean };
+  | { type: 'busy'; busy: boolean }
+  | { type: 'ping'; pos: number; rho: number };

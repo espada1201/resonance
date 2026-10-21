@@ -109,6 +109,8 @@ describe('packet + payload codecs', () => {
     { kind: 'ack', msgId: 0xfffffffe, attempt: 1 },
     { kind: 'hello', role: 'beacon', nick: 'roof', have: [1, 0xffffffff, 7] },
     { kind: 'filereq', fileSrc: 0xabcdef, fileId: 9, missing: [0, 5, 63, 200] },
+    { kind: 'range', phase: 'request', session: 0, intervalUs: 0 },
+    { kind: 'range', phase: 'report', session: 0xffff, intervalUs: 1234567 },
   ])('round-trips $kind bodies', (body) => {
     expect(decodeBody(typeOf[body.kind], encodeBody(body))).toEqual(body);
   });

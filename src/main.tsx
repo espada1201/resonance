@@ -5,8 +5,10 @@ import { App } from './ui/app';
 import './ui/styles.css';
 
 // ?air=sim swaps the microphone for a simulated room shared by every tab of this browser.
-const sim = new URLSearchParams(location.search).get('air') === 'sim';
-const station = new Station(sim ? new SimulatedAir() : new MicTransport(), 'phone', sim ? null : undefined);
+const params = new URLSearchParams(location.search);
+const sim = params.get('air') === 'sim';
+const [x = 0, y = 0] = (params.get('at') ?? '').split(',').map(Number).filter(Number.isFinite);
+const station = new Station(sim ? new SimulatedAir({ x, y }) : new MicTransport(), 'phone', sim ? null : undefined);
 if (sim) void station.start();
 
 render(<App station={station} />, document.getElementById('app')!);

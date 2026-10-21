@@ -1,14 +1,17 @@
 /// <reference lib="webworker" />
 import { magnitudeSpectrum } from '../modem/dsp';
+import { PingDetector } from '../modem/ping';
 import { PROFILES } from '../modem/profiles';
 import { Receiver } from '../modem/receiver';
 import type { FromWorker, ToWorker } from './protocol';
 
-// Runs the demodulator off the UI thread and streams spectrum frames for the visualiser.
+// Runs the demodulator and the ranging-ping detector off the UI thread, and streams spectrum
+// frames for the visualiser.
 
 const post = (m: FromWorker, transfer: Transferable[] = []) => (self as DedicatedWorkerGlobalScope).postMessage(m, transfer);
 
 let rx: Receiver | null = null;
+let pings: PingDetector | null = null;
 let muted = false;
 let recent = new Float32Array(2048);
 let sinceSpectrum = 0;
@@ -23,12 +26,15 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       sync: (profile) => post({ type: 'sync', profile }),
       lost: (profile, stage) => post({ type: 'lost', profile, stage }),
     });
+    // Pings are timed on the raw stream, own transmissions included: ranging needs them.
+    pings = new PingDetector(fs, (p) => post({ type: 'ping', pos: p.pos, rho: p.rho }));
     sinceSpectrum = 0;
   } else if (m.type === 'mute') {
     muted = m.on;
   } else if (m.type === 'samples' && rx) {
     const chunk = muted ? new Float32Array(m.data.length) : m.data;
     rx.push(chunk);
+    pings?.push(m.data);
     keepRecent(m.data);
     sinceSpectrum += m.data.length;
     if (sinceSpectrum >= rx.fs / 25) {

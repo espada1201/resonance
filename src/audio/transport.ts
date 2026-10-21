@@ -4,6 +4,8 @@ import { gaussian } from '../modem/channel-sim';
  *  two-tab demo use a simulated room shared between pages of the same origin. */
 export interface AirTransport {
   readonly kind: 'mic' | 'simulated';
+  /** How far capture runs behind real time, beyond normal audio latency. */
+  readonly captureDelayMs?: number;
   /** Starts capture; resolves with the capture sample rate. */
   start(onSamples: (chunk: Float32Array) => void): Promise<number>;
   /** Plays a waveform rendered at `sampleRate`; resolves when it has finished. */
@@ -86,41 +88,87 @@ export class MicTransport implements AirTransport {
 
 const SIM_RATE = 48000;
 const TICK_MS = 40;
+const LATENCY_MS = 250;
+const SPEED_OF_SOUND = 343;
+const SELF_M = 0.1;
+const wallMs = () => performance.timeOrigin + performance.now();
+
+/** Loudness after `m` metres: spherical spreading plus a little air absorption (≈20 m range). */
+const attenuation = (m: number) => (0.6 * Math.exp(-m / 15)) / Math.max(1, m);
+
+export interface SimOptions {
+  room?: string;
+  /** Background hiss, RMS. */
+  noise?: number;
+  /** Where this device stands in the simulated room, in metres. */
+  x?: number;
+  y?: number;
+}
+
+interface Scheduled {
+  wave: Float32Array;
+  start: number;
+  gain: number;
+}
 
 /**
  * A shared simulated room: every tab on this origin hears every other tab's transmissions
- * (through BroadcastChannel) mixed into a stream of faint background noise.
+ * (through BroadcastChannel), delayed by the speed of sound and quieter with distance, mixed
+ * into faint background hiss. Each tab also hears itself from 10 cm away, like a real phone.
+ * Sound is placed by wall-clock timestamp a quarter second behind real time, so arrival times
+ * are sample-exact and acoustic ranging works between tabs.
  */
 export class SimulatedAir implements AirTransport {
   readonly kind = 'simulated';
+  readonly captureDelayMs = LATENCY_MS;
+  readonly x: number;
+  readonly y: number;
   private channel: BroadcastChannel | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private incoming: Array<{ wave: Float32Array; pos: number }> = [];
+  private scheduled: Scheduled[] = [];
   private volume = 1;
+  private t0 = 0;
+  private produced = 0;
+  private readonly room: string;
+  private readonly noise: number;
 
-  constructor(
-    private readonly room = 'resonance-air',
-    private readonly noise = 0.01,
-  ) {}
+  constructor(opts: SimOptions = {}) {
+    this.room = opts.room ?? 'resonance-air';
+    this.noise = opts.noise ?? 0.01;
+    this.x = opts.x ?? 0;
+    this.y = opts.y ?? 0;
+  }
+
+  private indexAt(ms: number) {
+    return ((ms - this.t0) / 1000) * SIM_RATE;
+  }
+
+  private schedule(wave: Float32Array, atMs: number, metres: number, gain: number) {
+    const start = Math.max(this.produced, Math.round(this.indexAt(atMs) + (metres / SPEED_OF_SOUND) * SIM_RATE));
+    this.scheduled.push({ wave, start, gain: gain * attenuation(metres) });
+  }
 
   async start(onSamples: (chunk: Float32Array) => void): Promise<number> {
     this.channel = new BroadcastChannel(this.room);
-    this.channel.onmessage = (e: MessageEvent<{ wave: Float32Array; gain: number }>) =>
-      this.incoming.push({ wave: e.data.wave.map((v) => v * e.data.gain * 0.6), pos: 0 });
-    let last = performance.now();
+    this.channel.onmessage = (e: MessageEvent<{ wave: Float32Array; gain: number; at: number; x: number; y: number }>) => {
+      const m = e.data;
+      this.schedule(m.wave, m.at, Math.hypot(m.x - this.x, m.y - this.y), m.gain);
+    };
+    this.t0 = wallMs();
     this.timer = setInterval(() => {
-      const now = performance.now();
-      const n = Math.min(SIM_RATE, Math.round(((now - last) / 1000) * SIM_RATE));
-      last += (n / SIM_RATE) * 1000;
+      const target = Math.floor(this.indexAt(wallMs() - LATENCY_MS));
+      const n = Math.min(SIM_RATE, target - this.produced);
       if (n <= 0) return;
+      const from = this.produced;
       const chunk = new Float32Array(n);
       for (let i = 0; i < n; i++) chunk[i] = this.noise * gaussian(Math.random);
-      for (const s of this.incoming) {
-        const take = Math.min(n, s.wave.length - s.pos);
-        for (let i = 0; i < take; i++) chunk[i] += s.wave[s.pos + i];
-        s.pos += take;
+      for (const s of this.scheduled) {
+        const lo = Math.max(from, s.start);
+        const hi = Math.min(from + n, s.start + s.wave.length);
+        for (let i = lo; i < hi; i++) chunk[i - from] += s.gain * s.wave[i - s.start];
       }
-      this.incoming = this.incoming.filter((s) => s.pos < s.wave.length);
+      this.produced += n;
+      this.scheduled = this.scheduled.filter((s) => s.start + s.wave.length > this.produced);
       onSamples(chunk);
     }, TICK_MS);
     return SIM_RATE;
@@ -128,7 +176,9 @@ export class SimulatedAir implements AirTransport {
 
   play(wave: Float32Array, sampleRate: number): Promise<void> {
     if (sampleRate !== SIM_RATE) throw new Error('simulated air runs at 48 kHz');
-    this.channel?.postMessage({ wave, gain: this.volume });
+    const at = wallMs();
+    this.channel?.postMessage({ wave, gain: this.volume, at, x: this.x, y: this.y });
+    this.schedule(wave, at, SELF_M, this.volume);
     return new Promise((r) => setTimeout(r, (wave.length / SIM_RATE) * 1000));
   }
 

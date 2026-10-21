@@ -19,6 +19,8 @@ export class TxQueue {
   private notBefore = 0;
   sent = 0;
   deferrals = 0;
+  /** While paused nothing new starts; a frame already on air finishes. */
+  paused = false;
 
   constructor(
     private readonly io: RadioIO,
@@ -45,7 +47,7 @@ export class TxQueue {
 
   /** Call frequently; starts the next transmission when the air is clear. */
   async tick(): Promise<void> {
-    if (this.sending || !this.queue.length || this.clock.now() < this.notBefore) return;
+    if (this.paused || this.sending || !this.queue.length || this.clock.now() < this.notBefore) return;
     if (this.io.busy()) {
       this.deferrals++;
       const [lo, hi] = SENSE_BACKOFF_MS;

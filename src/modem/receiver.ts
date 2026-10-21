@@ -1,6 +1,6 @@
-import { fft, goertzel, nextPow2 } from './dsp';
+import { goertzel, nextPow2 } from './dsp';
 import { HEADER_SYMBOLS, bodySymbols, decodeBody, decodeHeader } from './framing';
-import { chirpPhase } from './modulator';
+import { MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
 import { type Profile, type ProfileId, groupTones, preambleSec, symbolSec, windowSec } from './profiles';
 
 export interface DecodedFrame {
@@ -102,11 +102,6 @@ class SampleStore {
   }
 }
 
-interface Peak {
-  pos: number;
-  rho: number;
-}
-
 interface Pending {
   s0: number;
   r: number;
@@ -117,16 +112,9 @@ interface Pending {
 
 /** Streaming matched filter + frame decoder for one profile. */
 class ProfileDecoder {
-  private readonly M: number;
-  private readonly N: number;
-  private readonly L: number;
-  private readonly tRe: Float64Array;
-  private readonly tIm: Float64Array;
-  private readonly tEnergy: number;
+  private readonly filter: MatchedFilter;
+  private readonly picker: PeakPicker;
   private readonly D: number;
-  private next = 0;
-  private cand: (Peak & { left: number; right: number | null }) | null = null;
-  private prevRho = 0;
   private peaks: Peak[] = [];
   private blockedUntil = 0;
   pending: Pending | null = null;
@@ -138,73 +126,22 @@ class ProfileDecoder {
     private readonly store: SampleStore,
     private readonly listener: ReceiverListener,
   ) {
-    this.M = Math.round(p.chirpSec * fs);
-    this.N = nextPow2(this.M * 4);
-    this.L = this.N - this.M + 1;
+    this.filter = new MatchedFilter(chirpTemplate(p.chirpLowHz, p.chirpHighHz, Math.round(p.chirpSec * fs) / fs, fs));
+    this.picker = new PeakPicker(RHO_THRESHOLD, this.filter.M / 2);
     this.D = (p.chirpSec + p.chirpGapSec) * fs;
-    this.tRe = new Float64Array(this.N);
-    this.tIm = new Float64Array(this.N);
-    let e = 0;
-    for (let i = 0; i < this.M; i++) {
-      const ph = chirpPhase(p, i / fs);
-      this.tRe[i] = Math.cos(ph);
-      this.tIm[i] = Math.sin(ph);
-      e += 1;
-    }
-    this.tEnergy = e;
-    fft(this.tRe, this.tIm);
   }
 
   /** Oldest absolute sample this decoder still needs. */
   get horizon() {
-    return this.pending ? this.pending.s0 - preambleSec(this.p) * this.fs : this.next - this.D * 1.1;
+    return this.pending ? this.pending.s0 - preambleSec(this.p) * this.fs : this.filter.next - this.D * 1.1;
   }
 
   process() {
-    while (this.store.end >= this.next + this.N) this.correlateBlock();
+    this.filter.run(this.store.end, (abs, n) => this.store.view(abs, n), (pos, rho) => {
+      const peak = this.picker.push(pos, rho);
+      if (peak) this.onPeak(peak);
+    });
     this.advancePending();
-  }
-
-  private correlateBlock() {
-    const { N, M, L } = this;
-    const x = this.store.view(this.next, N);
-    const re = new Float64Array(N);
-    const im = new Float64Array(N);
-    const cum = new Float64Array(N + 1);
-    for (let i = 0; i < N; i++) {
-      re[i] = x[i];
-      cum[i + 1] = cum[i] + x[i] * x[i];
-    }
-    fft(re, im);
-    for (let i = 0; i < N; i++) {
-      // X * conj(T)
-      const a = re[i], b = im[i], c = this.tRe[i], d = -this.tIm[i];
-      re[i] = a * c - b * d;
-      im[i] = a * d + b * c;
-    }
-    fft(re, im, true);
-    for (let n = 0; n < L; n++) {
-      const e = cum[n + M] - cum[n];
-      const rho = e > 1e-9 ? Math.hypot(re[n], im[n]) / Math.sqrt(this.tEnergy * e) : 0;
-      this.onRho(this.next + n, rho);
-    }
-    this.next += L;
-  }
-
-  private onRho(pos: number, rho: number) {
-    const c = this.cand;
-    if (c && c.right === null && pos === c.pos + 1) c.right = rho;
-    if (rho > RHO_THRESHOLD && (!c || rho > c.rho)) {
-      this.cand = { pos, rho, left: this.prevRho, right: null };
-    } else if (c && pos - c.pos > this.M / 2) {
-      // Parabolic interpolation for a sub-sample peak position.
-      const r = c.right ?? c.rho;
-      const den = c.left - 2 * c.rho + r;
-      const frac = den < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (c.left - r)) / den)) : 0;
-      this.onPeak({ pos: c.pos + frac, rho: c.rho });
-      this.cand = null;
-    }
-    this.prevRho = rho;
   }
 
   private onPeak(peak: Peak) {

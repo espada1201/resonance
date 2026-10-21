@@ -1,7 +1,8 @@
 import { type Station, nodeHex } from '../station';
 import { who } from './feed';
 import { ago } from './format';
-import { Relay, Send } from './icons';
+import { FindPanel } from './find';
+import { Compass, Relay, Send } from './icons';
 
 export function People({ station, onMessage }: { station: Station; onMessage: (id: number) => void }) {
   const ns = [...station.mesh.neighbors.values()].sort((a, b) => b.lastHeard - a.lastHeard);
@@ -16,6 +17,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
   ];
   return (
     <div class="people-tab">
+      <FindPanel station={station} />
       <section class="me-card">
         <span class="label">This device</span>
         <p class="node-id">#{nodeHex(station.id)}</p>
@@ -52,9 +54,20 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
               <span class="muted small">
                 #{nodeHex(n.id)} · {ago(n.lastHeard)}
               </span>
-              <button type="button" class="ghost small" onClick={() => onMessage(n.id)} aria-label={`Message ${who(station, n.id, n.nick)} directly`}>
-                <Send size={14} /> Message
-              </button>
+              <span class="node-actions">
+                <button
+                  type="button"
+                  class="ghost small"
+                  disabled={station.status !== 'listening'}
+                  onClick={() => station.ranger.start(n.id)}
+                  aria-label={`Find ${who(station, n.id, n.nick)}: measure the distance by sound`}
+                >
+                  <Compass size={14} /> Find
+                </button>
+                <button type="button" class="ghost small" onClick={() => onMessage(n.id)} aria-label={`Message ${who(station, n.id, n.nick)} directly`}>
+                  <Send size={14} /> Message
+                </button>
+              </span>
             </li>
           ))}
         </ul>
