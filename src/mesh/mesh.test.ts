@@ -149,6 +149,21 @@ describe('mesh flooding', () => {
     expect(w.inbox.get('D')![0].hops).toBe(2);
   });
 
+  it('repeats a broadcast once when no neighbour echoes it, and not when one does', () => {
+    const alone = new World();
+    const a = alone.add('A', 1);
+    const p = send(a, text('anyone out there?'));
+    alone.run(120_000);
+    expect(alone.tx.filter((t) => t.packet.msgId === p.msgId).map((t) => t.reason)).toEqual(['origin', 'retry']);
+
+    const pair = new World();
+    const [b] = ['B', 'C'].map((n, i) => pair.add(n, i + 1));
+    pair.link('BC');
+    const q = send(b, text('hello C'));
+    pair.run(120_000);
+    expect(pair.tx.filter((t) => t.from === 'B' && t.packet.msgId === q.msgId)).toHaveLength(1);
+  });
+
   it('stops at the TTL', () => {
     const w = new World();
     const [a] = ['A', 'B', 'C', 'D'].map((n, i) => w.add(n, i + 1));

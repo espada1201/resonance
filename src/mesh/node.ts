@@ -22,6 +22,8 @@ export interface MeshConfig {
   storeLimit: number;
   storeTtlMs: number;
   carryCooldownMs: number;
+  /** A broadcast nobody repeats within this window is sent once more (passive acknowledgement). */
+  echoTimeoutMs: number;
 }
 
 export const DEFAULT_CONFIG: MeshConfig = {
@@ -33,6 +35,7 @@ export const DEFAULT_CONFIG: MeshConfig = {
   storeLimit: 300,
   storeTtlMs: 12 * 3600_000,
   carryCooldownMs: 10 * 60_000,
+  echoTimeoutMs: 20_000,
 };
 
 export interface StoredPacket {
@@ -83,6 +86,7 @@ export class MeshNode {
   private readonly delivered = new Set<string>();
   private relays: PendingRelay[] = [];
   private acks = new Map<number, PendingAck>();
+  private echoes = new Map<number, PendingAck>();
 
   constructor(
     readonly id: number,
@@ -99,6 +103,8 @@ export class MeshNode {
     if (this.isStorable(packet)) this.remember(packet);
     if (packet.ackRequested && packet.dst !== BROADCAST) {
       this.acks.set(packet.msgId, { packet, due: this.clock.now() + this.ackTimeout(packet) });
+    } else if (packet.dst === BROADCAST && packet.ttl > 1 && this.isStorable(packet)) {
+      this.echoes.set(packet.msgId, { packet, due: this.clock.now() + this.echoTimeout() });
     }
     this.events.transmit(encodePacket(packet), 'origin');
     return packet;
@@ -107,7 +113,12 @@ export class MeshNode {
   /** Feeds bytes decoded off the air. Returns the parsed packet, or null for junk. */
   receive(bytes: Uint8Array): Packet | null {
     const p = decodePacket(bytes);
-    if (!p || p.src === this.id) return p;
+    if (!p) return p;
+    if (p.src === this.id) {
+      // Someone repeated our broadcast: it made it out.
+      this.echoes.delete(p.msgId);
+      return p;
+    }
     const now = this.clock.now();
     this.stats.heard++;
     if (p.hops === 0) this.touchNeighbor(p.src, now);
@@ -172,6 +183,7 @@ export class MeshNode {
     const now = this.clock.now();
     this.touchNeighbor(src, now, body.nick, body.role);
     const theirs = new Set(body.have);
+    for (const id of body.have) this.echoes.delete(id);
     const offers = [...this.store.values()]
       .map((s) => ({ s, p: decodePacket(s.bytes)! }))
       .filter(({ s, p }) => p && p.src !== src && !theirs.has(p.msgId) && now - s.lastPushed > this.config.carryCooldownMs)
@@ -223,6 +235,14 @@ export class MeshNode {
       this.seen.set(relayKey(a.packet), now);
       this.events.transmit(encodePacket(a.packet), 'retry');
     }
+    for (const [id, e] of this.echoes) {
+      if (e.due > now) continue;
+      // One repeat only: a lone device should not keep shouting into an empty room.
+      this.echoes.delete(id);
+      const again = { ...e.packet, attempt: 1 };
+      this.seen.set(relayKey(again), now);
+      this.events.transmit(encodePacket(again), 'retry');
+    }
     for (const [k, s] of this.store) if (now - s.firstHeard > this.config.storeTtlMs) this.store.delete(k);
   }
 
@@ -239,6 +259,10 @@ export class MeshNode {
       this.seen.set(relayKey(p), s.firstHeard);
       this.delivered.add(storeKey(p));
     }
+  }
+
+  private echoTimeout() {
+    return this.config.echoTimeoutMs + this.clock.random() * 8000;
   }
 
   private ackTimeout(p: Packet) {
