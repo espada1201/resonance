@@ -3,7 +3,7 @@ import { useEffect } from 'preact/hooks';
 import { MicTransport, SimulatedAir } from './audio/transport';
 import { Station, nodeHex } from './station';
 import { AirLog, AirStatus, Waterfall } from './ui/air';
-import { useStation, useTicker } from './ui/hooks';
+import { useMedia, useStation, useTicker } from './ui/hooks';
 import { Logo, Mic } from './ui/icons';
 import './ui/styles.css';
 
@@ -23,6 +23,7 @@ function uptime(ms: number) {
 function Beacon() {
   useStation(station);
   useTicker(5_000);
+  const narrow = useMedia('(max-width: 600px)');
   useEffect(() => {
     if (sim) void station.start();
   }, []);
@@ -44,8 +45,8 @@ function Beacon() {
           <span>Resonance</span>
         </a>
         <span class="chip beacon">Beacon #{nodeHex(station.id)}</span>
-        {sim && <span class="chip sim">Simulated air</span>}
-        <div class="top-right">{live && <AirStatus station={station} />}</div>
+        {sim && <span class="chip sim">{narrow ? 'Sim' : 'Simulated air'}</span>}
+        <div class="top-right">{live && <AirStatus station={station} compact={narrow} />}</div>
       </header>
       <main class="beacon-main">
         {!live && (

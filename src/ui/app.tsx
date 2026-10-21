@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { BROADCAST } from '../mesh/packet';
+import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
 import { type Station, nodeHex } from '../station';
 import { AirPanel, AirStatus } from './air';
 import { Compose } from './compose';
@@ -9,6 +10,12 @@ import { Logo, Mic } from './icons';
 import { People } from './people';
 import { Safety, latestCheckIns } from './safety';
 import { Settings } from './settings';
+
+const MODES: Array<[ProfileId, string, string]> = [
+  ['audible', 'Audible', 'across a room'],
+  ['fast', 'Fast', 'close, in a quiet room'],
+  ['ultrasonic', 'Near-ultrasonic', 'same table, almost silent'],
+];
 
 type Tab = 'feed' | 'safety' | 'air' | 'people' | 'settings';
 const TAB_TEXT: Record<Tab, string> = { feed: 'Feed', safety: 'Safety', air: 'Air', people: 'People', settings: 'Settings' };
@@ -42,6 +49,15 @@ function Gate({ station }: { station: Station }) {
         Your browser will ask for the microphone. Sound is decoded on this device and never recorded or uploaded. Echo cancellation is switched
         off on purpose: it would erase the chirps.
       </p>
+      <dl class="gate-modes" aria-label="Three ways to send">
+        {MODES.map(([id, name, range]) => (
+          <div key={id}>
+            <dt>{name}</dt>
+            <dd class="rate">{Math.round(rawBitrate(PROFILES[id])).toLocaleString('en')} bit/s</dd>
+            <dd>{range}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

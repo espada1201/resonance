@@ -63,16 +63,24 @@ export function Settings({ station }: { station: Station }) {
         <input type="range" min={0.1} max={1} step={0.05} value={s.volume} onInput={(e) => station.update({ volume: Number((e.target as HTMLInputElement).value) })} />
       </label>
 
-      <label class="toggle field">
+      <label class="radio-card">
         <input type="checkbox" checked={s.relay} disabled={station.role === 'beacon'} onChange={(e) => station.update({ relay: (e.target as HTMLInputElement).checked })} />
-        <Relay size={16} /> Relay messages for others
-        <span class="muted small block">Your device repeats what it hears so messages reach people further away. It waits its turn and stays quiet when enough neighbours already repeated.</span>
+        <span>
+          <strong>
+            <Relay size={16} /> Relay messages for others
+          </strong>
+          <span class="muted small">Your device repeats what it hears so messages reach people further away. It waits its turn and stays quiet when enough neighbours already repeated.</span>
+        </span>
       </label>
 
-      <label class="toggle field">
+      <label class="radio-card">
         <input type="checkbox" checked={s.answerFind} onChange={(e) => station.update({ answerFind: (e.target as HTMLInputElement).checked })} />
-        <Compass size={16} /> Answer distance requests
-        <span class="muted small block">Lets someone nearby use Find to measure how far away you are by timing chirps. Useful for being found; turn off if you would rather not be.</span>
+        <span>
+          <strong>
+            <Compass size={16} /> Answer distance requests
+          </strong>
+          <span class="muted small">Lets someone nearby use Find to measure how far away you are by timing chirps. Useful for being found; turn off if you would rather not be.</span>
+        </span>
       </label>
 
       <form class="field" onSubmit={applyPass}>

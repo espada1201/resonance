@@ -140,7 +140,7 @@ export function AirStatus({ station, compact = false }: { station: Station; comp
   return (
     <div class={`air-status ${st.tone}`} role="status" aria-live="polite">
       <span class="dot" aria-hidden="true" />
-      {st.text}
+      <span class="text">{st.text}</span>
       {station.transmitting && !compact && <TxProgress started={station.transmitting.started} seconds={station.transmitting.seconds} />}
     </div>
   );
