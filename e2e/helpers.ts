@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { type Page, test as base, expect } from '@playwright/test';
 
 /** Any console error or uncaught exception in any page or worker of the test fails it. */
@@ -17,6 +19,15 @@ export const test = base.extend<{ watchErrors: void }>({
 });
 
 export { expect };
+
+/** Evidence for a verification run: a screenshot and the accessibility tree, in e2e/.out/verify/<spec>/<name>.*. */
+export async function proof(page: Page, name: string) {
+  const info = test.info();
+  const dir = join(info.project.testDir, '.out', 'verify', basename(info.file, '.spec.ts'));
+  await mkdir(dir, { recursive: true });
+  await page.screenshot({ path: join(dir, `${name}.png`) });
+  await writeFile(join(dir, `${name}.aria.txt`), await page.locator('body').ariaSnapshot());
+}
 
 /** The newest air log row ("IN"/"OUT") whose text contains every one of `what`. */
 export function airRow(page: Page, dir: 'IN' | 'OUT', ...what: Array<string | RegExp>) {

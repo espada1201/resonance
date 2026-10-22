@@ -1,4 +1,5 @@
-import type { FromWorker, ToWorker } from './audio/protocol';
+import { AirLink, type Spectrum } from './audio/link';
+import { decodeRecording, renderWav } from './audio/recording';
 import type { AirTransport } from './audio/transport';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
 import { FILE_REQUEST_TTL, type FileRequest, FileTransfer } from './mesh/files';
@@ -6,16 +7,15 @@ import { MeshNode, storeKey } from './mesh/node';
 import { BROADCAST, HEADER_LEN, type Packet, PacketType, decodePacket, randomNodeId, randomU32 } from './mesh/packet';
 import { type Body, type Geo, type Status, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
-import { wav } from './modem/channel-sim';
 import { MAX_PAYLOAD } from './modem/framing';
 import { airtimeSec, modulate } from './modem/modulator';
 import { PROFILES, type ProfileId } from './modem/profiles';
-import { type DecodedFrame, Receiver } from './modem/receiver';
+import type { DecodedFrame } from './modem/receiver';
 import { SavedState, loadStore, safeStorage, saveStore } from './persist';
 import { Ranger } from './ranger';
 
-// The station is the whole app minus pixels: it owns the audio transport, the demodulator
-// worker, the mesh node, the transmit queue, encryption and persistence.
+// The station is the whole app minus pixels: it owns the link to the air (speaker, microphone
+// and demodulator worker), the mesh node, the transmit queue, encryption and persistence.
 
 type Role = 'phone' | 'beacon';
 type ContentBody = Extract<Body, { kind: 'text' | 'checkin' | 'contact' }>;
@@ -60,11 +60,6 @@ export interface Settings {
   answerFind: boolean;
 }
 
-interface Spectrum {
-  bins: Float32Array;
-  fs: number;
-}
-
 const DEFAULT_TTL = 5;
 /** Listening time after our own frame before the next may start (the worker's busy flag needs a few hundred ms). */
 const LISTEN_AFTER_SEND_MS = 400;
@@ -80,9 +75,6 @@ export class Station {
   air: AirEvent[] = [];
   status: 'idle' | 'starting' | 'listening' | 'error' = 'idle';
   error = '';
-  receiving: ProfileId | null = null;
-  transmitting: { profile: ProfileId; seconds: number; started: number } | null = null;
-  sampleRate = 0;
   position: Geo | null = null;
   totals = { rxBits: 0, rxSec: 0, txSec: 0, lost: 0 };
   readonly mesh: MeshNode;
@@ -91,15 +83,11 @@ export class Station {
   readonly files: FileTransfer;
   readonly startedAt = Date.now();
 
+  private readonly link: AirLink;
   private circle: Circle | null = null;
-  private worker: Worker | null = null;
-  private workerBusy = false;
-  private workerFailures: number[] = [];
   private listeners = new Set<() => void>();
-  private spectrumListeners = new Set<(s: Spectrum) => void>();
   private airSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  private unmute: ReturnType<typeof setTimeout> | null = null;
   private lastHello = 0;
   private greeting: ReturnType<typeof setTimeout> | null = null;
   private frameInFlight: DecodedFrame | null = null;
@@ -122,6 +110,21 @@ export class Station {
       ...this.saved.load('settings'),
     };
     if (role === 'beacon') this.settings.relay = true;
+    this.link = new AirLink(transport, {
+      frame: (f) => this.onFrame(f),
+      sync: (profile) => this.logAir({ dir: 'sync', profile, label: 'preamble heard' }),
+      lost: (profile, stage) => {
+        this.totals.lost++;
+        this.logAir({ dir: 'lost', profile, label: stage === 'header' ? 'header unreadable' : 'too damaged to repair' });
+      },
+      ping: (pos, rho) => this.ranger.onPing(pos, rho),
+      changed: () => this.changed(),
+      failed: (message) => {
+        this.status = 'error';
+        this.error = message;
+        this.changed();
+      },
+    });
     const clock = { now: () => Date.now(), random: Math.random };
     this.files = new FileTransfer(this.id, clock);
     this.mesh = new MeshNode(this.id, clock, {
@@ -136,7 +139,7 @@ export class Station {
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];
     this.radio = new TxQueue(
       {
-        busy: () => this.workerBusy,
+        busy: () => this.link.busy,
         send: (b) => this.sendFrame(b),
         finished: (b) => {
           this.mesh.aired(b);
@@ -147,8 +150,8 @@ export class Station {
     );
     this.ranger = new Ranger({
       id: this.id,
-      sampleRate: () => this.sampleRate || 48000,
-      modulate: (bytes) => modulate(bytes, PROFILES.audible, this.sampleRate || 48000),
+      sampleRate: () => this.link.sampleRate || 48000,
+      modulate: (bytes) => modulate(bytes, PROFILES.audible, this.link.sampleRate || 48000),
       playExclusive: (wave, label) => this.playExclusive(wave, label),
       sendUrgent: (bytes) => this.radio.enqueue(bytes, true),
       changed: () => this.changed(),
@@ -161,7 +164,16 @@ export class Station {
   }
 
   get busy() {
-    return this.workerBusy || this.radio.onAir;
+    return this.link.busy || this.radio.onAir;
+  }
+
+  /** The profile of a frame coming in, if any. */
+  get receiving() {
+    return this.link.receiving;
+  }
+
+  get transmitting() {
+    return this.link.transmitting;
   }
 
   get circleChannel() {
@@ -174,8 +186,7 @@ export class Station {
   }
 
   onSpectrum(fn: (s: Spectrum) => void) {
-    this.spectrumListeners.add(fn);
-    return () => void this.spectrumListeners.delete(fn);
+    return this.link.onSpectrum(fn);
   }
 
   private changed() {
@@ -186,15 +197,12 @@ export class Station {
   async start() {
     if (this.status === 'listening' || this.status === 'starting') return;
     // Audio is already running and the decoder gave up: only a fresh page starts cleanly.
-    if (this.sampleRate) return location.reload();
+    if (this.link.sampleRate) return location.reload();
     this.status = 'starting';
     this.error = '';
     this.changed();
     try {
-      this.spawnWorker();
-      this.sampleRate = await this.transport.start((chunk) => this.toWorker({ type: 'samples', data: chunk }, [chunk.buffer]));
-      this.transport.setVolume(this.settings.volume);
-      this.toWorker({ type: 'init', sampleRate: this.sampleRate });
+      await this.link.start(this.settings.volume);
       this.status = 'listening';
       void this.keepAwake();
       setInterval(() => {
@@ -207,8 +215,6 @@ export class Station {
     } catch (err) {
       this.status = 'error';
       this.error = `${err instanceof Error ? err.message : String(err)} Check that this page may use the microphone, then try again.`;
-      this.worker?.terminate();
-      this.worker = null;
     }
     this.changed();
   }
@@ -250,60 +256,6 @@ export class Station {
     }
   }
 
-  private spawnWorker() {
-    const w = new Worker(new URL('./audio/rx-worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<FromWorker>) => this.onWorker(e.data);
-    // A decoder that threw may be left half-way through a frame: replace it, unless it keeps failing.
-    w.onerror = (e) => {
-      e.preventDefault();
-      w.terminate();
-      if (this.worker !== w) return;
-      this.workerBusy = false;
-      const now = Date.now();
-      this.workerFailures = [...this.workerFailures.filter((t) => now - t < 10 * 60_000), now];
-      if (this.workerFailures.length > 3) {
-        this.worker = null;
-        this.status = 'error';
-        this.error = 'The sound decoder keeps failing in this browser. Reload the page to listen again.';
-        return this.changed();
-      }
-      this.spawnWorker();
-      if (this.sampleRate) this.toWorker({ type: 'init', sampleRate: this.sampleRate });
-      if (this.transmitting || this.unmute) this.toWorker({ type: 'mute', on: true });
-    };
-    this.worker = w;
-  }
-
-  private toWorker(m: ToWorker, transfer: Transferable[] = []) {
-    this.worker?.postMessage(m, transfer);
-  }
-
-  private onWorker(m: FromWorker) {
-    switch (m.type) {
-      case 'spectrum':
-        for (const fn of this.spectrumListeners) fn(m);
-        return;
-      case 'busy':
-        this.workerBusy = m.busy;
-        if (!m.busy) this.receiving = null;
-        return this.changed();
-      case 'sync':
-        this.receiving = m.profile;
-        this.logAir({ dir: 'sync', profile: m.profile, label: 'preamble heard' });
-        return;
-      case 'lost':
-        this.receiving = null;
-        this.totals.lost++;
-        this.logAir({ dir: 'lost', profile: m.profile, label: m.stage === 'header' ? 'header unreadable' : 'too damaged to repair' });
-        return;
-      case 'ping':
-        return this.ranger.onPing(m.pos, m.rho);
-      case 'frame':
-        this.receiving = null;
-        this.onFrame(m.frame);
-    }
-  }
-
   /** Feeds a decoded frame (from the air or from a recording) into the mesh. */
   onFrame(f: DecodedFrame) {
     this.totals.rxBits += f.payload.length * 8;
@@ -331,40 +283,20 @@ export class Station {
 
   private async sendFrame(bytes: Uint8Array) {
     const profile = this.settings.profile;
-    const fs = this.sampleRate || 48000;
+    const fs = this.link.sampleRate || 48000;
     const p = decodePacket(bytes);
     const label = p ? `${TYPE_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
     await this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
     // We were deaf while sending. Listen for a moment before the queue may send again, so carrier
     // sense can hear a neighbour who started meanwhile.
-    await new Promise((r) => setTimeout(r, this.muteTailMs() + LISTEN_AFTER_SEND_MS));
+    await new Promise((r) => setTimeout(r, this.link.muteTailMs + LISTEN_AFTER_SEND_MS));
   }
 
-  /** How long the receiver stays muted after our own frame ends: the tail of our sound still in the capture path. */
-  private muteTailMs() {
-    return 150 + (this.transport.captureDelayMs ?? 0);
-  }
-
-  private async playWave(wave: Float32Array, profile: ProfileId, label: string, bytes?: number) {
-    const fs = this.sampleRate || 48000;
-    const seconds = wave.length / fs;
-    this.transmitting = { profile, seconds, started: Date.now() };
-    this.logAir({ dir: 'tx', profile, label, bytes, airtimeSec: seconds });
-    this.totals.txSec += seconds;
-    // Our own frames would otherwise be decoded as if a neighbour had repeated them. A pending
-    // unmute from the previous frame must not cut into this one.
-    if (this.unmute) clearTimeout(this.unmute);
-    this.toWorker({ type: 'mute', on: true });
-    try {
-      await this.transport.play(wave, fs);
-    } finally {
-      this.transmitting = null;
-      this.unmute = setTimeout(() => {
-        this.unmute = null;
-        this.toWorker({ type: 'mute', on: false });
-      }, this.muteTailMs());
-      this.changed();
-    }
+  private playWave(wave: Float32Array, profile: ProfileId, label: string, bytes?: number) {
+    return this.link.play(wave, profile, (seconds) => {
+      this.logAir({ dir: 'tx', profile, label, bytes, airtimeSec: seconds });
+      this.totals.txSec += seconds;
+    });
   }
 
   /** Plays audio ahead of the queue once the speaker and the air are free (used by Find). */
@@ -373,7 +305,7 @@ export class Station {
     try {
       const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       while (this.radio.onAir) await sleep(50);
-      for (let waited = 0; this.workerBusy && waited < 4000; waited += 100) await sleep(100);
+      for (let waited = 0; this.link.busy && waited < 4000; waited += 100) await sleep(100);
       await this.playWave(wave, 'audible', label);
     } finally {
       this.radio.paused = false;
@@ -509,27 +441,12 @@ export class Station {
   /** Renders a feed item's packet as a WAV file that any device can play to the mesh. */
   exportWav(item: FeedItem): Blob | null {
     const s = this.mesh.store.get(storeKey(item));
-    if (!s) return null;
-    const fs = 48000;
-    const wave = modulate(s.bytes, PROFILES[this.settings.profile], fs);
-    const padded = new Float32Array(wave.length + fs / 2);
-    padded.set(wave, fs / 4);
-    return new Blob([wav(padded, fs) as Uint8Array<ArrayBuffer>], { type: 'audio/wav' });
+    return s ? renderWav(s.bytes, PROFILES[this.settings.profile]) : null;
   }
 
   /** Decodes every packet found in a recording (any format the browser can decode). */
   async importRecording(data: ArrayBuffer): Promise<number> {
-    const ctx = new OfflineAudioContext(1, 1, 48000);
-    const audio = await ctx.decodeAudioData(data);
-    const mono = new Float32Array(audio.length);
-    for (let c = 0; c < audio.numberOfChannels; c++) {
-      const ch = audio.getChannelData(c);
-      for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / audio.numberOfChannels;
-    }
-    const frames: DecodedFrame[] = [];
-    const rx = new Receiver(audio.sampleRate, Object.values(PROFILES), { frame: (f) => frames.push(f) });
-    for (let i = 0; i < mono.length; i += 4096) rx.push(mono.subarray(i, i + 4096));
-    rx.push(new Float32Array(audio.sampleRate));
+    const frames = await decodeRecording(data);
     frames.forEach((f) => this.onFrame(f));
     return frames.length;
   }
@@ -539,7 +456,7 @@ export class Station {
   update(patch: Partial<Settings>) {
     this.settings = { ...this.settings, ...patch };
     this.applySettings();
-    if (patch.volume !== undefined) this.transport.setVolume(patch.volume);
+    if (patch.volume !== undefined) this.link.setVolume(patch.volume);
     this.changed();
   }
 

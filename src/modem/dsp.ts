@@ -37,6 +37,15 @@ export function fft(re: Float64Array, im: Float64Array, inverse = false): void {
 
 export const nextPow2 = (n: number) => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
 
+/** Phase (radians) at time t of a linear chirp sweeping from f0 to f1 Hz over `sec` seconds. */
+export const chirpPhase = (f0: number, f1: number, sec: number, t: number) => 2 * Math.PI * (f0 * t + ((f1 - f0) * t * t) / (2 * sec));
+
+/** Raised-cosine rise over the first `w` of `x`: 0 at x = 0, 1 from x = w on. */
+export const raisedEdge = (x: number, w: number) => (x < w ? 0.5 - 0.5 * Math.cos((Math.PI * x) / w) : 1);
+
+/** Gain of sample i of an n-sample burst that rises over its first w samples and falls over its last w. */
+export const fadeEdges = (i: number, n: number, w: number) => (i < w ? raisedEdge(i, w) : raisedEdge(n - 1 - i, w));
+
 /** Signal energy at frequency `hz` over x[start, start+n). Works for non-integer bins. */
 export function goertzel(x: Float32Array, start: number, n: number, hz: number, fs: number): number {
   const coeff = 2 * Math.cos((2 * Math.PI * hz) / fs);
@@ -51,12 +60,19 @@ export function goertzel(x: Float32Array, start: number, n: number, hz: number, 
   return s1 * s1 + s2 * s2 - coeff * s1 * s2;
 }
 
+/** The Hann window and FFT buffers of the last size magnitudeSpectrum ran at (it runs 25 times a second). */
+let spectrumScratch = { hann: new Float64Array(0), re: new Float64Array(0), im: new Float64Array(0) };
+
 /** Magnitude spectrum (dBFS-ish) of the last `n` samples, Hann windowed. n must be a power of two. */
 export function magnitudeSpectrum(x: Float32Array, n: number): Float32Array {
-  const re = new Float64Array(n);
-  const im = new Float64Array(n);
+  if (spectrumScratch.hann.length !== n) {
+    const hann = Float64Array.from({ length: n }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
+    spectrumScratch = { hann, re: new Float64Array(n), im: new Float64Array(n) };
+  }
+  const { hann, re, im } = spectrumScratch;
   const off = x.length - n;
-  for (let i = 0; i < n; i++) re[i] = (x[off + i] ?? 0) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
+  for (let i = 0; i < n; i++) re[i] = (x[off + i] ?? 0) * hann[i];
+  im.fill(0);
   fft(re, im);
   const out = new Float32Array(n / 2);
   for (let i = 0; i < n / 2; i++) out[i] = 10 * Math.log10((re[i] * re[i] + im[i] * im[i]) / (n * n) + 1e-14) + 6;

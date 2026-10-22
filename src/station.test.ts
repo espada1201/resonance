@@ -1,14 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FromWorker, ToWorker } from './audio/protocol';
 import type { AirTransport } from './audio/transport';
 import { chunkFile, fileKey, missing } from './mesh/files';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './mesh/packet';
 import { type Body, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
 import { rng } from './modem/channel-sim';
 import type { DecodedFrame } from './modem/receiver';
-import { Station } from './station';
-import { MemoryStorage } from './testing';
+import { Station, nodeHex } from './station';
+import { MemoryStorage, StubWorker } from './testing';
 
 // Characterization tests: they pin what the station does today, so that its collaborators can
 // be moved out of it without changing a packet on air, a byte in storage or a line in the log.
@@ -46,39 +45,24 @@ afterEach(() => {
 let log: string[] = [];
 const ms = () => Date.now() - T0;
 
-class StubWorker {
-  static made: StubWorker[] = [];
-  readonly posted: Array<{ m: ToWorker; transfer: Transferable[] }> = [];
-  onmessage: ((e: MessageEvent<FromWorker>) => void) | null = null;
-  onerror: ((e: ErrorEvent) => void) | null = null;
-  terminated = false;
+/** Every decoder the station made, oldest first. */
+let workers: StubWorker[] = [];
+
+/** The global Worker while a station listens: its mutes and unmutes go in the log. */
+class LoggedWorker extends StubWorker {
   constructor() {
-    StubWorker.made.push(this);
-  }
-  postMessage(m: ToWorker, transfer: Transferable[] = []) {
-    this.posted.push({ m, transfer });
-    if (m.type === 'mute') log.push(`${ms()} ${m.on ? 'mute' : 'unmute'}`);
-  }
-  terminate() {
-    this.terminated = true;
-  }
-  say(m: FromWorker) {
-    this.onmessage!({ data: m } as MessageEvent<FromWorker>);
-  }
-  fail() {
-    this.onerror!({ preventDefault() {} } as ErrorEvent);
+    super((m) => m.type === 'mute' && void log.push(`${ms()} ${m.on ? 'mute' : 'unmute'}`));
+    workers.push(this);
   }
 }
 
 const INIT = { type: 'init', sampleRate: 48000 };
-const MUTE = { type: 'mute', on: true };
-const UNMUTE = { type: 'mute', on: false };
 
 /** A station listening to a room whose speaker takes as long as the sound; the mute tail is 150 + 250 ms. */
 async function listening(opts: { failStart?: Error; storage?: Storage } = {}) {
   vi.spyOn(Math, 'random').mockReturnValue(0.5);
-  vi.stubGlobal('Worker', StubWorker);
-  StubWorker.made = [];
+  vi.stubGlobal('Worker', LoggedWorker);
+  workers = [];
   log = [];
   const plays: Array<{ at: number; ms: number }> = [];
   const volume: number[] = [];
@@ -88,7 +72,7 @@ async function listening(opts: { failStart?: Error; storage?: Storage } = {}) {
     kind: 'simulated',
     captureDelayMs: 250,
     async start(onSamples) {
-      workersAtStart = StubWorker.made.length;
+      workersAtStart = workers.length;
       if (opts.failStart) throw opts.failStart;
       mic = onSamples;
       return 48000;
@@ -103,7 +87,7 @@ async function listening(opts: { failStart?: Error; storage?: Storage } = {}) {
   };
   const s = new Station(transport, 'phone', opts.storage ?? null);
   await s.start();
-  const worker = () => StubWorker.made.at(-1)!;
+  const worker = () => workers.at(-1)!;
   const sent = (w = worker()) => w.posted.map((p) => p.m);
   return { s, plays, volume, worker, sent, mic: (c: Float32Array) => mic(c), workersAtStart: () => workersAtStart };
 }
@@ -336,14 +320,47 @@ describe('settings', () => {
   });
 });
 
+describe('sound files', () => {
+  /** The browser's decoder, for the 16-bit WAVs the station writes; it hands back two equal channels. */
+  class WavDecoder {
+    async decodeAudioData(data: ArrayBuffer) {
+      const ch = Float32Array.from(new Int16Array(data, 44), (x) => x / 32767);
+      return { length: ch.length, numberOfChannels: 2, sampleRate: new DataView(data).getUint32(24, true), getChannelData: () => ch };
+    }
+  }
+
+  it('a packet saved as a sound file plays back into another station', async () => {
+    const a = new Station(air, 'phone', null);
+    a.update({ profile: 'fast' });
+    await a.sendText('Meet at six');
+    expect(a.exportWav({ ...a.feed[0], msgId: a.feed[0].msgId + 1 })).toBeNull();
+    const blob = a.exportWav(a.feed[0])!;
+    expect(blob.type).toBe('audio/wav');
+    const data = await blob.arrayBuffer();
+    const v = new DataView(data);
+    const ascii = (from: number) => new TextDecoder().decode(data.slice(from, from + 4));
+    // 16-bit mono at 48 kHz, with a quarter of a second of quiet before the frame and after it.
+    expect([ascii(0), ascii(8), ascii(12), ascii(36)]).toEqual(['RIFF', 'WAVE', 'fmt ', 'data']);
+    expect([v.getUint16(22, true), v.getUint32(24, true), v.getUint16(34, true), v.getUint32(40, true)]).toEqual([1, 48000, 16, data.byteLength - 44]);
+    const pcm = new Int16Array(data, 44);
+    expect(pcm.subarray(0, 12000).every((x) => x === 0)).toBe(true);
+    expect(pcm.subarray(-12000).every((x) => x === 0)).toBe(true);
+
+    vi.stubGlobal('OfflineAudioContext', WavDecoder);
+    const b = new Station(air, 'phone', null);
+    expect(await b.importRecording(data)).toBe(1);
+    expect(b.feed[0]).toMatchObject({ src: a.id, msgId: a.feed[0].msgId, body: { kind: 'text', text: 'Meet at six' } });
+    expect(b.air[0]).toMatchObject({ dir: 'rx', profile: 'fast', label: `message from ${nodeHex(a.id)}` });
+  });
+});
+
 describe('decoder worker and mute', () => {
   it('starts the decoder before the microphone, then tells it the sample rate', async () => {
-    const { s, sent, mic, volume, worker, workersAtStart } = await listening();
+    const { s, sent, mic, volume, worker, workersAtStart } = await listening({ storage: MemoryStorage.of({ 'resonance:v1:phone:settings': '{"volume":0.8}' }) });
     expect(workersAtStart()).toBe(1);
     expect(s.status).toBe('listening');
-    expect(s.sampleRate).toBe(48000);
     expect(sent()).toEqual([INIT]);
-    expect(volume).toEqual([1]);
+    expect(volume).toEqual([0.8]);
     // Samples cross to the worker without a copy.
     const chunk = new Float32Array(128);
     mic(chunk);
@@ -358,12 +375,17 @@ describe('decoder worker and mute', () => {
   });
 
   it('mutes the decoder from the start of its own frame until its sound has passed', async () => {
-    const { plays } = await listening();
+    const { s, plays } = await listening();
     await vi.advanceTimersByTimeAsync(20_000);
     // The startup hello: due 3 s after start (random 0.5), and sent by the tick due then too.
     const [hello] = plays;
     expect(hello.at).toBe(3000);
     expect(log).toEqual(['3000 mute', '3000 play', `${3000 + hello.ms + 400} unmute`]);
+    // Logged and counted as it starts.
+    const tx = s.air.filter((e) => e.dir === 'tx');
+    expect(tx).toMatchObject([{ at: T0 + 3000, profile: 'audible', label: 'hello' }]);
+    expect(tx[0].airtimeSec).toBeCloseTo(hello.ms / 1000, 3);
+    expect(s.totals.txSec).toBeCloseTo(hello.ms / 1000, 3);
   });
 
   it('unmutes between queued frames, and listens a while before the next', async () => {
@@ -412,47 +434,16 @@ describe('decoder worker and mute', () => {
     s.ranger.stop();
   });
 
-  it('a decoder that fails mid-frame is replaced, told the sample rate, and kept muted', async () => {
-    const { s, worker, sent } = await listening();
-    await vi.advanceTimersByTimeAsync(3300);
-    expect(s.transmitting).not.toBeNull();
-    const first = worker();
-    first.fail();
-    expect(first.terminated).toBe(true);
-    expect(worker()).not.toBe(first);
-    expect(sent()).toEqual([INIT, MUTE]);
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(sent()).toEqual([INIT, MUTE, UNMUTE]);
-    expect(s.status).toBe('listening');
-  });
-
-  it('a decoder that fails while its sound dies away is muted too; one that fails in quiet is not', async () => {
-    const { worker, sent, plays } = await listening();
-    await vi.advanceTimersByTimeAsync(3300);
-    const [hello] = plays;
-    await vi.advanceTimersByTimeAsync(hello.at + hello.ms + 100 - 3300);
-    worker().fail();
-    expect(sent()).toEqual([INIT, MUTE]);
-    await vi.advanceTimersByTimeAsync(20_000);
-    worker().fail();
-    expect(sent()).toEqual([INIT]);
-  });
-
-  it('gives up after four failures within ten minutes; older failures do not count', async () => {
+  it('a decoder the link gives up on stops the station, and only a fresh page starts it again', async () => {
     const { s, worker } = await listening();
-    const failAt = async (min: number) => {
-      await vi.advanceTimersByTimeAsync(min * 60_000 - ms());
-      worker().fail();
-    };
-    for (const min of [0, 4, 8, 10.5]) await failAt(min);
-    // The one at 0 min had left the window: 4, 8 and 10.5 make three.
-    expect(s.status).toBe('listening');
-    expect(StubWorker.made).toHaveLength(5);
-    await failAt(11);
+    for (let i = 0; i < 4; i++) worker().fail();
     expect(s.status).toBe('error');
     expect(s.error).toBe('The sound decoder keeps failing in this browser. Reload the page to listen again.');
-    expect(worker().terminated).toBe(true);
-    expect(StubWorker.made).toHaveLength(5);
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload });
+    await s.start();
+    expect(reload).toHaveBeenCalledOnce();
+    expect(workers).toHaveLength(4);
   });
 
   it("the decoder's busy flag holds the queue back, and its end clears the frame being received", async () => {

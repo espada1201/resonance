@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { gaussian, rng } from './channel-sim';
 import { encodeBody, encodeHeader } from './framing';
+import { demodSymbol } from './mfsk';
 import { modulate } from './modulator';
 import { OFDM_RATE, carriersOf, cpSize, derotate, fftSize, ofdmSymbols, readBytes, spectrum, stepSlopes, steps } from './ofdm';
 import { PROFILES, TONES_PER_GROUP, bytesPerSymbol, preambleSec, symbolSec, windowSec } from './profiles';
-import { demodSymbol } from './receiver';
 
 // An outside judge for the demodulators: textbook theory, not our own expectations.
 // Each MFSK tone group is non-coherent orthogonal 16-FSK with square-law detection, whose symbol

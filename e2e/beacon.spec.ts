@@ -1,4 +1,4 @@
-import { airRow, expect, joinAir, nodeId, sendText, stat, test } from './helpers';
+import { airRow, expect, joinAir, nodeId, proof, sendText, stat, test } from './helpers';
 
 test('a beacon hears a phone and relays its message one hop further', async ({ context }) => {
   const beacon = await context.newPage();
@@ -17,4 +17,5 @@ test('a beacon hears a phone and relays its message one hop further', async ({ c
   await expect.poll(() => stat(beacon, 'Relayed')).toBeGreaterThan(0);
   // The phone hears its own message come back from the beacon.
   await expect(airRow(phone, 'IN', 'echo of your message')).toBeVisible();
+  await proof(beacon, 'beacon');
 });

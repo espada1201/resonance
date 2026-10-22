@@ -1,0 +1,48 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`waveform golden hashes > chirp templates (each profile and the ping) and the rendered ping, at both rates 1`] = `
+{
+  "audible template 44100 Hz": "019352533f585c1f906ea8d71236a30d699e7840d6410448d49cfdb90d7f47ce",
+  "audible template 48000 Hz": "038638c9d3c98024a4b89afe42f4763b697db8f5941b8814cf46e9a88b5e0275",
+  "fast template 44100 Hz": "9facd14f24b7247c2b08ad95dd0f74503b30c4b5dfc3abe6bf95b49cabb8a980",
+  "fast template 48000 Hz": "2d75a6591f10c80714d0227c30ad8a62f471e83730413ae4b73a7c16b3449f2b",
+  "ping template 44100 Hz": "0b3e04b85c252ce368c590a48c5c9fc6debf459c086f5b6ca335d133284a7490",
+  "ping template 48000 Hz": "c75553d30d40aed0e0671290858203b4ed67f948caa83cead1df525676c0cb73",
+  "renderPing 44100 Hz": "92c88f39ff5f5963576b74854be0ef08ab0835bbb8b08b60988db99ea00ac71a",
+  "renderPing 48000 Hz": "0734cb9336a1cfc670acb7f76d2f2092cd2a2bf76852bb604dec8548757f1ae4",
+  "ultrasonic template 44100 Hz": "43c964d19eca7514a7334d9bca92a56369d86e3daff2902e3f36ae3a1e105ceb",
+  "ultrasonic template 48000 Hz": "7ff70beccc5a246f5774d3fd44877ed58d8ac0484f4147708a2a4a2c0edfc88d",
+}
+`;
+
+exports[`waveform golden hashes > magnitudeSpectrum, the same on every call 1`] = `
+{
+  "1500 into 2048 (zero padded)": "0e84f495210fd4b9d03db008ee226d9b6e1014a0a717100ffa8a5c101c181a86",
+  "exactly 2048": "c8ab0eb933c8407b66d2cc4b737e81e4e76d889e1a43b9442bd63c8246c43409",
+  "last 2048 of 3000": "05065dc2396bb27e4a98c3f4704ee47402cea12ea0020c490f83a20142a1c511",
+  "last 512": "ec949d0fd0e9911bf976aa94124a0331853078fadfd758cc83a167e4761fce5c",
+}
+`;
+
+exports[`waveform golden hashes > modulate, every profile at both rates, for 1, 37 and 255 bytes 1`] = `
+{
+  "audible 44100 Hz 1 B": "b7ac4f2a8970f191fe2ad8fc6c7e3f6bb2c2f9d9904893edc4b148bb5e5a5f97",
+  "audible 44100 Hz 255 B": "1444cafc69394369057230a9bd3b43cd189a07ee3808a45e0618b345994a2755",
+  "audible 44100 Hz 37 B": "caf1cc584273dfe5df290ed577d3e98443f931cef2ed6e52b351f3a56f270a33",
+  "audible 48000 Hz 1 B": "7d1c9b1a2a1f145efb2417f32385b15d5f7b7dc5ac1c26bb4d5f217e0436a1f9",
+  "audible 48000 Hz 255 B": "3d9dce123705f3bb5faf9423b4952aef622a23fb8292d29c56a6a05305664d5c",
+  "audible 48000 Hz 37 B": "358ab8fc3756a6c0d713a9f8cc08a61474eba816805bc56ebe2d07299fe32250",
+  "fast 44100 Hz 1 B": "1794cff3db5e37a7717d54278f6f04094febcec03dd0916f2e54afd1fe390d97",
+  "fast 44100 Hz 255 B": "195f4ce60828b2d94acc5cdf34324a5a71902165fa9ae495c24295d8b95584cf",
+  "fast 44100 Hz 37 B": "6238f3a8e9c1c0e75df29e8e71dcd9218f0f15cc66eb904c1a80370e2263e5e2",
+  "fast 48000 Hz 1 B": "d55fe7ad59bec5a57634c75e2e4189719309501ed25cf52202762eda84905df0",
+  "fast 48000 Hz 255 B": "502ed99959bf1369f098c809b28680d9c9eaa4eb820f8c79fefae08da5027efd",
+  "fast 48000 Hz 37 B": "193756ea7d4f7444a78d49c44b7d768ede24233cc87a66529de3de0667135fd3",
+  "ultrasonic 44100 Hz 1 B": "56a019f06daf51654cb61620121e9b850893133544866cd646d552fea0dda6d6",
+  "ultrasonic 44100 Hz 255 B": "038c19e551d80e3b6cc9a46eb62173b94b54ae051ff14f159eeeeef2e01ee28b",
+  "ultrasonic 44100 Hz 37 B": "5430960245071045487f9bedaafc193f9e198ae166dfd07c6a0ac5945af2815d",
+  "ultrasonic 48000 Hz 1 B": "51384eb82c788a9e9c5cec76f0d73fa15173a79174cbde00783463d13384be1f",
+  "ultrasonic 48000 Hz 255 B": "a92e1050bfb738cdd349bdd6d2129da2ab943a729b3fca028426d5d63f7ef3da",
+  "ultrasonic 48000 Hz 37 B": "cae9c0d086f039da6e9412fbf1ab617a09cce9d701d996160848a92a0d8e7519",
+}
+`;
