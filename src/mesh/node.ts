@@ -129,7 +129,8 @@ export class MeshNode {
   readonly stats = { heard: 0, delivered: 0, relayed: 0, suppressed: 0, carried: 0 };
   readonly config: MeshConfig = { ...DEFAULT_CONFIG };
   private readonly seen = new Map<string, number>();
-  private readonly delivered = new Set<string>();
+  /** When each packet was handed to the app, so a retry of it is not handed over twice. */
+  private readonly delivered = new Map<string, number>();
   private relays: PendingRelay[] = [];
   private acks = new Map<number, PendingAck>();
   private echoes = new Map<number, PendingAck>();
@@ -148,7 +149,7 @@ export class MeshNode {
   originate(p: Omit<Packet, 'src' | 'hops' | 'attempt'>, reason: 'origin' | 'ack' = 'origin'): Packet {
     const packet: Packet = { ...p, src: this.id, hops: 0, attempt: 0 };
     this.seen.set(relayKey(packet), this.clock.now());
-    this.delivered.add(storeKey(packet));
+    this.delivered.set(storeKey(packet), this.clock.now());
     if (this.isStorable(packet)) this.remember(packet, true);
     // Retry timers start once the frame has actually been on air (see aired()).
     if (packet.ackRequested && packet.dst !== BROADCAST) {
@@ -210,7 +211,7 @@ export class MeshNode {
     }
     const forMe = p.dst === BROADCAST || p.dst === this.id;
     if (forMe && p.type !== PacketType.Ack && p.type !== PacketType.Hello && !this.delivered.has(sk)) {
-      this.delivered.add(sk);
+      this.delivered.set(sk, now);
       this.stats.delivered++;
       this.events.deliver(p);
     }
@@ -388,7 +389,7 @@ export class MeshNode {
       if (!p) continue;
       this.store.set(storeKey(p), s);
       this.seen.set(relayKey(p), s.firstHeard);
-      this.delivered.add(storeKey(p));
+      this.delivered.set(storeKey(p), s.firstHeard);
     }
   }
 
@@ -455,10 +456,15 @@ export class MeshNode {
     this.neighbors.set(id, n);
   }
 
-  /** Dedupe memory outlives everything stored, so a late copy of something we hold is not relayed again. */
+  /**
+   * Dedupe memory outlives everything stored, so a late copy of something we hold is not relayed
+   * again. Deliveries and neighbours go with it: a beacon runs for days.
+   */
   private pruneSeen(now: number) {
     if (this.seen.size < 4000) return;
     const keep = Math.max(this.config.storeTtlMs, this.config.lastingTtlMs);
     for (const [k, t] of this.seen) if (now - t > keep) this.seen.delete(k);
+    for (const [k, t] of this.delivered) if (now - t > keep) this.delivered.delete(k);
+    for (const [id, n] of this.neighbors) if (now - n.lastHeard > keep) this.neighbors.delete(id);
   }
 }

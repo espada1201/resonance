@@ -453,6 +453,20 @@ describe('how long news lasts', () => {
     expect(relayed[0]).toBeLessThan(35_000);
   });
 
+  it('forgets a neighbour it has not heard from for as long as it keeps anything', () => {
+    // A beacon runs for days among phones that come and go, and a stranger can invent ids: the
+    // People list and the To menu must not fill with ghosts.
+    let t = 0;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    const from = (src: number, msgId: number) =>
+      encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId, src, dst: BROADCAST, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody(text('hi')) });
+    for (let i = 0; i < 4000; i++) n.receive(from(0x100000 + i, i));
+    expect(n.neighbors.size).toBe(4000);
+    t += 73 * HOUR;
+    n.receive(from(0x200000, 1));
+    expect([...n.neighbors.keys()]).toEqual([0x200000]);
+  });
+
   it('a full store drops chat and file chunks before check-ins', () => {
     // A few photos must not push out who asked for help.
     let t = 0;
