@@ -82,6 +82,11 @@ it('audible: follows a sender whose clock glides 0.4% during a 13 s frame', () =
   expect([1, 2, 3].every((seed) => trial('audible', { glide: 0.004, snrDb: 10 }, seed, 255))).toBe(true);
 });
 
+// At 19 kHz the same glide moves every tone by about three bins: the decoder must follow the pitch too.
+it('ultrasonic: follows a sender whose clock glides 0.4% during a 20 s frame, in a room', () => {
+  expect([1, 2].every((seed) => trial('ultrasonic', { glide: 0.004, rt60: 0.3, drrDb: 3, snrDb: 10 }, seed, 255))).toBe(true);
+});
+
 // The fast profile buys ~10x the speed with ~15 dB of link budget and tolerance for echoes, so it
 // is tested where it is meant to work: devices close together.
 describe('fast (OFDM) modem over a simulated channel', () => {

@@ -2,7 +2,7 @@ import { HEADER_BYTES, bodyBytes, decodeBody, decodeHeader } from './framing';
 import { BlockSpectra, MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
 import { demodSymbol, mfskSymbols } from './mfsk';
 import { OFDM_RATE, type Spectrum, bodyOffset, cpSize, derotate, fftSize, headerSteps, ofdmSymbols, readBytes, spectrum, stepSlope, stepSlopes, steps } from './ofdm';
-import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bytesPerSymbol, preambleSec, symbolSec } from './profiles';
+import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bandHz, bytesPerSymbol, preambleSec, symbolSec } from './profiles';
 import { SampleStore } from './sample-store';
 
 export interface DecodedFrame {
@@ -42,17 +42,19 @@ export const MAX_CLOCK_SKEW = 0.012;
  */
 export const MAX_HISTORY_SEC = 30;
 const TRACK_STEP_SEC = 0.0005;
+/** How far the chirp pair can misjudge the clock ratio in a room: MFSK headers search this far in pitch. */
+const PITCH_SEARCH = 0.0015;
 
 interface Pending {
   /** Absolute sample where the first symbol after the preamble begins. */
   s0: number;
   r: number;
-  /** Fine timing: offset of the MFSK symbol grid (receiver samples) or of the OFDM FFT windows (OFDM_RATE samples). */
+  /** OFDM fine timing: offset of the FFT windows, in OFDM_RATE samples. */
   tau: number;
   len?: number;
   started: number;
-  /** MFSK body decisions so far: symbol k is next, and tau is where the timing tracker has got to. */
-  body?: { k: number; tau: number; sym: Uint8Array; conf: Float64Array; snr: number };
+  /** MFSK body decisions so far: symbol k is next, and tau and r are where the timing and pitch trackers have got to. */
+  body?: { k: number; tau: number; r: number; sym: Uint8Array; conf: Float64Array; snr: number };
 }
 
 /** Streaming matched filter and chirp-pair sync for one profile; subclasses demodulate the frame. */
@@ -143,7 +145,19 @@ abstract class FrameDecoder<P extends Profile> {
   }
 }
 
+/**
+ * A quarter of a bin at the top of the band; 0 where that is coarser than PITCH_SEARCH (audible),
+ * since such wide bins need no pitch search or tracking.
+ */
+function pitchStep(p: MfskProfile) {
+  const quarterBin = p.binHz / (4 * bandHz(p)[1]);
+  return quarterBin <= PITCH_SEARCH ? quarterBin : 0;
+}
+
 class MfskDecoder extends FrameDecoder<MfskProfile> {
+  /** The pitch step of the header search and the body's tracker (see pitchStep). */
+  private readonly dr = pitchStep(this.p);
+
   private symbolSamples(r: number) {
     return (symbolSec(this.p) * this.fs) / r;
   }
@@ -152,52 +166,72 @@ class MfskDecoder extends FrameDecoder<MfskProfile> {
     return pd.s0 + symbols * this.symbolSamples(pd.r) + 0.01 * this.fs;
   }
 
-  private demod(pd: Pending, k: number, tau: number) {
+  /** Symbol k on the grid laid at sync, `tau` late, its tones heard at clock ratio `r`. */
+  private demod(pd: Pending, k: number, tau: number, r: number) {
     const start = pd.s0 + tau + k * this.symbolSamples(pd.r);
-    return demodSymbol(this.store.data.subarray(0, this.store.length), start - this.store.base, this.p, k, pd.r, this.fs);
+    return demodSymbol(this.store.data.subarray(0, this.store.length), start - this.store.base, this.p, k, r, this.fs);
+  }
+
+  /** The header heard at clock ratio `r`: its length, at the offset that makes its tones cleanest; null if it will not decode. */
+  private header(pd: Pending, r: number, maxTau: number) {
+    let tau = 0, bestScore = -1;
+    for (let t = -maxTau; t <= maxTau + 1e-9; t += 0.001 * this.fs) {
+      let score = 0;
+      for (let k = 0; k < HEADER_BYTES; k++) score += this.demod(pd, k, t, r).purity;
+      if (score > bestScore) { bestScore = score; tau = t; }
+    }
+    const sym = new Uint8Array(HEADER_BYTES);
+    const conf = new Float64Array(HEADER_BYTES);
+    for (let k = 0; k < HEADER_BYTES; k++) {
+      const d = this.demod(pd, k, tau, r);
+      sym[k] = d.byte;
+      conf[k] = d.conf;
+    }
+    const len = decodeHeader(sym, conf);
+    return len === null ? null : { len, tau };
   }
 
   protected advance(pd: Pending) {
     const maxTau = 0.005 * this.fs;
     if (pd.len === undefined) {
       if (this.store.end < this.needed(pd, HEADER_BYTES) + maxTau) return;
-      // Fine timing: pick the offset that makes header tones cleanest.
-      let bestTau = 0, bestScore = -1;
-      for (let tau = -maxTau; tau <= maxTau + 1e-9; tau += 0.001 * this.fs) {
-        let score = 0;
-        for (let k = 0; k < HEADER_BYTES; k++) score += this.demod(pd, k, tau).purity;
-        if (score > bestScore) { bestScore = score; bestTau = tau; }
+      // In a room the chirp pair can misjudge the clock ratio by most of a bin at 19 kHz: a header
+      // that will not decode at the ratio sync measured gets the pitches either side, nearest first.
+      const pitches = [0];
+      for (let j = 1; this.dr && j * this.dr <= PITCH_SEARCH; j++) pitches.push(-j, j);
+      for (const j of pitches) {
+        const r = pd.r * (1 + j * this.dr);
+        const h = this.header(pd, r, maxTau);
+        if (!h) continue;
+        pd.len = h.len;
+        const nb = mfskSymbols(h.len) - HEADER_BYTES;
+        pd.body = { k: HEADER_BYTES, tau: h.tau, r, sym: new Uint8Array(nb), conf: new Float64Array(nb), snr: 0 };
+        break;
       }
-      pd.tau = bestTau;
-      const sym = new Uint8Array(HEADER_BYTES);
-      const conf = new Float64Array(HEADER_BYTES);
-      for (let k = 0; k < HEADER_BYTES; k++) {
-        const d = this.demod(pd, k, pd.tau);
-        sym[k] = d.byte;
-        conf[k] = d.conf;
-      }
-      const len = decodeHeader(sym, conf);
-      if (len === null) return this.finish(pd, 'header', pd.s0);
-      pd.len = len;
+      if (pd.len === undefined) return this.finish(pd, 'header', pd.s0);
     }
     const total = mfskSymbols(pd.len);
     const end = this.needed(pd, total);
     const complete = this.store.end >= end + maxTau;
-    const nb = total - HEADER_BYTES;
     const step = TRACK_STEP_SEC * this.fs;
     const S = this.symbolSamples(pd.r);
-    const b = (pd.body ??= { k: HEADER_BYTES, tau: pd.tau, sym: new Uint8Array(nb), conf: new Float64Array(nb), snr: 0 });
+    const b = pd.body!;
     // Each symbol is decided as soon as every sample its late timing guess reads has arrived (after
     // rounding, that window can end a sample past the symbol; the 2 keeps clear of it), so the work
     // spreads over the frame instead of stalling the push that completes it. Whatever is left when
     // the frame is complete is decided then, from the same samples one pass at the end would read.
     for (; b.k < total && (complete || this.store.end >= pd.s0 + b.tau + step + (b.k + 1) * S + 2); b.k++) {
-      // Early-late timing tracker absorbs residual clock error over long frames.
-      const mid = this.demod(pd, b.k, b.tau);
-      const early = this.demod(pd, b.k, b.tau - step).purity;
-      const late = this.demod(pd, b.k, b.tau + step).purity;
+      // Early-late trackers, in time and in pitch, follow a sender whose clock (or speed) changes
+      // during the frame: at 19 kHz a 0.13% change moves every tone by a whole bin.
+      const mid = this.demod(pd, b.k, b.tau, b.r);
+      const early = this.demod(pd, b.k, b.tau - step, b.r).purity;
+      const late = this.demod(pd, b.k, b.tau + step, b.r).purity;
+      const low = this.dr && this.demod(pd, b.k, b.tau, b.r * (1 - this.dr)).purity;
+      const high = this.dr && this.demod(pd, b.k, b.tau, b.r * (1 + this.dr)).purity;
       if (late > mid.purity && late > early) b.tau += step / 2;
       else if (early > mid.purity && early > late) b.tau -= step / 2;
+      if (high > mid.purity && high > low) b.r *= 1 + this.dr / 2;
+      else if (low > mid.purity && low > high) b.r *= 1 - this.dr / 2;
       b.sym[b.k - HEADER_BYTES] = mid.byte;
       b.conf[b.k - HEADER_BYTES] = mid.conf;
       b.snr += mid.snr;
@@ -205,7 +239,7 @@ class MfskDecoder extends FrameDecoder<MfskProfile> {
     if (!complete) return;
     const res = decodeBody(pd.len, b.sym, b.conf);
     if (!res) return this.finish(pd, 'body', end);
-    this.emit(pd, end, res.payload, 10 * Math.log10(b.snr / nb), res.corrected);
+    this.emit(pd, end, res.payload, 10 * Math.log10(b.snr / b.sym.length), res.corrected);
   }
 }
 
