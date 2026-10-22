@@ -29,6 +29,7 @@ class World {
         this.tx.push({ from: name, reason, packet: decodePacket(bytes)! });
         this.onAir.set(name, this.t + AIRTIME);
         this.at(this.t + AIRTIME, () => {
+          node.aired(bytes);
           for (const to of this.nodes.keys()) {
             if (to !== name && this.linked(name, to) && !this.drop(name, to, decodePacket(bytes)!)) this.nodes.get(to)!.receive(bytes);
           }
@@ -166,6 +167,39 @@ describe('mesh flooding', () => {
     const q = send(b, text('hello C'));
     pair.run(120_000);
     expect(pair.tx.filter((t) => t.from === 'B' && t.packet.msgId === q.msgId)).toHaveLength(1);
+  });
+
+  it('starts retry timers when a frame has finished on air, not when it was queued', () => {
+    // A frame can wait in the transmit queue behind a whole file. Retrying it before anyone could
+    // have heard it only doubles the traffic.
+    let t = 0;
+    const sent: Array<{ at: number; p: Packet }> = [];
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: (b) => void sent.push({ at: t, p: decodePacket(b)! }), deliver: () => undefined });
+    const echo = send(n, text('queued broadcast'));
+    const direct = send(n, text('queued direct'), { dst: 9, ackRequested: true });
+    for (; t < 60_000; t += 500) n.tick();
+    expect(sent.map((s) => s.p.attempt)).toEqual([0, 0]);
+    for (const s of sent.slice()) n.aired(encodePacket(s.p));
+    for (; t < 160_000; t += 500) n.tick();
+    const retries = sent.filter((s) => s.p.attempt === 1);
+    expect(retries.map((s) => s.p.msgId).sort()).toEqual([echo.msgId, direct.msgId].sort());
+    // Echo timeout 20-28 s and ACK timeout 45-50 s, both counted from 60 s.
+    expect(retries.find((s) => s.p.msgId === echo.msgId)!.at).toBeGreaterThanOrEqual(80_000);
+    expect(retries.find((s) => s.p.msgId === direct.msgId)!.at).toBeGreaterThanOrEqual(105_000);
+  });
+
+  it('answers a burst of identical file requests with one resend', () => {
+    // Several neighbours missing the same chunk tend to ask at once; the author resends it once.
+    let t = 0;
+    const reasons: string[] = [];
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: (_b, reason) => void reasons.push(reason), deliver: () => undefined });
+    const p = send(n, text('chunk'));
+    expect(n.resend(1, p.msgId)).toBe(true);
+    t += 3_000;
+    expect(n.resend(1, p.msgId)).toBe(false);
+    t += 20_000;
+    expect(n.resend(1, p.msgId)).toBe(true);
+    expect(reasons).toEqual(['origin', 'carry', 'carry']);
   });
 
   it('stops at the TTL', () => {
@@ -312,12 +346,20 @@ describe('transmit queue', () => {
     expect(q.deferrals).toBe(1);
   });
 
+  it('reports the frames a full queue drops, so their retry timers still start', () => {
+    const done: number[] = [];
+    const q = new TxQueue({ busy: () => false, send: async () => undefined, finished: (b) => void done.push(b[0]) }, { now: () => 0, random: () => 0.5 });
+    for (let i = 0; i < 66; i++) q.enqueue(Uint8Array.of(i));
+    expect(done).toEqual([64, 65]);
+    expect(q.length).toBe(64);
+  });
+
   it('stops deferring after 12 s of busy air, and reports each finished frame', async () => {
     // Carrier sense can be fooled (a fridge, a stuck decoder); staying silent forever is worse.
     let t = 0;
     let finished = 0;
     const sent: number[] = [];
-    const q = new TxQueue({ busy: () => true, send: async (b) => void sent.push(b[0]), sent: () => finished++ }, { now: () => t, random: () => 0.5 });
+    const q = new TxQueue({ busy: () => true, send: async (b) => void sent.push(b[0]), finished: () => finished++ }, { now: () => t, random: () => 0.5 });
     q.enqueue(Uint8Array.of(7));
     for (; t < 11_500; t += 500) await q.tick();
     expect(sent).toEqual([]);

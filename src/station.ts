@@ -64,6 +64,12 @@ interface Spectrum {
 }
 
 const DEFAULT_TTL = 5;
+/** Listening time after our own frame before the next may start (the worker's busy flag needs a few hundred ms). */
+const LISTEN_AFTER_SEND_MS = 400;
+/** Someone else's file that goes quiet this long asks for its missing pieces (random, so a crowd does not ask at once). */
+const FILE_PATIENCE_MS: [number, number] = [20_000, 35_000];
+/** Automatic asks per file; after that the feed's "Ask for missing" button is left. */
+const AUTO_ASKS = 3;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
 const KEY = 'resonance:v1:';
 const TYPE_LABEL: Record<number, string> = { 1: 'message', 2: 'check-in', 3: 'contact', 4: 'file chunk', 5: 'ack', 6: 'hello', 7: 'file request', 8: 'ranging' };
@@ -106,6 +112,8 @@ export class Station {
   private chunkIds = new Map<string, Map<number, number>>();
   private airSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private unmute: ReturnType<typeof setTimeout> | null = null;
+  private fileWaits = new Map<string, { due: number; asks: number }>();
   private frameInFlight: DecodedFrame | null = null;
   private readonly prefix: string;
 
@@ -136,7 +144,17 @@ export class Station {
     });
     this.mesh.config.relay = this.settings.relay;
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];
-    this.radio = new TxQueue({ busy: () => this.workerBusy, send: (b) => this.sendFrame(b), sent: () => this.changed() }, clock);
+    this.radio = new TxQueue(
+      {
+        busy: () => this.workerBusy,
+        send: (b) => this.sendFrame(b),
+        finished: (b) => {
+          this.mesh.aired(b);
+          this.changed();
+        },
+      },
+      clock,
+    );
     this.ranger = new Ranger({
       id: this.id,
       sampleRate: () => this.sampleRate || 48000,
@@ -191,6 +209,7 @@ export class Station {
       setInterval(() => {
         this.mesh.tick();
         void this.radio.tick();
+        this.chaseFiles();
       }, 200);
       const hello = () => this.mesh.hello(this.settings.nick, this.role);
       setTimeout(hello, 1500 + Math.random() * 3000);
@@ -268,12 +287,20 @@ export class Station {
     this.changed();
   }
 
-  private sendFrame(bytes: Uint8Array) {
+  private async sendFrame(bytes: Uint8Array) {
     const profile = this.settings.profile;
     const fs = this.sampleRate || 48000;
     const p = decodePacket(bytes);
     const label = p ? `${TYPE_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
-    return this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
+    await this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
+    // We were deaf while sending. Listen for a moment before the queue may send again, so carrier
+    // sense can hear a neighbour who started meanwhile.
+    await new Promise((r) => setTimeout(r, this.muteTailMs() + LISTEN_AFTER_SEND_MS));
+  }
+
+  /** How long the receiver stays muted after our own frame ends: the tail of our sound still in the capture path. */
+  private muteTailMs() {
+    return 150 + (this.transport.captureDelayMs ?? 0);
   }
 
   private async playWave(wave: Float32Array, profile: ProfileId, label: string, bytes?: number) {
@@ -282,13 +309,18 @@ export class Station {
     this.transmitting = { profile, seconds, started: Date.now() };
     this.logAir({ dir: 'tx', profile, label, bytes, airtimeSec: seconds });
     this.totals.txSec += seconds;
-    // Our own frames would otherwise be decoded as if a neighbour had repeated them.
+    // Our own frames would otherwise be decoded as if a neighbour had repeated them. A pending
+    // unmute from the previous frame must not cut into this one.
+    if (this.unmute) clearTimeout(this.unmute);
     this.toWorker({ type: 'mute', on: true });
     try {
       await this.transport.play(wave, fs);
     } finally {
       this.transmitting = null;
-      setTimeout(() => this.toWorker({ type: 'mute', on: false }), 150 + (this.transport.captureDelayMs ?? 0));
+      this.unmute = setTimeout(() => {
+        this.unmute = null;
+        this.toWorker({ type: 'mute', on: false });
+      }, this.muteTailMs());
       this.changed();
     }
   }
@@ -379,6 +411,35 @@ export class Station {
     return this.send({ kind: 'filereq', fileSrc: f.src, fileId: f.fileId, missing: missing(f) }, { sealed: false });
   }
 
+  /** Heard progress on someone else's unfinished file: give it time before asking for the rest. */
+  private expectMore(key: string) {
+    const f = this.files.get(key);
+    if (!f || f.src === this.id || !missing(f).length) {
+      this.fileWaits.delete(key);
+      return;
+    }
+    const [lo, hi] = FILE_PATIENCE_MS;
+    const w = this.fileWaits.get(key) ?? { due: 0, asks: 0 };
+    w.due = Date.now() + lo + Math.random() * (hi - lo);
+    this.fileWaits.set(key, w);
+  }
+
+  /** Asks for the missing pieces of files that went quiet: a lost chunk is otherwise lost for good. */
+  private chaseFiles() {
+    const now = Date.now();
+    for (const [key, w] of this.fileWaits) {
+      if (w.due > now) continue;
+      const f = this.files.get(key);
+      if (!f || !missing(f).length || w.asks >= AUTO_ASKS) {
+        this.fileWaits.delete(key);
+        continue;
+      }
+      w.asks++;
+      this.expectMore(key);
+      void this.requestMissing(key);
+    }
+  }
+
   // ---- receiving -------------------------------------------------------------------------
 
   private itemBase(p: Packet, mine: boolean): FeedItem {
@@ -398,9 +459,13 @@ export class Station {
     if (body.kind === 'file') {
       this.trackChunk(p.src, body.fileId, body.index, p.msgId);
       const f = addChunk(this.files, p.src, body);
+      this.expectMore(f.key);
       const id = `file:${f.key}`;
       if (!this.feed.some((i) => i.id === id)) this.addFeed({ ...this.itemBase(p, false), id, fileKey: f.key });
     } else if (body.kind === 'filereq') {
+      // Someone already asked for a file we are missing too: their answer may fill our gaps.
+      const k = fileKey(body.fileSrc, body.fileId);
+      if (this.fileWaits.has(k)) this.expectMore(k);
       this.answerFileRequest(body.fileSrc, body.fileId, body.missing);
     } else if (body.kind === 'range') {
       void this.ranger.onPacket(p, body, frame);

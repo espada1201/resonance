@@ -76,6 +76,9 @@ interface PendingAck {
   due: number;
 }
 
+/** Neighbours missing the same file chunk tend to ask at once; answer the burst once. */
+const RESEND_COOLDOWN_MS = 15_000;
+
 const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
 const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
 
@@ -102,13 +105,28 @@ export class MeshNode {
     this.seen.set(relayKey(packet), this.clock.now());
     this.delivered.add(storeKey(packet));
     if (this.isStorable(packet)) this.remember(packet);
+    // Retry timers start once the frame has actually been on air (see aired()).
     if (packet.ackRequested && packet.dst !== BROADCAST) {
-      this.acks.set(packet.msgId, { packet, due: this.clock.now() + this.ackTimeout(packet) });
+      this.acks.set(packet.msgId, { packet, due: Infinity });
     } else if (packet.dst === BROADCAST && packet.ttl > 1 && this.isStorable(packet)) {
-      this.echoes.set(packet.msgId, { packet, due: this.clock.now() + this.echoTimeout() });
+      this.echoes.set(packet.msgId, { packet, due: Infinity });
     }
     this.events.transmit(encodePacket(packet), 'origin');
     return packet;
+  }
+
+  /**
+   * The radio has finished playing (or given up on) a frame. Retry timers count from here, not
+   * from when the frame was queued: it may have waited behind a whole file.
+   */
+  aired(bytes: Uint8Array) {
+    const p = decodePacket(bytes);
+    if (!p || p.src !== this.id) return;
+    const now = this.clock.now();
+    const a = this.acks.get(p.msgId);
+    if (a && a.packet.attempt === p.attempt) a.due = now + this.ackTimeout(p);
+    const e = this.echoes.get(p.msgId);
+    if (e && p.attempt === 0) e.due = now + this.echoTimeout();
   }
 
   /** Feeds bytes decoded off the air. Returns the parsed packet, or null for junk. */
@@ -199,11 +217,12 @@ export class MeshNode {
     }
   }
 
-  /** Re-sends stored packets (used to answer file-chunk requests). */
+  /** Re-sends a stored packet (used to answer file-chunk requests), at most once per RESEND_COOLDOWN_MS. */
   resend(src: number, msgId: number): boolean {
     const s = this.store.get(storeKey({ src, msgId }));
-    if (!s) return false;
-    s.lastPushed = this.clock.now();
+    const now = this.clock.now();
+    if (!s || now - s.lastPushed < RESEND_COOLDOWN_MS) return false;
+    s.lastPushed = now;
     this.events.transmit(encodePacket({ ...decodePacket(s.bytes)!, hops: 0 }), 'carry');
     return true;
   }
@@ -233,7 +252,7 @@ export class MeshNode {
         continue;
       }
       a.packet = { ...a.packet, attempt: a.packet.attempt + 1 };
-      a.due = now + this.ackTimeout(a.packet);
+      a.due = Infinity;
       this.seen.set(relayKey(a.packet), now);
       this.events.transmit(encodePacket(a.packet), 'retry');
     }

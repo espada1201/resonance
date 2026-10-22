@@ -8,8 +8,8 @@ interface RadioIO {
   busy(): boolean;
   /** Plays one frame; resolves when it has finished on air. */
   send(bytes: Uint8Array): Promise<void>;
-  /** Called once a frame has finished and the queue has moved on. */
-  sent?(): void;
+  /** The queue is done with a frame: it finished on air, or a full queue dropped it. */
+  finished?(bytes: Uint8Array): void;
 }
 
 const SENSE_BACKOFF_MS: [number, number] = [250, 1500];
@@ -42,7 +42,7 @@ export class TxQueue {
   enqueue(bytes: Uint8Array, urgent = false) {
     if (urgent) this.queue.unshift(bytes);
     else this.queue.push(bytes);
-    if (this.queue.length > QUEUE_LIMIT) this.queue.length = QUEUE_LIMIT;
+    for (const dropped of this.queue.splice(QUEUE_LIMIT)) this.io.finished?.(dropped);
   }
 
   /** Call frequently; starts the next transmission when the air is clear. */
@@ -65,7 +65,7 @@ export class TxQueue {
       this.sending = false;
       // A short random gap lets other nodes grab the channel between our frames.
       this.notBefore = this.clock.now() + 150 + this.clock.random() * 600;
-      this.io.sent?.();
+      this.io.finished?.(next);
     }
   }
 }
