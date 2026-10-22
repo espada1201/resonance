@@ -228,7 +228,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           </select>
         </label>
         <span class="budget small">
-          {mode === 'text' && <span class={room < 0 ? 'over' : ''}>{room} bytes left · </span>}
+          {(mode === 'text' || mode === 'contact') && <span class={room < 0 ? 'over' : ''}>{room} bytes left · </span>}
           {eta > 0 && (mode === 'file' ? <>about {seconds(eta)} to send</> : <>≈ {seconds(eta)} on air</>)}
           {sealed && (
             <span class="sealed-note">
