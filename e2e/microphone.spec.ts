@@ -1,5 +1,5 @@
 import { FAKE_MIC_PROFILES, FAKE_MIC_SENDER, FAKE_MIC_WAV, fakeMicBytes, fakeMicText } from './fake-mic';
-import { airRow, expect, feedItem, test } from './helpers';
+import { airRow, expect, feedItem, openTab, test } from './helpers';
 
 // The real capture path: getUserMedia -> AudioWorklet -> demodulator worker -> mesh -> feed.
 // Chromium's fake capture device plays a recording rendered by the app's own modulator (see
@@ -17,16 +17,24 @@ test.use({
   },
 });
 
+/** How the air log names each mode. */
+const MODE_LABEL = { audible: 'audible', fast: 'fast', ultrasonic: 'quiet' };
+
 for (const profile of FAKE_MIC_PROFILES) {
   test(`decodes the ${profile} message played into the microphone`, async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Start listening' }).click();
+    // A station is deaf while it transmits and the recording keeps looping: relaying what it
+    // decodes would mask whole passes of the loop. Off before the first frame decodes (~5 s).
+    await openTab(page, 'Settings');
+    await page.getByRole('checkbox', { name: /Relay messages for others/ }).uncheck();
+    await openTab(page, 'Feed');
 
     const item = feedItem(page, fakeMicText(profile));
     await expect(item).toBeVisible();
     await expect(item).toContainText('fake mic');
     await expect(item).toContainText('heard directly');
-    const size = new RegExp(`\\b${fakeMicBytes(profile)} B\\b`);
-    await expect(airRow(page, 'IN', `message from ${process.env[FAKE_MIC_SENDER]}`, size)).toBeVisible();
+    const modeAndSize = new RegExp(`${MODE_LABEL[profile]} · ${fakeMicBytes(profile)} B\\b`);
+    await expect(airRow(page, 'IN', `message from ${process.env[FAKE_MIC_SENDER]}`, modeAndSize)).toBeVisible();
   });
 }
