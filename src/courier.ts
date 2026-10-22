@@ -20,13 +20,14 @@ export interface Parcel {
 
 /**
  * A phone number or an email address as typed, or null. Addresses arrive over the air from
- * strangers, so only plain ones pass: nothing that could add recipients or a script to a link.
+ * strangers, so only plain ones pass: nothing that could add recipients (mail apps decode %2C to a
+ * comma) or a script to a link, and no short code, which can be a paid service.
  */
 export function parseOutside(typed: string): Address | null {
   const s = typed.trim();
-  if (/^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(s)) return { channel: 'email', to: s };
+  if (/^[A-Za-z0-9._+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(s)) return { channel: 'email', to: s };
   const phone = s.replace(/[\s().-]/g, '');
-  return /^\+?\d{5,20}$/.test(phone) ? { channel: 'sms', to: phone } : null;
+  return /^\+?\d{7,20}$/.test(phone) ? { channel: 'sms', to: phone } : null;
 }
 
 const ref = (src: number, msgId: number) => `${src}:${msgId}`;
