@@ -1,4 +1,5 @@
-import { MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
+import { BlockSpectra, MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
+import { SampleStore } from './sample-store';
 
 // A ranging ping: a 40 ms down-sweep from 6 kHz to 1.5 kHz. Sweeping down keeps it from
 // looking like the up-sweeping frame preambles, and 4.5 kHz of bandwidth gives a correlation
@@ -22,41 +23,29 @@ export function renderPing(fs: number): Float32Array {
 
 /** Streams samples and reports the first-arrival time of every ping it hears. */
 export class PingDetector {
+  private readonly store = new SampleStore();
   private readonly filter: MatchedFilter;
+  private readonly blocks: BlockSpectra;
   private readonly picker: PeakPicker;
-  private buf = new Float32Array(1 << 15);
-  private base = 0;
-  private len = 0;
 
   constructor(
     fs: number,
     private readonly onPing: (p: Peak) => void,
   ) {
     this.filter = new MatchedFilter(chirpTemplate(PING.startHz, PING.endHz, PING.sec, fs));
+    this.blocks = new BlockSpectra(this.filter.M);
     this.picker = new PeakPicker(0.25, this.filter.M, 0.003 * fs, 0.5);
   }
 
   push(chunk: Float32Array) {
-    if (this.len + chunk.length > this.buf.length) {
-      const keep = Math.max(0, Math.floor(this.filter.next - this.base));
-      this.buf.copyWithin(0, keep, this.len);
-      this.len -= keep;
-      this.base += keep;
-      if (this.len + chunk.length > this.buf.length) {
-        const bigger = new Float32Array((this.len + chunk.length) * 2);
-        bigger.set(this.buf.subarray(0, this.len));
-        this.buf = bigger;
-      }
-    }
-    this.buf.set(chunk, this.len);
-    this.len += chunk.length;
-    this.filter.run(
-      this.base + this.len,
-      (abs, n) => this.buf.subarray(abs - this.base, abs - this.base + n),
-      (pos, rho) => {
-        const peak = this.picker.push(pos, rho);
-        if (peak) this.onPing(peak);
-      },
-    );
+    this.store.push(chunk);
+    for (const b of this.blocks.advance(this.store)) this.filter.correlate(b, this.score);
+    // Only the block in progress is read again.
+    this.store.trimBefore(this.blocks.next);
   }
+
+  private readonly score = (pos: number, rho: number) => {
+    const peak = this.picker.push(pos, rho);
+    if (peak) this.onPing(peak);
+  };
 }

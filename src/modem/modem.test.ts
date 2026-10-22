@@ -138,6 +138,19 @@ describe('receiver behaviour', () => {
     expect(got).toEqual(['audible:loud and far', 'ultrasonic:quiet and near']);
   });
 
+  it('listens on profiles whose chirps differ in length', () => {
+    // Profiles with one chirp length share each block's transform; another length gets its own.
+    const fs = 48000;
+    const short = { ...PROFILES.audible, chirpSec: 0.05 };
+    const a = new TextEncoder().encode('short chirp');
+    const b = new TextEncoder().encode('standard chirp');
+    const stream = mix(4 * fs, [[1000, modulate(a, short, fs)], [9000, modulate(b, PROFILES.ultrasonic, fs)]], 0.01, rng(6));
+    const got: string[] = [];
+    const rx = new Receiver(fs, [short, PROFILES.fast, PROFILES.ultrasonic], { frame: (f) => got.push(`${f.profile}:${new TextDecoder().decode(f.payload)}`) });
+    for (let i = 0; i < stream.length; i += 2048) rx.push(stream.subarray(i, i + 2048));
+    expect(got.sort()).toEqual(['audible:short chirp', 'ultrasonic:standard chirp']);
+  });
+
   it('decodes all three profiles back to back without a false alarm', () => {
     const fs = 48000;
     const text: Record<ProfileId, string> = { audible: 'far away', fast: 'close and quick', ultrasonic: 'quiet' };

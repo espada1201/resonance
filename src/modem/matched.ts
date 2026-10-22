@@ -21,60 +21,116 @@ export function chirpTemplate(f0: number, f1: number, sec: number, fs: number): 
   return { re, im };
 }
 
+/** Overlap-save block length for templates of length M: at least four template lengths. */
+const blockSize = (M: number) => nextPow2(M * 4);
+
+/** One overlap-save block of a stream: its spectrum, and the running energy of its samples. */
+export interface Block {
+  /** Absolute index of the block's first sample, which is also its first lag. */
+  start: number;
+  readonly re: Float64Array;
+  readonly im: Float64Array;
+  /** cum[i] = energy of the block's first i samples. */
+  readonly cum: Float64Array;
+}
+
+/** A sample stream addressed by absolute index (see SampleStore). */
+interface Stream {
+  readonly end: number;
+  view(abs: number, n: number): Float32Array;
+}
+
 /**
- * Overlap-save FFT correlation of a sample stream with a complex template. Emits, for every
- * lag, |<x, t>| / (‖t‖·‖x‖) — a normalised score near 0.7 for a clean real copy of the template
+ * Cuts a stream into the overlap-save blocks that templates of length M correlate with, and
+ * transforms each block once, however many templates read it.
+ */
+export class BlockSpectra {
+  private readonly N: number;
+  /** New lags per block. */
+  private readonly L: number;
+  /** Absolute index of the next lag to evaluate: the start of the next block. */
+  next = 0;
+  private readonly done: Block[] = [];
+  /** Buffers for as many blocks as one advance() has completed at most. */
+  private readonly pool: Block[] = [];
+
+  constructor(readonly M: number) {
+    this.N = blockSize(M);
+    this.L = this.N - M + 1;
+  }
+
+  /** The blocks the last advance() completed, oldest first. The next advance() reuses their buffers. */
+  get ready(): readonly Block[] {
+    return this.done;
+  }
+
+  /** Transforms every block the stream now completes. */
+  advance(s: Stream): readonly Block[] {
+    const { N, L, done } = this;
+    done.length = 0;
+    while (s.end >= this.next + N) {
+      const b = (this.pool[done.length] ??= { start: 0, re: new Float64Array(N), im: new Float64Array(N), cum: new Float64Array(N + 1) });
+      const { re, im, cum } = b;
+      const x = s.view(this.next, N);
+      im.fill(0);
+      for (let i = 0; i < N; i++) {
+        re[i] = x[i];
+        cum[i + 1] = cum[i] + x[i] * x[i];
+      }
+      fft(re, im);
+      b.start = this.next;
+      done.push(b);
+      this.next += L;
+    }
+    return done;
+  }
+}
+
+/**
+ * Overlap-save FFT correlation of a sample stream with a complex template, one block of a
+ * BlockSpectra (of the template's length) at a time. Emits, for every lag,
+ * |<x, t>| / (‖t‖·‖x‖) — a normalised score near 0.7 for a clean real copy of the template
  * (its analytic counterpart scores 1), independent of loudness.
  */
 export class MatchedFilter {
   readonly M: number;
-  private readonly N: number;
-  private readonly L: number;
   private readonly tRe: Float64Array;
   private readonly tIm: Float64Array;
   private readonly tEnergy: number;
-  /** Absolute index of the next lag to evaluate. */
-  next = 0;
+  /** Scratch for one block's correlation. */
+  private readonly re: Float64Array;
+  private readonly im: Float64Array;
 
   constructor(t: Template) {
     this.M = t.re.length;
-    this.N = nextPow2(this.M * 4);
-    this.L = this.N - this.M + 1;
-    this.tRe = new Float64Array(this.N);
-    this.tIm = new Float64Array(this.N);
+    const N = blockSize(this.M);
+    this.tRe = new Float64Array(N);
+    this.tIm = new Float64Array(N);
     this.tRe.set(t.re);
     this.tIm.set(t.im);
     let e = 0;
     for (let i = 0; i < this.M; i++) e += t.re[i] * t.re[i] + t.im[i] * t.im[i];
     this.tEnergy = e;
     fft(this.tRe, this.tIm);
+    this.re = new Float64Array(N);
+    this.im = new Float64Array(N);
   }
 
-  /** Processes every complete block before `end`, reading samples through `view`. */
-  run(end: number, view: (abs: number, n: number) => Float32Array, onRho: (pos: number, rho: number) => void) {
-    const { N, M, L } = this;
-    while (end >= this.next + N) {
-      const x = view(this.next, N);
-      const re = new Float64Array(N);
-      const im = new Float64Array(N);
-      const cum = new Float64Array(N + 1);
-      for (let i = 0; i < N; i++) {
-        re[i] = x[i];
-        cum[i + 1] = cum[i] + x[i] * x[i];
-      }
-      fft(re, im);
-      for (let i = 0; i < N; i++) {
-        // X · conj(T)
-        const a = re[i], b = im[i], c = this.tRe[i], d = -this.tIm[i];
-        re[i] = a * c - b * d;
-        im[i] = a * d + b * c;
-      }
-      fft(re, im, true);
-      for (let n = 0; n < L; n++) {
-        const e = cum[n + M] - cum[n];
-        onRho(this.next + n, e > 1e-9 ? Math.hypot(re[n], im[n]) / Math.sqrt(this.tEnergy * e) : 0);
-      }
-      this.next += L;
+  /** Scores every lag of block `b`, in order. */
+  correlate(b: Block, onRho: (pos: number, rho: number) => void) {
+    const { M, re, im, tRe, tIm } = this;
+    const N = re.length;
+    const L = N - M + 1;
+    for (let i = 0; i < N; i++) {
+      // X · conj(T)
+      const a = b.re[i], bi = b.im[i], c = tRe[i], d = -tIm[i];
+      re[i] = a * c - bi * d;
+      im[i] = a * d + bi * c;
+    }
+    fft(re, im, true);
+    for (let n = 0; n < L; n++) {
+      const e = b.cum[n + M] - b.cum[n];
+      onRho(b.start + n, e > 1e-9 ? Math.hypot(re[n], im[n]) / Math.sqrt(this.tEnergy * e) : 0);
     }
   }
 }

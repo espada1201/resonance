@@ -1,8 +1,9 @@
-import { goertzel, nextPow2 } from './dsp';
+import { goertzel } from './dsp';
 import { HEADER_BYTES, bodyBytes, decodeBody, decodeHeader } from './framing';
-import { MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
+import { BlockSpectra, MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
 import { OFDM_RATE, type Spectrum, bodyOffset, cpSize, derotate, fftSize, headerSteps, ofdmSymbols, readBytes, spectrum, stepSlope, stepSlopes, steps } from './ofdm';
 import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bytesPerSymbol, groupTones, preambleSec, symbolSec, windowSec } from './profiles';
+import { SampleStore } from './sample-store';
 
 export interface DecodedFrame {
   payload: Uint8Array;
@@ -79,47 +80,6 @@ export function demodSymbol(x: Float32Array, start: number, p: MfskProfile, k: n
   return { byte, conf, purity: purity / p.groups, snr: snr / p.groups };
 }
 
-/** Append-only sample store addressed by absolute index; old samples are discarded on trim. */
-class SampleStore {
-  data = new Float32Array(1 << 16);
-  base = 0;
-  length = 0;
-  get end() {
-    return this.base + this.length;
-  }
-  push(chunk: Float32Array) {
-    if (this.length + chunk.length > this.data.length) {
-      const next = new Float32Array(nextPow2(this.length + chunk.length) * 2);
-      next.set(this.data.subarray(0, this.length));
-      this.data = next;
-    }
-    this.data.set(chunk, this.length);
-    this.length += chunk.length;
-  }
-  trimBefore(abs: number) {
-    const drop = Math.min(this.length, Math.floor(abs - this.base));
-    if (drop <= 0) return;
-    this.data.copyWithin(0, drop, this.length);
-    this.length -= drop;
-    this.base += drop;
-  }
-  view(abs: number, n: number): Float32Array {
-    const out = new Float32Array(n);
-    const from = abs - this.base;
-    for (let i = Math.max(0, -from); i < n && from + i < this.length; i++) out[i] = this.data[from + i];
-    return out;
-  }
-  /** Cubic interpolation at a fractional absolute position (0 outside what is stored). */
-  at(pos: number): number {
-    const x = pos - this.base;
-    const i = Math.floor(x);
-    const f = x - i;
-    const y = (j: number) => (j >= 0 && j < this.length ? this.data[j] : 0);
-    const y0 = y(i - 1), y1 = y(i), y2 = y(i + 1), y3 = y(i + 2);
-    return y1 + 0.5 * f * (y2 - y0 + f * (2 * y0 - 5 * y1 + 4 * y2 - y3 + f * (3 * (y1 - y2) + y3 - y0)));
-  }
-}
-
 interface Pending {
   /** Absolute sample where the first symbol after the preamble begins. */
   s0: number;
@@ -133,6 +93,8 @@ interface Pending {
 /** Streaming matched filter and chirp-pair sync for one profile; subclasses demodulate the frame. */
 abstract class FrameDecoder<P extends Profile> {
   private readonly filter: MatchedFilter;
+  /** The stream's blocks for this profile's chirp length, shared with every profile of that length. */
+  private readonly blocks: BlockSpectra;
   private readonly picker: PeakPicker;
   private readonly D: number;
   private peaks: Peak[] = [];
@@ -147,9 +109,11 @@ abstract class FrameDecoder<P extends Profile> {
     readonly p: P,
     protected readonly fs: number,
     protected readonly store: SampleStore,
+    blocksFor: (M: number) => BlockSpectra,
     private readonly listener: ReceiverListener,
   ) {
     this.filter = new MatchedFilter(chirpTemplate(p.chirpLowHz, p.chirpHighHz, Math.round(p.chirpSec * fs) / fs, fs));
+    this.blocks = blocksFor(this.filter.M);
     this.picker = new PeakPicker(RHO_THRESHOLD, this.filter.M / 2, 0, 0.5, RHO_CFAR, 1 / (0.05 * fs));
     this.D = (p.chirpSec + p.chirpGapSec) * fs;
     this.humAlpha = 1 / (0.2 * fs);
@@ -157,17 +121,21 @@ abstract class FrameDecoder<P extends Profile> {
 
   /** Oldest absolute sample this decoder still needs. */
   get horizon() {
-    return this.pending ? this.pending.s0 - preambleSec(this.p) * this.fs : this.filter.next - this.D * 1.1;
+    return this.pending ? this.pending.s0 - preambleSec(this.p) * this.fs : this.blocks.next - this.D * 1.1;
   }
 
+  /** Scores the blocks this push completed (see Receiver.push), then decodes what it can. */
   process() {
-    this.filter.run(this.store.end, (abs, n) => this.store.view(abs, n), (pos, rho) => {
-      this.hum += (rho * rho - this.hum) * this.humAlpha;
-      const peak = this.picker.push(pos, rho);
-      if (peak) this.onPeak(peak);
-    });
+    for (const b of this.blocks.ready) this.filter.correlate(b, this.score);
     if (this.pending) this.advance(this.pending);
   }
+
+  /** Takes one sync score: carrier sense, then the peak picker. */
+  private readonly score = (pos: number, rho: number) => {
+    this.hum += (rho * rho - this.hum) * this.humAlpha;
+    const peak = this.picker.push(pos, rho);
+    if (peak) this.onPeak(peak);
+  };
 
   private onPeak(peak: Peak) {
     this.lastActivity = peak.pos;
@@ -340,6 +308,8 @@ class OfdmDecoder extends FrameDecoder<OfdmProfile> {
  */
 export class Receiver {
   private readonly store = new SampleStore();
+  /** One BlockSpectra per distinct chirp length, shared by every profile of that length. */
+  private readonly spectra = new Map<number, BlockSpectra>();
   private readonly decoders: Array<FrameDecoder<Profile>>;
 
   constructor(
@@ -347,7 +317,14 @@ export class Receiver {
     profiles: Profile[],
     listener: ReceiverListener,
   ) {
-    this.decoders = profiles.map((p) => (p.kind === 'ofdm' ? new OfdmDecoder(p, fs, this.store, listener) : new MfskDecoder(p, fs, this.store, listener)));
+    const blocksFor = (M: number) => {
+      const b = this.spectra.get(M) ?? new BlockSpectra(M);
+      this.spectra.set(M, b);
+      return b;
+    };
+    this.decoders = profiles.map((p) =>
+      p.kind === 'ofdm' ? new OfdmDecoder(p, fs, this.store, blocksFor, listener) : new MfskDecoder(p, fs, this.store, blocksFor, listener),
+    );
   }
 
   get samplesSeen() {
@@ -366,6 +343,9 @@ export class Receiver {
 
   push(chunk: Float32Array) {
     this.store.push(chunk);
+    // Transform each new block once, then let each decoder in turn score all of them and decode:
+    // the listener hears all of one profile's events, then the next profile's.
+    for (const s of this.spectra.values()) s.advance(this.store);
     for (const d of this.decoders) d.process();
     const keep = Math.max(Math.min(...this.decoders.map((d) => d.horizon)), this.store.end - 30 * this.fs);
     if (keep - this.store.base > 4 * this.fs) this.store.trimBefore(keep);
