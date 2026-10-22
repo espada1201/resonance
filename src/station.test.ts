@@ -424,6 +424,29 @@ describe('what people say', () => {
     expect(s.budget({ kind: 'text', text: '' }).left).toBe(left - SEAL_OVERHEAD);
   });
 
+  it('after a reload, says nothing until the circle key is made again, then says it sealed', async () => {
+    const storage = new MemoryStorage();
+    const first = new Station(air, 'phone', storage);
+    await first.setPassphrase(CIRCLE);
+    first.save();
+    const s = new Station(air, 'phone', storage);
+    const out = outbox(s);
+    await s.say({ kind: 'text', text: 'Meet at the library' });
+    expect(out.map((o) => o.p.encrypted)).toEqual([true]);
+  });
+
+  it('where the circle key cannot be made again, refuses to say anything in the open', async () => {
+    const storage = new MemoryStorage();
+    const first = new Station(air, 'phone', storage);
+    await first.setPassphrase(CIRCLE);
+    first.save();
+    vi.spyOn(crypto.subtle, 'importKey').mockRejectedValue(new DOMException('Not on a secure page', 'NotSupportedError'));
+    const s = new Station(air, 'phone', storage);
+    const out = outbox(s);
+    await expect(s.say({ kind: 'text', text: 'Meet at the library' })).rejects.toThrow('Your circle could not be joined in this browser');
+    expect(out).toEqual([]);
+  });
+
   it('reckons a 4 KB photo at about 3 minutes in Fast and 14 in Audible, as measured with three devices', () => {
     const s = new Station(air, 'phone', null);
     s.update({ profile: 'fast' });

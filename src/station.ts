@@ -78,6 +78,8 @@ export class Station {
 
   private readonly link: AirLink;
   private circle: Circle | null = null;
+  /** Settles once the circle being joined has its key, or failed to get one. */
+  private joining: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
   private airSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -370,15 +372,19 @@ export class Station {
   }
 
   private packetBytes(body: Body) {
-    return HEADER_LEN + encodeBody(body).length + (this.circle ? SEAL_OVERHEAD : 0);
+    return HEADER_LEN + encodeBody(body).length + (this.circle || this.settings.passphrase ? SEAL_OVERHEAD : 0);
   }
 
   /** Sealed for our circle, if we are in one, unless `sealed` is false. */
   private async transmit(body: Body, opts: { dst?: number; sealed?: boolean; ttl?: number } = {}) {
+    await this.joining;
     const dst = opts.dst ?? BROADCAST;
     const circle = (opts.sealed ?? true) ? this.circle : null;
     // A circle's thread never goes out in the open.
     if (opts.sealed && !circle) throw new Error(`Join the circle again to ${body.kind === 'reply' ? 'answer' : 'send'} this.`);
+    if (opts.sealed === undefined && this.settings.passphrase && !circle) {
+      throw new Error('Your circle could not be joined in this browser, so this would go out unsealed. Open Resonance from its https:// address.');
+    }
     const plain = encodeBody(body);
     const base: Omit<Packet, 'src' | 'hops' | 'attempt'> = {
       type: typeOf[body.kind],
@@ -400,6 +406,7 @@ export class Station {
   }
 
   async sendFile(name: string, mime: string, data: Uint8Array) {
+    await this.joining;
     const { key, chunks } = this.files.create(randomU32() & 0xffff, { name, mime }, data);
     this.journal.file({ src: this.id, msgId: 0, at: Date.now(), hops: 0, encrypted: !!this.circle, dst: BROADCAST }, key);
     for (const c of chunks) await this.transmit(c);
@@ -488,7 +495,9 @@ export class Station {
 
   /** Joins (or with "" leaves) a circle. Throws where the browser offers no crypto (plain http). */
   async setPassphrase(passphrase: string) {
-    const circle = passphrase ? await deriveCircle(passphrase) : null;
+    const deriving = passphrase ? deriveCircle(passphrase) : null;
+    this.joining = Promise.resolve(deriving).catch(() => undefined);
+    const circle = await deriving;
     this.settings.passphrase = passphrase;
     this.circle = circle;
     this.changed();
