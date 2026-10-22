@@ -319,6 +319,31 @@ describe('mesh flooding', () => {
     expect(w.deliveries).toEqual([['A', p.msgId, true]]);
   });
 
+  it('repeats a direct message only once its addressee had time to answer, and not at all if it did', () => {
+    // In one room the receipt and a repeat of the message started together, the sender lost the
+    // receipt in the collision, and it sent the message again a minute later (2 runs in 10).
+    let t = 0;
+    const sent: Array<[number, number]> = [];
+    const c = new MeshNode(3, { now: () => t, random: () => 0.5 }, { transmit: (b) => void sent.push([t, decodePacket(b)!.msgId]), deliver: () => undefined });
+    const dm = (msgId: number) => encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: true, msgId, src: 1, dst: 2, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody(text('hi B')) });
+    const ack = (msgId: number) =>
+      encodePacket({ type: PacketType.Ack, encrypted: false, ackRequested: false, msgId: msgId + 1000, src: 2, dst: 1, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody({ kind: 'ack', msgId, attempt: 0 }) });
+    const run = (until: number) => {
+      for (; t < until; t += 200) c.tick();
+    };
+    // The addressee heard it too: its receipt, sent at once, stands the repeat down.
+    c.receive(dm(50));
+    run(4000);
+    c.receive(ack(50));
+    run(20_000);
+    expect(sent.filter(([, id]) => id === 50)).toEqual([]);
+    // Nobody answers: repeated after one backoff window more than a broadcast waits.
+    c.receive(dm(51));
+    const heard = t;
+    run(heard + 20_000);
+    expect(sent.filter(([, id]) => id === 51).map(([at]) => at - heard)).toEqual([6400]);
+  });
+
   it('sends receipts as receipts, so the radio puts them ahead of queued traffic', () => {
     const sent: string[] = [];
     const n = new MeshNode(3, { now: () => 0, random: () => 0.5 }, { transmit: (b, reason) => void sent.push(`${PacketType[decodePacket(b)!.type]}:${reason}`), deliver: () => undefined });

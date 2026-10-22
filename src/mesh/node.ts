@@ -222,7 +222,9 @@ export class MeshNode {
     }
     if (p.dst === this.id && p.ackRequested && (this.events.readable?.(p) ?? true)) this.sendAck(p);
     if (this.isStorable(p)) this.remember(p);
-    if (this.config.relay && p.dst !== this.id) this.schedule(p, rk, 'relay');
+    // A direct message waits one backoff window more: if its addressee heard the same frame, the
+    // receipt it sends at once stands this repeat down instead of colliding with it.
+    if (this.config.relay && p.dst !== this.id) this.schedule(p, rk, 'relay', Number(p.ackRequested && p.dst !== BROADCAST));
     return p;
   }
 

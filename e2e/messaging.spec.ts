@@ -29,7 +29,7 @@ test('a direct message shows only to its addressee and comes back delivered', as
   await sendText(a, text);
   await expect(feedItem(b, text)).toContainText('direct to you');
   await expect(feedItem(a, text)).toContainText('delivered');
-  // The bystander heard and relayed the same frames, but the message is not for it.
+  // The bystander heard the same frames (its repeat stood down for the receipt), but the message is not for it.
   await expect(c.getByText(text)).toHaveCount(0);
   await proof(a, 'direct');
 });
