@@ -1,0 +1,200 @@
+name: iPhone app
+
+# Builds the native iPhone app with xtool, with no Mac of our own. GitHub's Mac machine lends the
+# parts of its Xcode that make up the iOS SDK, a Linux machine turns them into xtool's SDK and
+# builds the .ipa and a simulator build, and a simulated iPhone opens the app.
+on:
+  push:
+    paths: [ios/**, src/**, public/**, '*.html', package.json, package-lock.json, vite.config.ts, .github/workflows/ios.yml]
+  workflow_dispatch:
+
+env:
+  XTOOL: 1.22.2
+
+jobs:
+  xcode:
+    runs-on: macos-26
+    timeout-minutes: 30
+    outputs:
+      key: ${{ steps.xcode.outputs.key }}
+    steps:
+      - id: xcode
+        run: |
+          app=$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)
+          version=$(defaults read "$app/Contents/Info" CFBundleShortVersionString)
+          echo "Using $app ($version)"
+          echo "app=$(cd "$app" && pwd -P)" >> "$GITHUB_OUTPUT"
+          echo "key=xcode-sdk-parts-$version" >> "$GITHUB_OUTPUT"
+      # Apple's files stay in this repository's private cache, never in a public download.
+      - id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: xcode
+          key: ${{ steps.xcode.outputs.key }}
+          enableCrossOsArchive: true
+          lookup-only: true
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Copy the parts of Xcode that xtool's SDK is made from
+        run: |
+          src="${{ steps.xcode.outputs.app }}/Contents"
+          dst="$PWD/xcode/Xcode.app/Contents"
+          mkdir -p "$dst"
+          cp "$src/Info.plist" "$src/version.plist" "$dst/"
+          cd "$src"
+          parts=(Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/{swift,swift_static,clang})
+          for p in iPhoneOS MacOSX iPhoneSimulator; do
+            parts+=(Developer/Platforms/$p.platform/{Info.plist,Developer/SDKs,Developer/Library/Frameworks,Developer/Library/PrivateFrameworks,Developer/usr/lib})
+          done
+          for part in "${parts[@]}"; do
+            if [ -e "$part" ]; then rsync -aR --exclude prebuilt-modules "$part" "$dst/"; else echo "missing: $part"; fi
+          done
+          du -sh "$dst"
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: xcode
+          key: ${{ steps.xcode.outputs.key }}
+          enableCrossOsArchive: true
+
+  ipa:
+    needs: xcode
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    timeout-minutes: 60
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends curl zstd git zip
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        with:
+          path: xcode
+          key: ${{ needs.xcode.outputs.key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - name: Install xtool and build its iOS SDK
+        run: |
+          curl -fsSL -o xtool.AppImage "https://github.com/xtool-org/xtool/releases/download/$XTOOL/xtool-x86_64.AppImage"
+          chmod +x xtool.AppImage
+          ./xtool.AppImage --appimage-extract > /dev/null
+          ln -s "$PWD/squashfs-root/AppRun" /usr/local/bin/xtool
+          swift --version
+          xtool --help | head -3
+          xtool sdk install --slim xcode/Xcode.app
+          xtool sdk status
+          rm -rf xcode
+      - run: npm ci && npm run ios:web
+      - name: Build Resonance.ipa with xtool
+        working-directory: ios
+        run: |
+          xtool dev build --ipa --configuration release
+          unzip -l xtool/Resonance.ipa | grep -E 'Info.plist|Resonance$|index.html|AppIcon'
+          # The same app for the simulated iPhone check: Apple-silicon simulators run arm64 builds.
+          xtool dev build --triple arm64-apple-ios17.0-simulator
+          tar -czf Resonance-simulator.tar.gz -C xtool Resonance.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Resonance-ipa-unsigned
+          path: ios/xtool/*.ipa
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simulator-app
+          path: ios/Resonance-simulator.tar.gz
+          retention-days: 3
+
+  simulator:
+    needs: ipa
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: simulator-app
+      - run: |
+          tar -xzf Resonance-simulator.tar.gz
+          codesign --force --deep --sign - Resonance.app
+          echo "APP=$PWD/Resonance.app" >> "$GITHUB_ENV"
+      - name: Open it on a simulated iPhone
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print([x['udid'] for r in sorted(d, reverse=True) if 'iOS' in r for x in d[r] if x['name'].startswith('iPhone')][0])")
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$APP"
+          (perl -e 'alarm 120; exec @ARGV' xcrun simctl launch --console-pty "$udid" io.github.espada1201.resonance -smoke > smoke.log 2>&1 || true) &
+          for i in $(seq 1 90); do grep -q RESONANCE-SMOKE smoke.log && break; sleep 1; done
+          sleep 3
+          xcrun simctl io "$udid" screenshot screenshot.png
+          cat smoke.log
+          grep RESONANCE-SMOKE smoke.log | grep -q '"secure":true'
+          grep RESONANCE-SMOKE smoke.log | grep -q '"crypto":true'
+          grep RESONANCE-SMOKE smoke.log | grep -q '"microphone":"function"'
+          grep RESONANCE-SMOKE smoke.log | grep -q '"worklet":"function"'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-screenshot
+          path: |
+            screenshot.png
+            smoke.log
+          retention-days: 14
+
+  # App Store Connect accepts only apps built by Xcode, so the TestFlight build compiles the same
+  # sources with Xcode on the Mac. It always archives, which proves it builds; it signs and uploads
+  # only once the App Store Connect key is saved as repository secrets.
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY: ${{ secrets.ASC_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci && npm run ios:web
+      - name: Make the Xcode project
+        working-directory: ios
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)"
+          mkdir -p build/Assets.xcassets/AppIcon.appiconset
+          cp Resources/AppIcon.png build/Assets.xcassets/AppIcon.appiconset/
+          echo '{"images":[{"filename":"AppIcon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}' > build/Assets.xcassets/AppIcon.appiconset/Contents.json
+          echo '{"info":{"author":"xcode","version":1}}' > build/Assets.xcassets/Contents.json
+          # xtool fills in these keys itself; an Xcode build takes them from its settings.
+          cp Info.plist build/Info.plist
+          for kv in CFBundleIdentifier='$(PRODUCT_BUNDLE_IDENTIFIER)' CFBundleExecutable='$(EXECUTABLE_NAME)' CFBundleName='$(PRODUCT_NAME)' \
+            CFBundlePackageType=APPL CFBundleVersion='$(CURRENT_PROJECT_VERSION)'; do
+            /usr/libexec/PlistBuddy -c "Add :${kv%%=*} string ${kv#*=}" build/Info.plist
+          done
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString \$(MARKETING_VERSION)" -c "Add :LSRequiresIPhoneOS bool true" build/Info.plist
+          command -v xcodegen || brew install xcodegen
+          xcodegen generate
+      - name: Archive with Xcode
+        run: |
+          xcodebuild archive -project ios/Resonance.xcodeproj -scheme Resonance -destination generic/platform=iOS \
+            -archivePath "$RUNNER_TEMP/Resonance.xcarchive" CODE_SIGNING_ALLOWED=NO CURRENT_PROJECT_VERSION=$GITHUB_RUN_NUMBER -quiet
+          /usr/libexec/PlistBuddy -c Print "$RUNNER_TEMP/Resonance.xcarchive/Products/Applications/Resonance.app/Info.plist"
+      - name: Sign with Apple and upload to TestFlight
+        if: env.ASC_KEY_ID != '' && env.ASC_ISSUER_ID != '' && env.ASC_KEY != '' && env.APPLE_TEAM_ID != ''
+        run: |
+          key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY" > "$key"
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Resonance.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" \
+            -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates \
+            -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          rm -f "$key"
