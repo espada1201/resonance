@@ -42,6 +42,10 @@ export type Body =
   | { kind: 'filereq'; fileSrc: number; fileId: number; missing: number[] }
   | { kind: 'range'; phase: 'request' | 'report'; session: number; intervalUs: number };
 
+/** What the feed shows as its own item. */
+export type ContentBody = Extract<Body, { kind: 'text' | 'checkin' | 'contact' | 'notice' }>;
+export const isContent = (b: Body): b is ContentBody => b.kind === 'text' || b.kind === 'checkin' || b.kind === 'contact' || b.kind === 'notice';
+
 export interface FileMeta {
   name: string;
   mime: string;
@@ -92,6 +96,10 @@ class Writer {
     for (const x of b) this.bytes.push(x);
     return this;
   }
+  /** UTF-8 to the end of the body: free text needs no length byte. */
+  text(s: string) {
+    return this.raw(new TextEncoder().encode(s));
+  }
   done() {
     return Uint8Array.from(this.bytes);
   }
@@ -128,6 +136,9 @@ class Reader {
   rest() {
     return this.raw(this.b.length - this.o);
   }
+  text() {
+    return new TextDecoder().decode(this.rest());
+  }
 }
 
 /** The longest start of `s`, cut at a character boundary, whose UTF-8 fits in `max` bytes. */
@@ -151,7 +162,7 @@ export function encodeBody(body: Body): Uint8Array {
   const w = new Writer();
   switch (body.kind) {
     case 'text':
-      return w.u32(body.ts).str(body.nick, MAX_NICK).raw(new TextEncoder().encode(body.text)).done();
+      return w.u32(body.ts).str(body.nick, MAX_NICK).text(body.text).done();
     case 'checkin': {
       // One flag bit per optional field, in the order the fields follow.
       const needs = toBits(NEEDS, body.needs);
@@ -165,16 +176,14 @@ export function encodeBody(body: Body): Uint8Array {
       if (body.place) w.str(body.place, MAX_PLACE);
       if (body.about) w.str(body.about, MAX_CONTACT_NAME);
       if (body.outside) w.str(body.outside, MAX_OUTSIDE);
-      return w.str(body.nick, MAX_NICK).raw(new TextEncoder().encode(body.note)).done();
+      return w.str(body.nick, MAX_NICK).text(body.note).done();
     }
     case 'contact':
-      w.u32(body.ts).str(body.name, MAX_CONTACT_NAME).str(body.phone, MAX_CONTACT_PHONE).u8(toBits(SKILLS, body.skills));
-      return w.raw(new TextEncoder().encode(body.note)).done();
+      return w.u32(body.ts).str(body.name, MAX_CONTACT_NAME).str(body.phone, MAX_CONTACT_PHONE).u8(toBits(SKILLS, body.skills)).text(body.note).done();
     case 'reply':
       return w.u32(body.ts).u8(REPLIES.indexOf(body.what)).u24(body.src).u32(body.msgId).str(body.nick, MAX_NICK).done();
     case 'notice':
-      w.u32(body.ts).u8(TOPICS.indexOf(body.topic)).u8(body.hours).str(body.nick, MAX_NICK).str(body.place, MAX_PLACE);
-      return w.raw(new TextEncoder().encode(body.text)).done();
+      return w.u32(body.ts).u8(TOPICS.indexOf(body.topic)).u8(body.hours).str(body.nick, MAX_NICK).str(body.place, MAX_PLACE).text(body.text).done();
     case 'file':
       w.u16(body.fileId).u8(body.index).u8(body.total);
       if (body.index === 0) {
@@ -204,7 +213,7 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
   try {
     switch (type) {
       case PacketType.Text:
-        return { kind: 'text', ts: r.u32(), nick: r.str(), text: new TextDecoder().decode(r.rest()) };
+        return { kind: 'text', ts: r.u32(), nick: r.str(), text: r.text() };
       case PacketType.CheckIn: {
         const ts = r.u32();
         const status = STATUSES[r.u8()] ?? 'safe';
@@ -214,16 +223,16 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
         const place = flags & 4 ? r.str() : undefined;
         const about = flags & 8 ? r.str() : undefined;
         const outside = flags & 16 ? r.str() : undefined;
-        return { kind: 'checkin', ts, status, geo, needs, place, about, outside, nick: r.str(), note: new TextDecoder().decode(r.rest()) };
+        return { kind: 'checkin', ts, status, geo, needs, place, about, outside, nick: r.str(), note: r.text() };
       }
       case PacketType.Contact:
-        return { kind: 'contact', ts: r.u32(), name: r.str(), phone: r.str(), skills: fromBits(SKILLS, r.u8()), note: new TextDecoder().decode(r.rest()) };
+        return { kind: 'contact', ts: r.u32(), name: r.str(), phone: r.str(), skills: fromBits(SKILLS, r.u8()), note: r.text() };
       case PacketType.Reply: {
         const reply = { kind: 'reply' as const, ts: r.u32(), what: REPLIES[r.u8()], src: r.u24(), msgId: r.u32(), nick: r.str() };
         return reply.what ? reply : null;
       }
       case PacketType.Notice:
-        return { kind: 'notice', ts: r.u32(), topic: TOPICS[r.u8()] ?? 'info', hours: r.u8(), nick: r.str(), place: r.str(), text: new TextDecoder().decode(r.rest()) };
+        return { kind: 'notice', ts: r.u32(), topic: TOPICS[r.u8()] ?? 'info', hours: r.u8(), nick: r.str(), place: r.str(), text: r.text() };
       case PacketType.FileChunk: {
         const fileId = r.u16();
         const index = r.u8();

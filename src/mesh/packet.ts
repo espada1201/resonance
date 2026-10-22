@@ -23,6 +23,20 @@ export enum PacketType {
   Notice = 10,
 }
 
+/** What each packet type is, in words, for the air log. */
+export const PACKET_LABEL: Record<PacketType, string> = {
+  [PacketType.Text]: 'message',
+  [PacketType.CheckIn]: 'check-in',
+  [PacketType.Contact]: 'contact',
+  [PacketType.FileChunk]: 'file chunk',
+  [PacketType.Ack]: 'ack',
+  [PacketType.Hello]: 'hello',
+  [PacketType.FileRequest]: 'file request',
+  [PacketType.Range]: 'ranging',
+  [PacketType.Reply]: 'reply',
+  [PacketType.Notice]: 'notice',
+};
+
 export interface Packet {
   type: PacketType;
   encrypted: boolean;
