@@ -1,0 +1,199 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`receiver golden master > audible 255 B frame, seed 1, clock glide 0, 48000 Hz 1`] = `
+[
+  "#34 sync audible",
+  "#331 frame audible start=47268.55047341377 air=13.135297115901805 clock=0.9974631343117204 snr=23.767985999896887 fixed=1 payload=255B:13f83d7b77b19285",
+  "busy after #27-#336 of 339 pushes",
+]
+`;
+
+exports[`receiver golden master > audible 255 B frame, seed 3, clock glide 0.004, 48000 Hz 1`] = `
+[
+  "#14 sync audible",
+  "#310 frame audible start=4244.2069151187925 air=13.146443588451914 clock=0.9966167716435074 snr=22.39942354479816 fixed=5 payload=255B:28c9bf85a521379a",
+  "busy after #7-#316 of 338 pushes",
+]
+`;
+
+exports[`receiver golden master > audible 255 B frame, seed 5, clock glide -0.004, 44100 Hz 1`] = `
+[
+  "#21 sync audible",
+  "#291 frame audible start=18974.07892151129 air=13.088974621951108 clock=1.000995902081424 snr=22.478998309897715 fixed=0 payload=255B:254f820bcc725002",
+  "busy after #14-#302 of 311 pushes",
+]
+`;
+
+exports[`receiver golden master > overlapping frames, seed 5, 48000 Hz, 2048-sample chunks 1`] = `
+[
+  "#27 sync ultrasonic",
+  "#106 sync audible",
+  "#146 sync fast",
+  "#152 lost fast body",
+  "#203 frame ultrasonic start=33052.65844127333 air=8.005371989292215 clock=1.0018295597412326 snr=24.475295449812272 fixed=2 payload=93B:879598f801282338",
+  "#210 frame audible start=198181.1827483844 air=4.848757827422728 clock=0.9994300546708291 snr=35.078840815047315 fixed=28 payload=85B:d778b61e6bf84c05",
+  "#232 sync fast",
+  "#232 lost fast header",
+  "#238 sync ultrasonic",
+  "#337 sync audible",
+  "#379 frame ultrasonic start=467866.6738294463 air=6.420280017692935 clock=0.9999563174007746 snr=33.94841314864762 fixed=0 payload=72B:dccb1c51672e6b36",
+  "#410 sync fast",
+  "#410 lost fast header",
+  "#418 frame audible start=666761.9558083727 air=3.946816138406983 clock=1.0008087402309591 snr=36.248797330623944 fixed=0 payload=66B:2e10084b886d751b",
+  "busy after #21-#429 of 445 pushes",
+]
+`;
+
+exports[`receiver golden master > overlapping frames, seed 6, 44100 Hz, 4096-sample chunks 1`] = `
+[
+  "#10 sync audible",
+  "#16 frame audible start=23189.15819114584 air=0.9751509755849836 clock=0.9988074657601771 snr=33.6053218886058 fixed=0 payload=1B:9e8e8c37a53bac77",
+  "#17 sync fast",
+  "#17 lost fast body",
+  "#20 sync ultrasonic",
+  "#67 sync audible",
+  "#73 frame ultrasonic start=60461.501303322744 air=5.414975371584854 clock=1.0009296302147022 snr=37.61488383456481 fixed=0 payload=58B:124aaf36a8266f36",
+  "#74 sync fast",
+  "#75 lost fast body",
+  "#81 frame audible start=259073.29796879255 air=1.7125759318652058 clock=0.9984870384826928 snr=35.74120218903536 fixed=0 payload=20B:66d610498236e226",
+  "#87 sync audible",
+  "#114 sync fast",
+  "#114 lost fast header",
+  "#114 sync ultrasonic",
+  "#117 frame audible start=346939.424694222 air=3.0266858968838704 clock=0.9984466739183182 snr=36.89177903734465 fixed=0 payload=47B:573af3dc02adb3f2",
+  "#131 frame ultrasonic start=453922.1760143762 air=1.9160705048089997 clock=1.0020615686466414 snr=26.90029834898236 fixed=0 payload=12B:c642bfb98cbe5686",
+  "busy after #7-#137 of 144 pushes",
+]
+`;
+
+exports[`receiver golden master > overlapping frames, seed 7, 48000 Hz, 1024-sample chunks 1`] = `
+[
+  "#15 sync fast",
+  "#19 frame fast start=564.252075418343 air=0.40113922039054534 clock=0.9990295108409921 snr=17.334250256789993 fixed=0 payload=8B:88c612426eed0538",
+  "#29 sync ultrasonic",
+  "#266 sync audible",
+  "#377 frame ultrasonic start=6760.716756493054 air=7.910164472655345 clock=1.0012449775417587 snr=25.544859266244607 fixed=0 payload=92B:20508c8206472ca8",
+  "#490 sync fast",
+  "#492 lost fast header",
+  "#505 frame audible start=249307.13302305373 air=5.588146557434821 clock=0.9988981004045816 snr=37.56893668789188 fixed=0 payload=100B:30ccc87b2528eec3",
+  "#517 sync ultrasonic",
+  "#530 sync audible",
+  "#556 sync fast",
+  "#559 frame ultrasonic start=507465.0408188654 air=1.3688591456145247 clock=1.0008395678015323 snr=20.224705194572785 fixed=0 payload=1B:684888c0ebb17f37",
+  "#572 frame audible start=525709.3528141011 air=1.2640807195742867 clock=0.998340840791338 snr=32.360972079156085 fixed=0 payload=10B:a117fb3534dda91b",
+  "#572 lost fast body",
+  "#662 sync audible",
+  "#777 frame audible start=664840.9699935977 air=2.7368337181494424 clock=0.9989608027322749 snr=37.969733509785826 fixed=0 payload=41B:dd948eb53061d5fc",
+  "busy after #15-#951 of 970 pushes",
+]
+`;
+
+exports[`receiver golden master > overlapping frames, seed 8, 48000 Hz, 48000-sample chunks 1`] = `
+[
+  "#0 sync ultrasonic",
+  "#4 sync audible",
+  "#6 frame ultrasonic start=7459.521938607108 air=6.711504111476642 clock=1.001267758458703 snr=24.450737267139754 fixed=0 payload=76B:7da4d3e17946bc4e",
+  "#8 frame audible start=205180.21952022135 air=4.657929724704673 clock=0.9991545214886135 snr=36.78019149333582 fixed=0 payload=81B:a924608bd8f4a96a",
+  "#8 sync fast",
+  "#8 lost fast header",
+  "#8 sync ultrasonic",
+  "#11 sync audible",
+  "#11 sync fast",
+  "#11 lost fast header",
+  "#13 frame audible start=518821.6509161757 air=2.641905110939144 clock=0.9985162417433239 snr=35.83429703296475 fixed=0 payload=39B:0ccb72775fc32c5d",
+  "#15 sync audible",
+  "#15 lost ultrasonic body",
+  "#17 sync fast",
+  "#17 lost fast body",
+  "#18 frame audible start=711246.0870785898 air=3.216596388077674 clock=0.9991902978225361 snr=36.62861414757836 fixed=0 payload=51B:20521d72ea97358a",
+  "busy after #0-#17 of 21 pushes",
+]
+`;
+
+exports[`receiver golden master > sequential frames, seed 1, 48000 Hz, 2048-sample chunks 1`] = `
+[
+  "#21 sync audible",
+  "#37 frame audible start=30084.27909018651 air=0.9703096762958882 clock=1.0038428475680325 snr=33.524489279365724 fixed=0 payload=1B:4bfa260a661d6811",
+  "#73 sync fast",
+  "#79 frame fast start=133703.723676609 air=0.6134845035271955 clock=1.0009762449686042 snr=8.719075811676543 fixed=8 payload=72B:4ab2acc3e88e7e40",
+  "#106 sync ultrasonic",
+  "#458 frame ultrasonic start=202648.89367729574 air=15.355581217848126 clock=1.0009396048248145 snr=25.156759031729298 fixed=0 payload=190B:28fc4762a2ce4fd7",
+  "#476 sync audible",
+  "#707 frame audible start=952963.115639007 air=10.32335164702886 clock=1.0025838693262066 snr=26.620163373833204 fixed=0 payload=200B:c18cf4d57aa08368",
+  "#733 sync fast",
+  "#747 frame fast start=1477832.8360142321 air=1.0956499376603654 clock=0.9985700510394857 snr=12.399585051843658 fixed=0 payload=234B:ab0b900405ecb03a",
+  "#779 sync ultrasonic",
+  "#1071 frame ultrasonic start=1579078.7796020159 air=12.835932705151043 clock=0.998757774150441 snr=19.954585248287003 fixed=6 payload=157B:f0de5995474cfaee",
+  "busy after #21-#46, #73-#86, #106-#719, #726-#752, #772-#1088 of 1132 pushes",
+]
+`;
+
+exports[`receiver golden master > sequential frames, seed 2, 44100 Hz, 2048-sample chunks 1`] = `
+[
+  "#28 sync audible",
+  "#118 frame audible start=32370.772610180324 air=4.769371233613815 clock=1.0026534526865636 snr=33.250112146165776 fixed=0 payload=83B:7eae142320fc8122",
+  "#135 sync fast",
+  "#148 frame fast start=259789.4066769786 air=0.990429784318247 clock=0.9969649304025153 snr=8.249588272642805 fixed=23 payload=199B:7dbe1d15451935f7",
+  "#175 sync ultrasonic",
+  "#267 frame ultrasonic start=342628.07107809995 air=4.632244748790542 clock=0.9973509086047972 snr=33.481123465384414 fixed=0 payload=48B:22e698328f340a0b",
+  "#289 sync audible",
+  "#406 frame audible start=573571.9822228572 air=5.851599399915922 clock=1.0031499250161429 snr=26.901276608793626 fixed=0 payload=106B:894791a45b687cf8",
+  "#444 sync fast",
+  "#449 frame fast start=898451.5179918163 air=0.5088152475118697 clock=0.9972652956387574 snr=12.29439711292087 fixed=0 payload=47B:7aa0e2d4496b6779",
+  "#470 sync ultrasonic",
+  "#785 frame ultrasonic start=950832.7337147094 air=14.912152745447017 clock=0.9971713653612969 snr=28.342508115111073 fixed=0 payload=184B:fd5f5d8d6fe94e36",
+  "busy after #21-#154, #169-#416, #444-#456, #470-#798 of 824 pushes",
+]
+`;
+
+exports[`receiver golden master > sequential frames, seed 3, 48000 Hz, 333-sample chunks 1`] = `
+[
+  "#170 sync audible",
+  "#286 frame audible start=34563.52591553585 air=1.259860578183113 clock=1.0017117283753338 snr=33.77192722934149 fixed=0 payload=10B:548bcb6ae2af0d43",
+  "#454 sync fast",
+  "#527 frame fast start=128475.43060923685 air=0.9863809415285274 clock=1.001050114214547 snr=8.576475880645377 fixed=21 payload=203B:63326375039b3415",
+  "#738 sync ultrasonic",
+  "#1880 frame ultrasonic start=228581.75510134443 air=8.280387321710519 clock=0.9987440344319484 snr=24.69401138852769 fixed=0 payload=96B:72010e71b3084c03",
+  "#2117 sync audible",
+  "#3105 frame audible start=683265.1298329947 air=7.303155053762549 clock=0.9965508680979472 snr=27.662088109331503 fixed=0 payload=135B:3e0b58ad6bb26adb",
+  "#3334 sync fast",
+  "#3415 frame fast start=1089741.7485383463 air=0.9893971812247376 clock=0.9979980927566195 snr=13.20416196329943 fixed=0 payload=201B:0ff18bc241f34b9a",
+  "#3577 sync ultrasonic",
+  "#5500 frame ultrasonic start=1168398.624634231 air=13.814787383021253 clock=0.9967556629610727 snr=23.976397470564123 fixed=0 payload=169B:1a8704ba2e33c3df",
+  "busy after #130-#332, #414-#575, #698-#1954, #2076-#3170, #3293-#3454, #3536-#5563 of 5810 pushes",
+]
+`;
+
+exports[`receiver golden master > sequential frames, seed 4, 48000 Hz, 4096-sample chunks 1`] = `
+[
+  "#17 sync audible",
+  "#67 frame audible start=44346.83929683109 air=4.862230587814449 clock=0.9966550254525808 snr=33.44093039441284 fixed=0 payload=85B:bdb3eca7bb6b5afe",
+  "#76 sync fast",
+  "#76 frame fast start=288726.73614412406 air=0.4525611256114377 clock=1.0033641600712182 snr=8.159707783069576 fixed=3 payload=30B:8011e20d422c4f0f",
+  "#93 sync ultrasonic",
+  "#189 frame ultrasonic start=358938.9495968559 air=8.66994789087341 clock=1.0000060172563676 snr=34.33832983927799 fixed=0 payload=101B:2c578f88fa89b721",
+  "#198 sync audible",
+  "#281 frame audible start=796858.9671425967 air=7.441757146659698 clock=0.9994944470620399 snr=27.842575481788145 fixed=0 payload=139B:508e0bdf795621a7",
+  "#300 sync fast",
+  "#303 frame fast start=1207948.2389324107 air=0.7725222801292257 clock=1.0020209405682958 snr=12.12701249909905 fixed=0 payload=132B:d1de90426e0156f9",
+  "#313 sync ultrasonic",
+  "#448 frame ultrasonic start=1261509.880148328 air=11.947361785946681 clock=0.997707886680716 snr=21.04975467187453 fixed=1 payload=144B:3f197c7f892a59cb",
+  "busy after #13-#78, #89-#194, #198-#286, #297-#306, #310-#454 of 470 pushes",
+]
+`;
+
+exports[`receiver golden master > ultrasonic 255 B frame, seed 2, clock glide 0, 48000 Hz 1`] = `
+[
+  "#14 sync ultrasonic",
+  "#482 frame ultrasonic start=14616.222001215538 air=20.276948432766897 clock=1.0021242254291969 snr=21.509669957532743 fixed=0 payload=255B:8d27f4d4ff108c50",
+  "busy after #14-#494 of 507 pushes",
+]
+`;
+
+exports[`receiver golden master > ultrasonic 255 B frame, seed 4, clock glide 0.003, 44100 Hz 1`] = `
+[
+  "#21 sync ultrasonic",
+  "#454 lost ultrasonic body",
+  "busy after #21-#463 of 467 pushes",
+]
+`;
