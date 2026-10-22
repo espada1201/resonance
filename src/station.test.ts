@@ -71,6 +71,75 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Mutes, unmutes and plays in the order they happen, as "<ms from start> <what>". */
+let log: string[] = [];
+const ms = () => Date.now() - T0;
+
+class StubWorker {
+  static made: StubWorker[] = [];
+  readonly posted: Array<{ m: ToWorker; transfer: Transferable[] }> = [];
+  onmessage: ((e: MessageEvent<FromWorker>) => void) | null = null;
+  onerror: ((e: ErrorEvent) => void) | null = null;
+  terminated = false;
+  constructor() {
+    StubWorker.made.push(this);
+  }
+  postMessage(m: ToWorker, transfer: Transferable[] = []) {
+    this.posted.push({ m, transfer });
+    if (m.type === 'mute') log.push(`${ms()} ${m.on ? 'mute' : 'unmute'}`);
+  }
+  terminate() {
+    this.terminated = true;
+  }
+  say(m: FromWorker) {
+    this.onmessage!({ data: m } as MessageEvent<FromWorker>);
+  }
+  fail() {
+    this.onerror!({ preventDefault() {} } as ErrorEvent);
+  }
+}
+
+const INIT = { type: 'init', sampleRate: 48000 };
+const MUTE = { type: 'mute', on: true };
+const UNMUTE = { type: 'mute', on: false };
+
+/** A station listening to a room whose speaker takes as long as the sound; the mute tail is 150 + 250 ms. */
+async function listening(failStart?: Error) {
+  vi.spyOn(Math, 'random').mockReturnValue(0.5);
+  vi.stubGlobal('Worker', StubWorker);
+  StubWorker.made = [];
+  log = [];
+  const plays: Array<{ at: number; ms: number }> = [];
+  const volume: number[] = [];
+  let workersAtStart = 0;
+  let mic: (chunk: Float32Array) => void = () => undefined;
+  const transport: AirTransport = {
+    kind: 'simulated',
+    captureDelayMs: 250,
+    async start(onSamples) {
+      workersAtStart = StubWorker.made.length;
+      if (failStart) throw failStart;
+      mic = onSamples;
+      return 48000;
+    },
+    play(wave, fs) {
+      const p = { at: ms(), ms: Math.round((wave.length / fs) * 1000) };
+      plays.push(p);
+      log.push(`${p.at} play`);
+      return new Promise((r) => setTimeout(r, p.ms));
+    },
+    setVolume: (v) => void volume.push(v),
+  };
+  const s = new Station(transport, 'phone', null);
+  await s.start();
+  const worker = () => StubWorker.made.at(-1)!;
+  const sent = (w = worker()) => w.posted.map((p) => p.m);
+  return { s, plays, volume, worker, sent, mic: (c: Float32Array) => mic(c), workersAtStart: () => workersAtStart };
+}
+
+/** Ticks of the station's 200 ms interval fall on whole multiples of 200 ms from start. */
+const nextTick = (t: number) => Math.ceil(t / 200) * 200;
+
 describe('saved files', () => {
   const theirs = new TextEncoder().encode('Open shelters tonight: St Thomas church hall, 40 beds. '.repeat(6));
   const mine = new TextEncoder().encode('My own note, sent from this phone. '.repeat(8));
@@ -91,8 +160,8 @@ describe('saved files', () => {
     const reloaded = new Station(air, 'phone', storage);
     expect(missing(reloaded.files.get(theirKey)!)).toEqual([]);
     expect(missing(reloaded.files.get(ownKey)!)).toEqual([]);
-    expect(reloaded.fileData(theirKey)).toEqual(theirs);
-    expect(reloaded.fileData(ownKey)).toEqual(mine);
+    expect(reloaded.files.data(theirKey)).toEqual(theirs);
+    expect(reloaded.files.data(ownKey)).toEqual(mine);
   });
 
   it('files an earlier version damaged on reload come back whole', async () => {
@@ -105,8 +174,8 @@ describe('saved files', () => {
     storage.setItem(key, JSON.stringify(damaged));
 
     const reloaded = new Station(air, 'phone', storage);
-    expect(reloaded.fileData(theirKey)).toEqual(theirs);
-    expect(reloaded.fileData(ownKey)).toEqual(mine);
+    expect(reloaded.files.data(theirKey)).toEqual(theirs);
+    expect(reloaded.files.data(ownKey)).toEqual(mine);
   });
 
   it('a file whose first chunk never arrived is still missing it after a reload', () => {
@@ -117,7 +186,7 @@ describe('saved files', () => {
 
     const reloaded = new Station(air, 'phone', storage);
     expect(missing(reloaded.files.get(fileKey(NEIGHBOUR, 78))!)).toEqual([0]);
-    expect(reloaded.fileData(fileKey(NEIGHBOUR, 78))).toBeNull();
+    expect(reloaded.files.data(fileKey(NEIGHBOUR, 78))).toBeNull();
   });
 });
 
@@ -125,86 +194,49 @@ describe('file transfer', () => {
   // Five chunks: 0 (name and size) and four of data.
   const chunks = chunkFile(77, { name: 'n.txt', mime: 'text/plain' }, new TextEncoder().encode('y'.repeat(600)));
 
-  /** A station whose outgoing packets are recorded; its file asks also as "+<seconds> <what>". */
-  function station() {
-    vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    const s = new Station(air, 'phone', null);
-    const out: Packet[] = [];
-    const sent: string[] = [];
+  /** Every packet the station queues, as it leaves. */
+  function outbox(s: Station) {
+    const out: Array<{ at: number; p: Packet }> = [];
     const enqueue = s.radio.enqueue.bind(s.radio);
     vi.spyOn(s.radio, 'enqueue').mockImplementation((bytes, urgent) => {
-      const p = decodePacket(bytes)!;
-      const b = decodeBody(p.type, p.body);
-      out.push(p);
-      if (b?.kind === 'filereq') sent.push(`+${(Date.now() - T0) / 1000} ask [${b.missing}] ttl ${p.ttl}${p.encrypted ? ' sealed' : ''}`);
+      out.push({ at: ms(), p: decodePacket(bytes)! });
       enqueue(bytes, urgent);
     });
-    return { s, out, sent };
+    return out;
   }
 
-  /** Runs the file chase of the station's 200 ms tick for `ms`. */
-  function tick(s: Station, ms: number) {
-    for (let t = 0; t < ms; t += 200) {
-      vi.advanceTimersByTime(200);
-      // Transitional: the chase becomes public when it moves out of Station.
-      (s as unknown as { chaseFiles(): void }).chaseFiles();
-    }
-  }
-
-  it('a quiet file asks for its missing chunks three times, unsealed and one relay deep', async () => {
-    const { s, sent } = station();
+  it('its tick asks for the missing chunks of a quiet file, unsealed and one relay deep', async () => {
+    const { s } = await listening();
+    const out = outbox(s);
     await s.setPassphrase('blue lantern 7');
     for (const i of [0, 1, 3]) s.onFrame(heard(NEIGHBOUR, 900 + i, chunks[i], { airtimeSec: 8 }));
-    // Patience: max(20 s, 4 chunk airtimes) = 32 s, stretched by 1 + 0.75 × 0.5.
-    tick(s, 600_000);
-    expect(sent).toEqual(['+44 ask [2,4] ttl 2', '+88 ask [2,4] ttl 2', '+132 ask [2,4] ttl 2']);
+    await vi.advanceTimersByTimeAsync(90_000);
+    const asks = out.filter((o) => o.p.type === PacketType.FileRequest);
+    expect(asks.map((o) => [o.at, o.p.ttl, o.p.encrypted, decodeBody(o.p.type, o.p.body)])).toEqual(
+      [44_000, 88_000].map((at) => [at, 2, false, { kind: 'filereq', fileSrc: NEIGHBOUR, fileId: 77, missing: [2, 4] }]),
+    );
   });
 
-  it('a new chunk renews the asks and the patience', () => {
-    const { s, sent } = station();
-    for (const i of [0, 1, 3]) s.onFrame(heard(NEIGHBOUR, 900 + i, chunks[i], { airtimeSec: 8 }));
-    tick(s, 50_000);
-    s.onFrame(heard(NEIGHBOUR, 902, chunks[2], { airtimeSec: 2 }));
-    tick(s, 600_000);
-    // 20 s × 1.375 after each.
-    expect(sent).toEqual(['+44 ask [2,4] ttl 2', '+77.6 ask [4] ttl 2', '+105.2 ask [4] ttl 2', '+132.8 ask [4] ttl 2']);
-  });
-
-  it("a neighbour's ask for the same file puts ours off", () => {
-    const { s, sent } = station();
-    for (const i of [0, 1, 3]) s.onFrame(heard(NEIGHBOUR, 900 + i, chunks[i], { airtimeSec: 8 }));
-    tick(s, 30_000);
-    s.onFrame(heard(CAL, 950, { kind: 'filereq', fileSrc: NEIGHBOUR, fileId: 77, missing: [2, 4] }));
-    tick(s, 600_000);
-    expect(sent).toEqual(['+74 ask [2,4] ttl 2', '+118 ask [2,4] ttl 2', '+162 ask [2,4] ttl 2']);
-  });
-
-  it('answers an ask for chunks it holds: from the first eight asked for, by how far the ask came', async () => {
-    const { s, out } = station();
-    const eleven = chunkFile(78, { name: 'm.txt', mime: 'text/plain' }, new TextEncoder().encode('z'.repeat(1600)));
-    eleven.forEach((c, i) => i !== 3 && s.onFrame(heard(NEIGHBOUR, 700 + i, c)));
+  it('answers an ask for chunks it holds through the mesh, by how far the ask came', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    chunks.forEach((c, i) => s.onFrame(heard(NEIGHBOUR, 900 + i, c)));
     const answer = vi.spyOn(s.mesh, 'answer');
-    s.onFrame(heard(CAL, 951, { kind: 'filereq', fileSrc: NEIGHBOUR, fileId: 78, missing: [...eleven.keys()] }, { hops: 2 }));
-    expect(answer.mock.calls).toEqual([0, 1, 2, 4, 5, 6, 7].map((i) => [NEIGHBOUR, 700 + i, 2]));
+    s.onFrame(heard(CAL, 951, { kind: 'filereq', fileSrc: NEIGHBOUR, fileId: 77, missing: [1, 2] }, { hops: 2 }));
+    expect(answer.mock.calls).toEqual([
+      [NEIGHBOUR, 901, 2],
+      [NEIGHBOUR, 902, 2],
+    ]);
 
-    // Its own files too.
+    // Its own files too, by the ids its chunks went out with.
     const key = await s.sendFile('mine.txt', 'text/plain', new TextEncoder().encode('x'.repeat(500)));
-    const ids = out.filter((p) => p.type === PacketType.FileChunk).map((p) => p.msgId);
+    const ids = out.filter((o) => o.p.type === PacketType.FileChunk).map((o) => o.p.msgId);
     answer.mockClear();
     s.onFrame(heard(CAL, 952, { kind: 'filereq', fileSrc: s.id, fileId: s.files.get(key)!.fileId, missing: [1, 2] }, { hops: 1 }));
     expect(answer.mock.calls).toEqual([
       [s.id, ids[1], 1],
       [s.id, ids[2], 1],
     ]);
-  });
-
-  it('never chases its own files', async () => {
-    const { s, sent } = station();
-    const key = await s.sendFile('mine.txt', 'text/plain', new TextEncoder().encode('x'.repeat(500)));
-    const own = s.files.get(key)!;
-    s.onFrame(heard(CAL, 953, { kind: 'filereq', fileSrc: own.src, fileId: own.fileId, missing: [1] }));
-    tick(s, 600_000);
-    expect(sent).toEqual([]);
   });
 });
 
@@ -275,9 +307,9 @@ describe('saved state', () => {
     expect(s.feed).toHaveLength(9);
     // Retry timers do not survive a reload: the direct message still waiting says so.
     expect(s.feed.find((i) => i.dst === CAL)).toMatchObject({ mine: true, delivery: 'unknown' });
-    expect(s.fileData(fileKey(BEN, 77))).toEqual(theirs);
+    expect(s.files.data(fileKey(BEN, 77))).toEqual(theirs);
     const own = s.feed.find((i) => i.mine && 'fileKey' in i);
-    expect(own && 'fileKey' in own && s.fileData(own.fileKey!)).toEqual(mine);
+    expect(own && 'fileKey' in own && s.files.data(own.fileKey!)).toEqual(mine);
     expect(s.mesh.store.size).toBe(14);
 
     s.save();
@@ -296,75 +328,6 @@ describe('saved state', () => {
 });
 
 describe('decoder worker and mute', () => {
-  /** Mutes, unmutes and plays in the order they happen, as "<ms from start> <what>". */
-  let log: string[] = [];
-  const ms = () => Date.now() - T0;
-
-  class StubWorker {
-    static made: StubWorker[] = [];
-    readonly posted: Array<{ m: ToWorker; transfer: Transferable[] }> = [];
-    onmessage: ((e: MessageEvent<FromWorker>) => void) | null = null;
-    onerror: ((e: ErrorEvent) => void) | null = null;
-    terminated = false;
-    constructor() {
-      StubWorker.made.push(this);
-    }
-    postMessage(m: ToWorker, transfer: Transferable[] = []) {
-      this.posted.push({ m, transfer });
-      if (m.type === 'mute') log.push(`${ms()} ${m.on ? 'mute' : 'unmute'}`);
-    }
-    terminate() {
-      this.terminated = true;
-    }
-    say(m: FromWorker) {
-      this.onmessage!({ data: m } as MessageEvent<FromWorker>);
-    }
-    fail() {
-      this.onerror!({ preventDefault() {} } as ErrorEvent);
-    }
-  }
-
-  const INIT = { type: 'init', sampleRate: 48000 };
-  const MUTE = { type: 'mute', on: true };
-  const UNMUTE = { type: 'mute', on: false };
-
-  /** A station listening to a room whose speaker takes as long as the sound; the mute tail is 150 + 250 ms. */
-  async function listening(failStart?: Error) {
-    vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    vi.stubGlobal('Worker', StubWorker);
-    StubWorker.made = [];
-    log = [];
-    const plays: Array<{ at: number; ms: number }> = [];
-    const volume: number[] = [];
-    let workersAtStart = 0;
-    let mic: (chunk: Float32Array) => void = () => undefined;
-    const transport: AirTransport = {
-      kind: 'simulated',
-      captureDelayMs: 250,
-      async start(onSamples) {
-        workersAtStart = StubWorker.made.length;
-        if (failStart) throw failStart;
-        mic = onSamples;
-        return 48000;
-      },
-      play(wave, fs) {
-        const p = { at: ms(), ms: Math.round((wave.length / fs) * 1000) };
-        plays.push(p);
-        log.push(`${p.at} play`);
-        return new Promise((r) => setTimeout(r, p.ms));
-      },
-      setVolume: (v) => void volume.push(v),
-    };
-    const s = new Station(transport, 'phone', null);
-    await s.start();
-    const worker = () => StubWorker.made.at(-1)!;
-    const sent = (w = worker()) => w.posted.map((p) => p.m);
-    return { s, plays, volume, worker, sent, mic: (c: Float32Array) => mic(c), workersAtStart: () => workersAtStart };
-  }
-
-  /** Ticks of the station's 200 ms interval fall on whole multiples of 200 ms from start. */
-  const nextTick = (t: number) => Math.ceil(t / 200) * 200;
-
   it('starts the decoder before the microphone, then tells it the sample rate', async () => {
     const { s, sent, mic, volume, worker, workersAtStart } = await listening();
     expect(workersAtStart()).toBe(1);

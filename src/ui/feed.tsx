@@ -76,7 +76,7 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
 
 function FileView({ station, item }: { station: Station; item: FeedItem }) {
   const f = station.files.get(item.fileKey!);
-  const data = useMemo(() => (f ? station.fileData(f.key) : null), [f, f && received(f)]);
+  const data = useMemo(() => (f ? station.files.data(f.key) : null), [f, f && received(f)]);
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!data || !f?.meta) return;
