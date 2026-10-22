@@ -1,16 +1,28 @@
 /// <reference types="vitest/config" />
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
 /** Emits a service worker that precaches the whole build, so the app opens with no network. */
 function offline(): Plugin {
+  let publicDir = '';
   return {
     name: 'resonance-offline',
     apply: 'build',
     enforce: 'post',
+    configResolved(config) {
+      publicDir = config.publicDir;
+    },
     generateBundle(_opts, bundle) {
       const files = [...Object.keys(bundle), 'manifest.webmanifest', 'icon.svg'].filter((f) => !f.endsWith('.map')).sort();
-      const version = createHash('sha256').update(files.join()).digest('hex').slice(0, 12);
+      // By content, not name: the pages, the manifest and the icon keep their names from one deploy to the next.
+      const hash = createHash('sha256');
+      for (const f of files) {
+        const out = bundle[f];
+        hash.update(f).update(!out ? readFileSync(join(publicDir, f)) : out.type === 'chunk' ? out.code : out.source);
+      }
+      const version = hash.digest('hex').slice(0, 12);
       const source = `const CACHE = 'resonance-${version}';
 const FILES = ${JSON.stringify(['./', ...files])};
 // cache: 'reload' skips the browser's HTTP cache: a page it still held from before a deploy would point at assets the deploy removed.
