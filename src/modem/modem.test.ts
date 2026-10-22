@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { addNoise, mix, resample, reverb, rng } from './channel-sim';
-import { HEADER_BYTES, bodyBytes, decodeBody, encodeBody } from './framing';
+import { HEADER_BYTES, MAX_PAYLOAD, bodyBytes, decodeBody, encodeBody } from './framing';
 import { airtimeSec, modulate } from './modulator';
 import { PROFILES, type ProfileId, preambleSec, rawBitrate } from './profiles';
-import { type DecodedFrame, Receiver } from './receiver';
+import { type DecodedFrame, MAX_CLOCK_SKEW, MAX_HISTORY_SEC, Receiver } from './receiver';
 
 const ALL = [PROFILES.audible, PROFILES.fast, PROFILES.ultrasonic];
 
@@ -239,6 +239,12 @@ describe('receiver behaviour', () => {
     expect((255 * 8) / airtimeSec(fast, 255)).toBeLessThan(rawBitrate(fast) * 0.6);
     // A full frame goes ten times quicker on the fast profile.
     expect(airtimeSec(fast, 255) * 10).toBeLessThan(airtimeSec(p, 255));
+  });
+
+  it('keeps every sample of the longest frame any profile can send', () => {
+    // A frame is read once all of it has arrived, from a store that keeps MAX_HISTORY_SEC at most:
+    // a full frame from the slowest sender clock that sync accepts must fit, or it is cut short.
+    for (const p of ALL) expect(airtimeSec(p, MAX_PAYLOAD) / (1 - MAX_CLOCK_SKEW), p.id).toBeLessThan(MAX_HISTORY_SEC);
   });
 });
 

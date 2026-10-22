@@ -34,7 +34,13 @@ const RHO_CFAR = 4;
  * Resonance data symbols 0.037 to 0.069.
  */
 const HUM_BUSY = 0.03;
-const MAX_CLOCK_SKEW = 0.012;
+/** Largest sender/receiver sample-clock mismatch that sync accepts. */
+export const MAX_CLOCK_SKEW = 0.012;
+/**
+ * Seconds of samples the receiver keeps at most. A frame is read once all of it has arrived, so
+ * the longest frame any profile can send must fit (modem.test.ts checks).
+ */
+export const MAX_HISTORY_SEC = 30;
 const TRACK_STEP_SEC = 0.0005;
 
 interface Pending {
@@ -45,6 +51,8 @@ interface Pending {
   tau: number;
   len?: number;
   started: number;
+  /** MFSK body decisions so far: symbol k is next, and tau is where the timing tracker has got to. */
+  body?: { k: number; tau: number; sym: Uint8Array; conf: Float64Array; snr: number };
 }
 
 /** Streaming matched filter and chirp-pair sync for one profile; subclasses demodulate the frame. */
@@ -174,27 +182,30 @@ class MfskDecoder extends FrameDecoder<MfskProfile> {
     }
     const total = mfskSymbols(pd.len);
     const end = this.needed(pd, total);
-    if (this.store.end < end + maxTau) return;
+    const complete = this.store.end >= end + maxTau;
     const nb = total - HEADER_BYTES;
-    const sym = new Uint8Array(nb);
-    const conf = new Float64Array(nb);
     const step = TRACK_STEP_SEC * this.fs;
-    let tau = pd.tau;
-    let snr = 0;
-    for (let k = HEADER_BYTES; k < total; k++) {
+    const S = this.symbolSamples(pd.r);
+    const b = (pd.body ??= { k: HEADER_BYTES, tau: pd.tau, sym: new Uint8Array(nb), conf: new Float64Array(nb), snr: 0 });
+    // Each symbol is decided once every sample its late timing guess reads has arrived (rounding
+    // takes that window at most a sample past the symbol; 2 keeps clear), so the work spreads over
+    // the frame instead of stalling the push that completes it. What is left when the frame is
+    // complete is decided then, from the same samples one pass at the end would read.
+    for (; b.k < total && (complete || this.store.end >= pd.s0 + b.tau + step + (b.k + 1) * S + 2); b.k++) {
       // Early-late timing tracker absorbs residual clock error over long frames.
-      const mid = this.demod(pd, k, tau);
-      const early = this.demod(pd, k, tau - step).purity;
-      const late = this.demod(pd, k, tau + step).purity;
-      if (late > mid.purity && late > early) tau += step / 2;
-      else if (early > mid.purity && early > late) tau -= step / 2;
-      sym[k - HEADER_BYTES] = mid.byte;
-      conf[k - HEADER_BYTES] = mid.conf;
-      snr += mid.snr;
+      const mid = this.demod(pd, b.k, b.tau);
+      const early = this.demod(pd, b.k, b.tau - step).purity;
+      const late = this.demod(pd, b.k, b.tau + step).purity;
+      if (late > mid.purity && late > early) b.tau += step / 2;
+      else if (early > mid.purity && early > late) b.tau -= step / 2;
+      b.sym[b.k - HEADER_BYTES] = mid.byte;
+      b.conf[b.k - HEADER_BYTES] = mid.conf;
+      b.snr += mid.snr;
     }
-    const res = decodeBody(pd.len, sym, conf);
+    if (!complete) return;
+    const res = decodeBody(pd.len, b.sym, b.conf);
     if (!res) return this.finish(pd, 'body', end);
-    this.emit(pd, end, res.payload, 10 * Math.log10(snr / nb), res.corrected);
+    this.emit(pd, end, res.payload, 10 * Math.log10(b.snr / nb), res.corrected);
   }
 }
 
@@ -304,7 +315,7 @@ export class Receiver {
     // the listener hears all of one profile's events, then the next profile's.
     for (const s of this.spectra.values()) s.advance(this.store);
     for (const d of this.decoders) d.process();
-    const keep = Math.max(Math.min(...this.decoders.map((d) => d.horizon)), this.store.end - 30 * this.fs);
+    const keep = Math.max(Math.min(...this.decoders.map((d) => d.horizon)), this.store.end - MAX_HISTORY_SEC * this.fs);
     if (keep - this.store.base > 4 * this.fs) this.store.trimBefore(keep);
   }
 }
