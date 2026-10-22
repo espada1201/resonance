@@ -15,10 +15,15 @@ export function renderWav(bytes: Uint8Array, profile: Profile, fs = 48000): Blob
 }
 
 /** Every frame, in any profile, found in a mono recording. */
-export function decodeSamples(mono: Float32Array, fs: number): DecodedFrame[] {
+export async function decodeSamples(mono: Float32Array, fs: number): Promise<DecodedFrame[]> {
   const frames: DecodedFrame[] = [];
   const rx = new Receiver(fs, Object.values(PROFILES), { frame: (f) => frames.push(f) });
-  for (let i = 0; i < mono.length; i += 4096) rx.push(mono.subarray(i, i + 4096));
+  for (let i = 0; i < mono.length; i += 4096) {
+    rx.push(mono.subarray(i, i + 4096));
+    // The search runs at about 45 times real time here, slower on a phone: let the page draw
+    // between every second or so of sound, so a long recording does not freeze it.
+    if (i % (16 * 4096) === 0) await new Promise((r) => setTimeout(r));
+  }
   // Then a second of quiet, as if the recording had run on.
   rx.push(new Float32Array(fs));
   return frames;

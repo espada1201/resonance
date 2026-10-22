@@ -23,11 +23,11 @@ afterEach(() => {
 });
 
 describe('recordings', () => {
-  it('finds every frame in a recording, whatever its profile, in the order played', () => {
+  it('finds every frame in a recording, whatever its profile, in the order played', async () => {
     const fs = 48000;
     const [a, b] = [payload(1), payload(2)];
     const recording = concat(quiet(0.5, fs), modulate(a, PROFILES.fast, fs), quiet(0.5, fs), modulate(b, PROFILES.audible, fs));
-    const frames = decodeSamples(recording, fs);
+    const frames = await decodeSamples(recording, fs);
     expect(frames.map((f) => [f.profile, [...f.payload]])).toEqual([
       ['fast', [...a]],
       ['audible', [...b]],
@@ -40,8 +40,17 @@ describe('recordings', () => {
       const { fs: rate, samples } = await readWav(renderWav(a, PROFILES.fast, fs));
       expect(rate).toBe(fs);
       expect(samples.length).toBe(modulate(a, PROFILES.fast, fs).length + fs / 2);
-      expect(decodeSamples(samples, fs).map((f) => [...f.payload])).toEqual([[...a]]);
+      expect((await decodeSamples(samples, fs)).map((f) => [...f.payload])).toEqual([[...a]]);
     }
+  });
+
+  it('lets the page run while it works through a long recording', async () => {
+    // A ten-minute voice memo takes many seconds to search on a phone; the page must not freeze meanwhile.
+    let turns = 0;
+    const timer = setInterval(() => turns++, 0);
+    await decodeSamples(quiet(20, 48000), 48000);
+    clearInterval(timer);
+    expect(turns).toBeGreaterThan(5);
   });
 
   it('a recording is mixed down to mono, so a frame on one channel of two still decodes', async () => {
