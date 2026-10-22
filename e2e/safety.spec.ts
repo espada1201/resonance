@@ -11,7 +11,6 @@ test('a call for help travels with its details, gets an answer, and closes when 
   const b = await context.newPage();
   await joinAir(b, '/?air=sim', 'Ben');
 
-  // Someone who never set a name is asked for one where they check in.
   await openTab(a, 'Safety');
   await a.getByLabel('Your name').fill('Ana');
   await a.getByText('More detail').click();
@@ -140,9 +139,8 @@ test('a sealed message and file heard before joining the circle open once you jo
   await a.getByRole('button', { name: 'Send', exact: true }).click();
   await openTab(b, 'Feed');
   await expect(feedItem(b, 'Sealed for a circle you are not in')).toBeVisible();
-  // The file's two chunks arrive too, but sealed chunks make no item.
   const chunks = b.getByRole('list', { name: 'Air activity' }).getByRole('listitem').filter({ hasText: 'file chunk from' });
-  await expect(chunks.nth(1)).toBeAttached({ timeout: 120_000 });
+  await expect(chunks).toHaveCount(2, { timeout: 120_000 });
   await expect(feedItem(b, 'route.txt')).toHaveCount(0);
 
   await openTab(b, 'Settings');

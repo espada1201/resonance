@@ -17,7 +17,6 @@ describe('geo', () => {
     expect(distanceM(a, b)).toBeCloseTo(111.2, 0);
     expect(compassPoint(bearingDeg(a, b))).toBe('N');
     expect(offset(a, b)).toBe('110 m N');
-    // Closer than a phone's fix can tell apart.
     expect(offset(a, { ...a, lat: 40.00005 })).toBeNull();
     expect(formatDistance(111.2)).toBe('110 m');
     expect(formatDistance(2345)).toBe('2.3 km');

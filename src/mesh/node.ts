@@ -23,7 +23,6 @@ interface MeshConfig {
   suppressAfter: number;
   ackTimeoutMs: number;
   maxAttempts: number;
-  /** Packets kept. A full store drops chat and file chunks first, but lasting news fills four fifths of it at most. */
   storeLimit: number;
   storeTtlMs: number;
   /** How long lasting news (check-ins, replies, notices) is kept and carried: an outage runs for days. */
@@ -96,17 +95,16 @@ interface PendingAck {
   due: number;
 }
 
-/** What a neighbour that said hello still lacks, what we pushed it that its hellos have yet to show, and whether they showed our pushes arrive. */
 interface Feed {
   queue: string[];
-  pushed: number[];
-  reached?: boolean;
+  unchecked: number[];
+  pushesArrive: boolean;
 }
 
 /** Neighbours missing the same file chunk tend to ask at once; answer the burst once. */
 const ANSWER_COOLDOWN_MS = 15_000;
 /** A HELLO's Bloom filter covers this many ids; bigger stores are summarised a slice at a time. */
-const HELLO_SLICE = 40;
+export const HELLO_SLICE = 40;
 /** A neighbour silent this long counts as new when it says hello again. */
 const MET_AFTER_MS = 10 * 60_000;
 /** Packets heard more recently than this are probably still spreading through the room the newcomer just walked into. */
@@ -117,12 +115,19 @@ const CARRY_BATCH = 3;
 const UNPROVEN_FEED = 15;
 /** A carry handed to the radio this long ago has finished on air or been dropped (longest frame plus deferral). */
 const CARRY_AIRED_MS = 60_000;
+/** Tries a broadcast nobody echoes gets with no neighbour in earshot: it should not keep shouting into an empty room. */
+const ALONE_TRIES = 2;
+/** When the store overflows, lasting news beyond this share of it makes room; within it, chat and file chunks do. */
+const LASTING_SHARE = 4 / 5;
+/** The due time of an answer awaited for a frame still waiting to go on air: aired() starts the timer. */
+const NOT_AIRED = Infinity;
 
 /** Check-ins, the replies to them and notices: someone who turns up on day two still learns who checked in on day one. */
 const LASTING = new Set<PacketType | null>([PacketType.CheckIn, PacketType.Reply, PacketType.Notice]);
 
 export const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
 const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
+const wantsReceipt = (p: Packet) => p.ackRequested && p.dst !== BROADCAST;
 
 export class MeshNode {
   readonly store = new Map<string, StoredPacket>();
@@ -160,12 +165,11 @@ export class MeshNode {
     return packet;
   }
 
-  /** A receipt for a direct message, a neighbour's repeat for a broadcast. Timers start once the frame has been on air (see aired()). */
   private awaitAnswer(packet: Packet) {
-    if (packet.ackRequested && packet.dst !== BROADCAST) {
-      this.acks.set(packet.msgId, { packet, due: Infinity });
+    if (wantsReceipt(packet)) {
+      this.acks.set(packet.msgId, { packet, due: NOT_AIRED });
     } else if (packet.dst === BROADCAST && packet.ttl > 1 && this.isStorable(packet)) {
-      this.echoes.set(packet.msgId, { packet, due: Infinity });
+      this.echoes.set(packet.msgId, { packet, due: NOT_AIRED });
     }
   }
 
@@ -228,9 +232,7 @@ export class MeshNode {
     }
     if (p.dst === this.id && p.ackRequested && (this.events.readable?.(p) ?? true)) this.sendAck(p);
     if (this.isStorable(p)) this.remember(p);
-    // A direct message waits one backoff window more: if its addressee heard the same frame, the
-    // receipt it sends at once stands this repeat down instead of colliding with it.
-    if (this.config.relay && p.dst !== this.id) this.schedule(p, rk, 'relay', Number(p.ackRequested && p.dst !== BROADCAST));
+    if (this.config.relay && p.dst !== this.id) this.schedule(p, rk, 'relay', wantsReceipt(p) ? 1 : 0);
     return p;
   }
 
@@ -268,14 +270,6 @@ export class MeshNode {
     this.events.delivery?.(body.msgId, true);
   }
 
-  /**
-   * A neighbour said hello: push it the stored packets its summary's slice lacks, newest first,
-   * three at once and the rest while the air is free. The rest wait until its hellos show our
-   * pushes reach it (15 at first contact, then three a hello), so a neighbour that cannot hear us
-   * costs little. Someone just arrived from elsewhere is also offered our newest news outside that
-   * slice: it most likely lacks it, and waiting for its summaries to cycle round could take an hour.
-   * Every holder in earshot offers; the first copy on air stands the others down.
-   */
   private onHello(p: Packet, newcomer: boolean) {
     const body = decodeBody(PacketType.Hello, p.body);
     if (body?.kind !== 'hello') return;
@@ -285,31 +279,35 @@ export class MeshNode {
     const theirs = new Bloom(body.hashes, body.bits, p.msgId);
     const covered = (id: number) => sliceOf(id, body.parts) === body.part;
     for (const id of this.echoes.keys()) if (covered(id) && theirs.has(id)) this.echoes.delete(id);
-    // Did what we pushed it arrive? Each push is checked once a summary covers its slice; at first
-    // contact, give it the benefit of the doubt.
-    const feed = this.feeds.get(src);
-    const checkable = feed?.pushed.filter(covered) ?? [];
-    const reached = checkable.length ? checkable.some((id) => theirs.has(id)) : feed?.reached;
-    const budget = reached ? Infinity : feed ? CARRY_BATCH : UNPROVEN_FEED;
-    const lacking = [...this.store.values()]
-      .map((s) => ({ s, p: decodePacket(s.bytes)! }))
-      .filter(({ s, p }) => p.src !== src && !s.queued && !theirs.has(p.msgId) && now - s.lastPushed > this.config.carryCooldownMs)
-      .filter(({ s, p }) => covered(p.msgId) || (newcomer && now - s.firstHeard > SETTLED_MS))
-      .filter(({ p }) => p.dst === BROADCAST || p.dst === src)
-      .sort((a, b) => Number(b.p.dst === src) - Number(a.p.dst === src) || b.s.firstHeard - a.s.firstHeard);
+    const before = this.feeds.get(src);
+    const checked = before?.unchecked.filter(covered) ?? [];
+    const pushesArrive = checked.length ? checked.some((id) => theirs.has(id)) : (before?.pushesArrive ?? false);
+    const firstContact = !before;
+    const budget = firstContact ? UNPROVEN_FEED : pushesArrive ? Infinity : CARRY_BATCH;
+    const lacking = this.lackedBy(src, theirs, covered, newcomer, now);
     // Only what the summary shows missing is worth the air later; the newcomer guesses go now or never.
     const later = lacking
       .slice(CARRY_BATCH)
       .filter(({ p }) => covered(p.msgId))
       .slice(0, budget - CARRY_BATCH);
-    this.feeds.set(src, { queue: later.map(({ p }) => storeKey(p)), pushed: feed?.pushed.filter((id) => !covered(id)) ?? [], reached });
+    this.feeds.set(src, { queue: later.map(({ p }) => storeKey(p)), unchecked: before?.unchecked.filter((id) => !covered(id)) ?? [], pushesArrive });
     for (const { s, p } of lacking.slice(0, CARRY_BATCH)) this.carry(src, s, p, now);
+  }
+
+  /** What we hold that a neighbour's summary lacks, for it first and then newest first. */
+  private lackedBy(src: number, theirs: Bloom, covered: (id: number) => boolean, newcomer: boolean, now: number) {
+    return [...this.store.values()]
+      .map((s) => ({ s, p: decodePacket(s.bytes)! }))
+      .filter(({ s, p }) => p.src !== src && !s.queued && !theirs.has(p.msgId) && now - s.lastPushed > this.config.carryCooldownMs)
+      .filter(({ s, p }) => covered(p.msgId) || (newcomer && now - s.firstHeard > SETTLED_MS))
+      .filter(({ p }) => p.dst === BROADCAST || p.dst === src)
+      .sort((a, b) => Number(b.p.dst === src) - Number(a.p.dst === src) || b.s.firstHeard - a.s.firstHeard);
   }
 
   private carry(to: number, s: StoredPacket, p: Packet, now: number) {
     if (!this.schedule(p, storeKey(p), 'carry')) return;
     s.lastPushed = now;
-    this.feeds.get(to)?.pushed.push(p.msgId);
+    this.feeds.get(to)?.unchecked.push(p.msgId);
   }
 
   /**
@@ -378,17 +376,15 @@ export class MeshNode {
         continue;
       }
       a.packet = { ...a.packet, attempt: a.packet.attempt + 1 };
-      a.due = Infinity;
+      a.due = NOT_AIRED;
       this.seen.set(relayKey(a.packet), now);
       this.events.transmit(encodePacket(a.packet), 'retry');
     }
     for (const [id, e] of this.echoes) {
       if (e.due > now) continue;
       e.packet = { ...e.packet, attempt: e.packet.attempt + 1 };
-      e.due = Infinity;
-      // Alone, one repeat: a device should not keep shouting into an empty room. Among neighbours a
-      // repeat can collide too, so it gets as many tries as a direct message.
-      if (e.packet.attempt + 1 >= (this.alone(now) ? 2 : this.config.maxAttempts)) this.echoes.delete(id);
+      e.due = NOT_AIRED;
+      if (e.packet.attempt + 1 >= (this.alone(now) ? ALONE_TRIES : this.config.maxAttempts)) this.echoes.delete(id);
       this.seen.set(relayKey(e.packet), now);
       this.events.transmit(encodePacket(e.packet), 'retry');
     }
@@ -443,17 +439,14 @@ export class MeshNode {
     }, 'ack');
   }
 
-  /**
-   * Queues a copy of `p` one hop deeper, after a random backoff; `distance` adds whole backoff
-   * windows. False if the packet has no hops left.
-   */
-  private schedule(p: Packet, key: string, reason: PendingRelay['reason'], distance = 0) {
+  /** Queues a copy of `p` one hop deeper, after a random backoff and `extraWindows` whole ones more. False if the packet has no hops left. */
+  private schedule(p: Packet, key: string, reason: PendingRelay['reason'], extraWindows = 0) {
     if (p.hops + 1 >= p.ttl) return false;
     const [lo, hi] = this.config.backoffMs;
     this.relays.push({
       key,
       msgId: p.msgId,
-      due: this.clock.now() + distance * hi + lo + this.clock.random() * (hi - lo),
+      due: this.clock.now() + extraWindows * hi + lo + this.clock.random() * (hi - lo),
       heard: 0,
       quorum: reason === 'relay' ? this.config.suppressAfter : 1,
       reason,
@@ -473,13 +466,11 @@ export class MeshNode {
     if (this.store.size > this.config.storeLimit) {
       const oldestFirst = [...this.store].sort(([, a], [, b]) => a.firstHeard - b.firstHeard);
       const lasting = ([, s]: [string, StoredPacket]) => LASTING.has(peekType(s.bytes));
-      // The rest stays for chat and file chunks: a file being sent now must be there to repair.
-      const dropLasting = oldestFirst.filter(lasting).length > (this.config.storeLimit * 4) / 5;
+      const dropLasting = oldestFirst.filter(lasting).length > this.config.storeLimit * LASTING_SHARE;
       this.store.delete(oldestFirst.find((e) => lasting(e) === dropLasting)![0]);
     }
   }
 
-  /** Nobody heard lately: no neighbour is in earshot to repeat what we say. */
   private alone(now: number) {
     return ![...this.neighbors.values()].some((n) => now - n.lastHeard < MET_AFTER_MS);
   }

@@ -280,7 +280,6 @@ describe('saved state', () => {
   });
 
   it('what still waited to go on air when the page closed goes when it opens again', async () => {
-    // Locking the phone straight after "I need help" can close the page before the radio played it.
     const storage = new MemoryStorage();
     const first = new Station(air, 'phone', storage);
     first.update({ nick: 'Ana' });
@@ -288,20 +287,17 @@ describe('saved state', () => {
     await first.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
     first.save();
     const { s } = await listening({ storage });
-    // On its way, not "no receipt: the app was closed while waiting".
     expect(s.journal.feed.map((i) => i.delivery)).toEqual(['sending', undefined]);
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     const sent = s.air.filter((e) => e.dir === 'tx').map((e) => e.label);
-    // The check-in, and once more when nobody repeated it; the message, and its retries.
     expect(sent.filter((l) => l === 'check-in')).toHaveLength(2);
-    expect(sent.filter((l) => l === 'message')).toHaveLength(3);
+    expect(sent.filter((l) => l === 'message')).toHaveLength(s.mesh.config.maxAttempts);
   });
 
   it('saves what the fixture records, plus two settings, the safety log, and which of its packets never went on air', async () => {
     const storage = new MemoryStorage();
     await afternoon(storage);
     const old = parsed(fixture());
-    // That afternoon never started listening, so nothing of its own played: two messages, a check-in and three file chunks.
     const own = (e: { b: string }) => decodePacket(fromB64(e.b))!.src === old[IDENTITY].id;
     const store = old[STORE].map((e: { b: string }) => (own(e) ? { ...e, q: 1 } : e));
     expect(store.filter(own)).toHaveLength(6);
@@ -518,7 +514,6 @@ describe('what people say', () => {
     const key = await ben.m.sendFile('shelters.txt', 'text/plain', data);
     const s = new Station(air, 'phone', null);
     ben.out.forEach((o) => s.onFrame(frame(o.bytes)));
-    // Its chunks make no item while sealed: one each would bury the feed.
     expect(s.journal.feed).toEqual([]);
     await s.setPassphrase(CIRCLE);
     expect(s.journal.feed.map((i) => i.fileKey)).toEqual([key]);

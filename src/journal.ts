@@ -105,17 +105,17 @@ export class Journal {
     return { safety: this.log.snapshot(), feed: this.feed.slice(0, FEED_SAVED) };
   }
 
-  /**
-   * Retry timers die with the page, so a receipt still awaited comes back unknown, unless its message
-   * had not been on air and goes now (`resent`). A save from before the safety log has none, so the
-   * check-ins and notices in its feed seed it.
-   */
-  restore(saved: { safety: SafetySnapshot | null; feed: FeedItem[] | null; resent?: Set<string> }) {
-    this.feed = (saved.feed ?? []).map((i) => (i.delivery === 'sending' && !saved.resent?.has(i.id) ? { ...i, delivery: 'unknown' } : i));
+  restore(saved: { safety: SafetySnapshot | null; feed: FeedItem[] | null; resent: Set<string> }) {
+    const retriesLost = (i: FeedItem) => i.delivery === 'sending' && !saved.resent.has(i.id);
+    this.feed = (saved.feed ?? []).map((i) => (retriesLost(i) ? { ...i, delivery: 'unknown' } : i));
     this.log = new SafetyLog();
     if (saved.safety) this.log.restore(saved.safety);
-    else for (const { src, msgId, at, hops, encrypted, body } of [...this.feed].reverse()) if (body) this.log.add({ src, msgId, at, hops, encrypted, body });
+    else this.rebuildLogFromFeed();
     this.log.prune(this.clock.now());
+  }
+
+  private rebuildLogFromFeed() {
+    for (const { src, msgId, at, hops, encrypted, body } of [...this.feed].reverse()) if (body) this.log.add({ src, msgId, at, hops, encrypted, body });
   }
 
   /** "Clear everything heard". */

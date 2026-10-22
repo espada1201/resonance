@@ -177,7 +177,6 @@ function PinLine({ station, geo, me }: { station: Station; geo: Geo; me: Geo | n
   );
 }
 
-/** One item of the feed: who sent it and how it came, what it says, and what can be done with it. */
 function Item({ station, item, kind, actions, children }: { station: Station; item: FeedItem; kind?: string; actions?: ComponentChildren; children: ComponentChildren }) {
   return (
     <article class={kind ? `item ${kind}` : 'item'}>

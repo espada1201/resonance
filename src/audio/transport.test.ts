@@ -84,7 +84,6 @@ describe('starting the microphone', () => {
   });
 
   it('will not listen while another page of this browser listens, and lets go of what it took', async () => {
-    // Both would be the same device on the mesh, saving over each other and talking over each other.
     const { log } = browser({ otherPageListens: true });
     await expect(new MicTransport().start(() => undefined)).rejects.toMatchObject({ name: 'CannotListen', lack: 'elsewhere' });
     expect(log).toEqual(['new AudioContext', 'resume', 'ask for the microphone', 'microphone off', 'close']);

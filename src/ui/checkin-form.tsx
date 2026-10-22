@@ -57,13 +57,9 @@ export function draftProblem(d: CheckInDraft): string | null {
   return null;
 }
 
-/**
- * Asks someone with no name yet for one where they check in: "#4F2A1C is safe" tells their family
- * nothing. It stays while the form is open, so it does not vanish at the first letter.
- */
 export function NameField({ station }: { station: Station }) {
-  const [ask] = useState(!station.settings.nick);
-  if (!ask) return null;
+  const [namelessAtOpen] = useState(!station.settings.nick);
+  if (!namelessAtOpen) return null;
   return (
     <input
       value={station.settings.nick}

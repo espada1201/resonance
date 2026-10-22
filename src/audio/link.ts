@@ -38,6 +38,10 @@ const decoder = () => new Worker(new URL('./rx-worker.ts', import.meta.url), { t
 export class AirLink {
   /** The capture rate, once started; 0 before. */
   sampleRate = 0;
+  /** The rate sounds are made at: the capture rate, or the usual 48 kHz until it is known. */
+  get rate() {
+    return this.sampleRate || 48_000;
+  }
   /** The decoder is in the middle of a frame: carrier sense says the air is taken. */
   busy = false;
   /** The profile of the frame coming in, from its preamble to its end. */
@@ -116,15 +120,14 @@ export class AirLink {
    * `started` runs once `transmitting` is set and before the decoder is muted.
    */
   async play(wave: Float32Array, profile: ProfileId, started: (seconds: number) => void) {
-    const fs = this.sampleRate || 48000;
-    const seconds = wave.length / fs;
+    const seconds = wave.length / this.rate;
     this.transmitting = { profile, seconds, started: Date.now() };
     started(seconds);
     // A pending unmute from the previous frame must not cut into this one.
     if (this.unmute) clearTimeout(this.unmute);
     this.post({ type: 'mute', on: true });
     try {
-      await this.transport.play(wave, fs);
+      await this.transport.play(wave, this.rate);
     } finally {
       this.transmitting = null;
       this.unmute = setTimeout(() => {

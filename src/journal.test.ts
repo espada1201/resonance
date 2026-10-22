@@ -93,7 +93,7 @@ describe('journal', () => {
     j.add(met(BEN, 3), answer('coming'));
     j.add(met(ME, 7, { dst: CAL }), text('On my way', 'Ana'));
     const reloaded = new Journal(ME, clock);
-    reloaded.restore(JSON.parse(JSON.stringify(j.snapshot())));
+    reloaded.restore({ ...JSON.parse(JSON.stringify(j.snapshot())), resent: new Set() });
     expect(reloaded.feed).toEqual([{ ...j.feed[0], delivery: 'unknown' }, j.feed[1]]);
     expect(reloaded.roster()).toEqual(j.roster());
   });
@@ -105,7 +105,7 @@ describe('journal', () => {
       { id: `${BEN}:1`, src: BEN, msgId: 1, at: T, hops: 0, mine: false, encrypted: false, locked: false, dst: BROADCAST, body: text('Hi') },
       { id: `${CAL}:2`, src: CAL, msgId: 2, at: T, hops: 1, mine: false, encrypted: true, locked: false, dst: BROADCAST, body: help },
     ];
-    j.restore({ safety: null, feed: old });
+    j.restore({ safety: null, feed: old, resent: new Set() });
     expect(j.feed).toEqual(old);
     expect(j.roster().map((e) => e.latest)).toEqual([{ src: CAL, msgId: 2, at: T, hops: 1, encrypted: true, body: help }]);
     expect(j.notices().map((n) => n.body)).toEqual([notice]);

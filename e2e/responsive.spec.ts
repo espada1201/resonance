@@ -8,7 +8,6 @@ const LAYOUTS = [
   { name: 'desktop', width: 1440, height: 900, tabs: ['Feed', 'Safety', 'People', 'Settings'] },
   // Below 960 px the air panel moves from the side into its own tab.
   { name: 'phone', width: 390, height: 844, tabs: ['Feed', 'Safety', 'Air', 'People', 'Settings'] },
-  // The width of most Android phones; with CI's wider fonts, 390 px fits no more than this does here.
   { name: 'small phone', width: 360, height: 740, tabs: ['Feed', 'Safety', 'Air', 'People', 'Settings'] },
 ] as const;
 

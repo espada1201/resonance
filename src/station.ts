@@ -149,8 +149,8 @@ export class Station {
     );
     this.ranger = new Ranger({
       id: this.id,
-      sampleRate: () => this.link.sampleRate || 48000,
-      modulate: (bytes) => modulate(bytes, PROFILES.audible, this.link.sampleRate || 48000),
+      sampleRate: () => this.link.rate,
+      modulate: (bytes) => modulate(bytes, PROFILES.audible, this.link.rate),
       playExclusive: (wave, label) => this.playExclusive(wave, label),
       sendUrgent: (bytes) => this.radio.enqueue(bytes, true),
       changed: () => this.changed(),
@@ -161,7 +161,7 @@ export class Station {
     // A hidden page may be frozen or closed before a pending save runs, so it runs now. The browser
     // drops the wake lock whenever the page is hidden; take it back on return.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this.saveNow();
+      if (document.visibilityState === 'hidden') this.flushSave();
       else if (this.status === 'listening') void this.keepAwake();
     });
   }
@@ -286,19 +286,17 @@ export class Station {
     this.changed();
   }
 
-  /** Whether this device's audio can carry a mode. A Bluetooth headset can hold it to 16 or 24 kHz, too slow for near-ultrasonic. */
   playable(id: ProfileId) {
-    return !this.link.sampleRate || playableAt(PROFILES[id], this.link.sampleRate);
+    return playableAt(PROFILES[id], this.link.rate);
   }
 
-  /** The mode frames go out in: the one chosen, or Audible while the audio cannot carry it. */
   private get sendProfile(): ProfileId {
     return this.playable(this.settings.profile) ? this.settings.profile : 'audible';
   }
 
   private async sendFrame(bytes: Uint8Array) {
     const profile = this.sendProfile;
-    const fs = this.link.sampleRate || 48000;
+    const fs = this.link.rate;
     const p = decodePacket(bytes);
     const label = p ? `${PACKET_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
     await this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
@@ -426,8 +424,7 @@ export class Station {
     let plain: Uint8Array | null = p.body;
     if (p.encrypted) plain = this.circle ? await open(this.circle, p) : null;
     if (!plain) {
-      // A sealed file's chunks make no item each: they join their file when the circle is joined.
-      if (p.type !== PacketType.FileChunk) this.journal.add(meta, 'locked');
+      if (showsLocked(p.type)) this.journal.add(meta, 'locked');
       return this.changed();
     }
     const body = decodeBody(p.type, plain);
@@ -438,13 +435,12 @@ export class Station {
     } else if (body.kind === 'range') {
       void this.ranger.onPacket(p, body, frame);
     } else {
-      this.keep(meta, p, body, frame?.airtimeSec);
+      this.record(meta, p, body, frame?.airtimeSec);
     }
     this.changed();
   }
 
-  /** What a packet says goes where it is kept: a file chunk with its file, what people say in the journal. */
-  private keep(meta: Meta, p: Packet, body: Body, airtimeSec = 0) {
+  private record(meta: Meta, p: Packet, body: Body, airtimeSec = 0) {
     if (body.kind === 'file') {
       this.journal.file(meta, this.files.heard(p.src, body, p.msgId, airtimeSec).key);
     } else if (isContent(body) || body.kind === 'reply') {
@@ -497,26 +493,26 @@ export class Station {
     this.circle = circle;
     this.changed();
     if (!circle) return;
-    // Sealed news heard before we joined opens where it lies, and sealed file chunks join their file.
-    const sealed = new Map<string, Meta | null>(this.journal.feed.filter((i) => i.locked).map((i) => [i.id, i]));
-    for (const [k, s] of this.mesh.store) if (peekType(s.bytes) === PacketType.FileChunk) sealed.set(k, null);
-    for (const [k, item] of sealed) {
-      const stored = this.mesh.store.get(k);
-      const p = stored && decodePacket(stored.bytes);
-      const plain = p?.encrypted && (await open(circle, p));
-      const body = p && plain && decodeBody(p.type, plain);
-      if (body) this.keep(item ?? { ...met(p), at: stored.firstHeard }, p, body);
-    }
+    for (const item of this.journal.feed.filter((i) => i.locked)) await this.openHeld(circle, item.id, item);
+    for (const [k, s] of this.mesh.store) if (!showsLocked(peekType(s.bytes))) await this.openHeld(circle, k);
     this.changed();
+  }
+
+  /** Opens a sealed packet in the store with a circle just joined; `meta` is its locked item's, if it has one. */
+  private async openHeld(circle: Circle, key: string, meta?: Meta) {
+    const stored = this.mesh.store.get(key);
+    const p = stored && decodePacket(stored.bytes);
+    const plain = p?.encrypted && (await open(circle, p));
+    const body = p && plain && decodeBody(p.type, plain);
+    if (body) this.record(meta ?? { ...met(p), at: stored.firstHeard }, p, body);
   }
 
   private scheduleSave() {
     if (this.saveTimer || !this.saved.available) return;
-    this.saveTimer = setTimeout(() => this.saveNow(), 800);
+    this.saveTimer = setTimeout(() => this.flushSave(), 800);
   }
 
-  /** Runs the pending save, if there is one. */
-  private saveNow() {
+  private flushSave() {
     if (!this.saveTimer) return;
     clearTimeout(this.saveTimer);
     this.saveTimer = null;
@@ -552,5 +548,7 @@ export class Station {
 
 
 /** How a packet met this device, just now. */
+/** A sealed packet we cannot open makes a locked item, except a file chunk: one item each would bury the feed. */
+const showsLocked = (type: PacketType | null) => type !== PacketType.FileChunk;
 const met = (p: Packet): Meta => ({ src: p.src, msgId: p.msgId, at: Date.now(), hops: p.hops, encrypted: p.encrypted, dst: p.dst });
 

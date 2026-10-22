@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { rng } from '../modem/channel-sim';
 import { Bloom, MAX_BLOOM_IDS } from './bloom';
 import { deriveCircle, open, seal } from './crypto';
-import { MeshNode } from './node';
+import { HELLO_SLICE, MeshNode } from './node';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './packet';
 import { type Body, decodeBody, encodeBody, typeOf } from './payloads';
 import { TxQueue } from './radio';
@@ -182,7 +182,6 @@ describe('mesh flooding', () => {
     alone.run(120_000);
     expect(alone.tx.filter((t) => t.packet.msgId === p.msgId).map((t) => t.reason)).toEqual(['origin', 'retry']);
 
-    // C is in earshot, but its first two repeats of B's message collide with what B sends next.
     const crowded = new World();
     const [b0] = ['B', 'C'].map((n, i) => crowded.add(n, i + 1));
     crowded.link('BC');
@@ -333,8 +332,6 @@ describe('mesh flooding', () => {
   });
 
   it('repeats a direct message only once its addressee had time to answer, and not at all if it did', () => {
-    // In one room the receipt and a repeat of the message started together, the sender lost the
-    // receipt in the collision, and it sent the message again a minute later (2 runs in 10).
     let t = 0;
     const sent: Array<[number, number]> = [];
     const c = new MeshNode(3, { now: () => t, random: () => 0.5 }, { transmit: (b) => void sent.push([t, decodePacket(b)!.msgId]), deliver: () => undefined });
@@ -344,17 +341,19 @@ describe('mesh flooding', () => {
     const run = (until: number) => {
       for (; t < until; t += 200) c.tick();
     };
-    // The addressee heard it too: its receipt, sent at once, stands the repeat down.
     c.receive(dm(50));
     run(4000);
     c.receive(ack(50));
     run(20_000);
     expect(sent.filter(([, id]) => id === 50)).toEqual([]);
-    // Nobody answers: repeated after one backoff window more than a broadcast waits.
-    c.receive(dm(51));
-    const heard = t;
-    run(heard + 20_000);
-    expect(sent.filter(([, id]) => id === 51).map(([at]) => at - heard)).toEqual([6400]);
+    const waited = (msgId: number, packet: Uint8Array) => {
+      const heard = t;
+      c.receive(packet);
+      run(heard + 20_000);
+      return sent.filter(([, id]) => id === msgId).map(([at]) => at - heard);
+    };
+    const broadcast = waited(52, encodePacket({ ...decodePacket(dm(52))!, ackRequested: false, dst: BROADCAST }));
+    expect(waited(51, dm(51))).toEqual(broadcast.map((ms) => ms + c.config.backoffMs[1]));
   });
 
   it('sends receipts as receipts, so the radio puts them ahead of queued traffic', () => {
@@ -508,7 +507,6 @@ describe('how long news lasts', () => {
   it('a beacon alone in a room forgets its own hellos as it forgets everything else', () => {
     let t = 0;
     const n = new MeshNode(1, { now: () => t, random: rng(3) }, { transmit: () => undefined, deliver: () => undefined });
-    // A hello a minute for a week, and nobody answers.
     for (let minute = 0; minute < 7 * 24 * 60; minute++) {
       n.hello('roof', 'beacon');
       t += 60_000;
@@ -540,8 +538,6 @@ describe('how long news lasts', () => {
   });
 
   it('a full store drops chat and file chunks before check-ins, but check-ins never fill all of it', () => {
-    // A few photos must not push out who asked for help; three days of check-ins must not leave
-    // the file being sent now nowhere to be repaired from.
     let t = 0;
     const out: Uint8Array[] = [];
     const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: (b) => void out.push(b), deliver: () => undefined });
@@ -554,13 +550,11 @@ describe('how long news lasts', () => {
       n.receive(farAway(msgId));
     }
     expect([...n.store.keys()].sort()).toEqual(['99:1', '99:13', '99:14', '99:15', '99:2']);
-    // Lasting news takes four places of five at most: then its oldest goes.
     for (let msgId = 20; msgId < 25; msgId++) {
       t += 1000;
       n.receive(farCheckIn(msgId));
     }
     expect([...n.store.keys()].sort()).toEqual(['99:15', '99:21', '99:22', '99:23', '99:24']);
-    // Our own message, the only copy there is, stays to hand to whoever lacks it.
     t += 1000;
     n.originate({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId: 77, dst: BROADCAST, ttl: 5, channel: 0, body: encodeBody(text('mine')) });
     n.aired(out.at(-1)!);
@@ -652,16 +646,15 @@ describe('HELLO summaries', () => {
     });
   }
 
-  /** A beacon holding `count` settled packets and a phone holding `own` others, both not relaying. */
-  function beaconAndNewcomer(count: number, own = 0) {
+  function beaconAndNewcomer(beaconHolds: number, phoneHolds = 0) {
     const w = new World();
     const [b, p] = ['B', 'P'].map((n, i) => w.add(n, i + 1));
     for (const n of [b, p]) n.config.relay = false;
-    for (let msgId = 1000; msgId < 1000 + count; msgId++) {
+    for (let msgId = 1000; msgId < 1000 + beaconHolds; msgId++) {
       b.receive(farAway(msgId));
       w.t += 1000;
     }
-    for (let msgId = 2000; msgId < 2000 + own; msgId++) {
+    for (let msgId = 2000; msgId < 2000 + phoneHolds; msgId++) {
       p.receive(farAway(msgId));
       w.t += 1000;
     }
@@ -701,9 +694,8 @@ describe('HELLO summaries', () => {
     expect(carries()).toBe(8);
   });
 
-  for (const own of [0, 50]) {
+  for (const own of [0, HELLO_SLICE + 10]) {
     it(`feeds a neighbour that cannot hear it no more than a newcomer, then three per hello (it holds ${own} packets)`, () => {
-      // 50 packets take two hellos to summarise, so what we pushed is checked when its slice comes round.
       const { w, p, carries } = beaconAndNewcomer(60, own);
       w.drop = (from) => from === 'B';
       const perHello: number[] = [];
@@ -720,14 +712,15 @@ describe('HELLO summaries', () => {
   }
 
   it('hands a neighbour with a big store of its own everything it lacks within a few hellos', () => {
-    const { w, p, carries } = beaconAndNewcomer(60, 50);
+    const phoneHolds = HELLO_SLICE + 10;
+    const { w, p, carries } = beaconAndNewcomer(60, phoneHolds);
     const sizes: number[] = [];
     for (let k = 0; k < 5; k++) {
       p.hello('p', 'phone');
       w.run(5 * 60_000);
       sizes.push(p.store.size);
     }
-    expect(sizes, `its store after each hello: ${sizes.join(', ')}`).toEqual(expect.arrayContaining([110]));
+    expect(sizes, `its store after each hello: ${sizes.join(', ')}`).toEqual(expect.arrayContaining([60 + phoneHolds]));
     expect(carries()).toBe(60);
   });
 

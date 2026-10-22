@@ -30,8 +30,7 @@ const chat: Body = { kind: 'text', ts: 1_700_000_000, nick: 'bo', text: 'water a
 const far = (msgId: number, body: Body) =>
   encodePacket({ type: typeOf[body.kind], encrypted: false, ackRequested: false, msgId, src: 99, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(body) });
 
-/** A HELLO from node `src`, holding nothing, as its neighbour hears it. */
-function helloFrom(src: number) {
+function emptyHelloFrom(src: number) {
   const { hashes, bits } = Bloom.of([], 0x4e110);
   const body = encodeBody({ kind: 'hello', role: 'phone', nick: '', hashes, bits, part: 0, parts: 1 });
   return encodePacket({ type: PacketType.Hello, encrypted: false, ackRequested: false, msgId: 0x4e110, src, dst: BROADCAST, ttl: 1, hops: 0, attempt: 0, channel: 0, body });
@@ -136,9 +135,8 @@ const holding: Scenario[] = [
     name: 'a check-in from a node that knows a neighbour, whose echoes are all lost',
     nodes: 'AB',
     links: 'AB',
-    // Not alone, A repeats a broadcast nobody echoes as often as it retries a direct message.
     setup(w) {
-      w.hear('A', helloFrom(2));
+      w.hear('A', emptyHelloFrom(2));
       w.send('A', own(X, checkIn));
     },
     losses: 3,
