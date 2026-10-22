@@ -34,6 +34,13 @@ export function rovingKeys<T>(options: T[], current: T, choose: (o: T) => void) 
   };
 }
 
+/** A button about to go: the keyboard moves on to the next button beside it, not back to the top of the page. */
+export function handFocusOn(button: HTMLElement) {
+  let next = button.nextElementSibling;
+  while (next && !(next instanceof HTMLButtonElement)) next = next.nextElementSibling;
+  (next as HTMLElement | null)?.focus();
+}
+
 export function useMedia(query: string) {
   const [match, setMatch] = useState(() => matchMedia(query).matches);
   useEffect(() => {

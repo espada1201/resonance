@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, ReplyKind, Status } from '../mesh/payloads';
 import { type RosterEntry, rosterCsv, search } from '../roster';
@@ -79,12 +79,17 @@ function Radar({ me, people, heading, name }: { me: Geo; people: RosterEntry[]; 
   );
 }
 
-function sentText(station: Station, about: string | undefined) {
+/** `ask`: the one-tap call for help went with no details, so this asks for them. */
+function sentText(station: Station, about: string | undefined, ask: boolean) {
   const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
   if (mine && station.queued(mine.latest)) return 'Waiting to go on air…';
-  if (!mine || !asking(mine.latest.body.status)) return 'Sent.';
+  if (!mine || !asking(mine.latest.body.status)) {
+    const item = mine && station.journal.feed.find((i) => i.mine && i.msgId === mine.latest.msgId);
+    return item?.passedOn ? 'Sent. Another phone has it.' : 'Sent.';
+  }
   const answer = mine.replies.at(-1);
-  return answer ? `Sent. ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.` : 'Sent. Nobody has answered yet.';
+  if (answer) return `Sent. ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.`;
+  return ask ? 'Sent. Nobody has answered yet. Add where you are and what you need, and send again.' : 'Sent. Nobody has answered yet.';
 }
 
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
@@ -92,8 +97,9 @@ function CheckInCard({ station }: { station: Station }) {
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
   const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
-  const [sent, setSent] = useState<{ about?: string } | null>(null);
+  const [sent, setSent] = useState<{ about?: string; ask: boolean } | null>(null);
   const [err, setErr] = useState('');
+  const more = useRef<HTMLDetailsElement>(null);
   const listening = station.status === 'listening';
   const set = (patch: Partial<CheckInDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const room = station.budget({ kind: 'checkin', ...draftFields(draft, ANY_FIX) }).left;
@@ -109,8 +115,16 @@ function CheckInCard({ station }: { station: Station }) {
     try {
       // Saying it also remembers where you are and whom to tell outside, for your next check-ins.
       await station.say({ kind: 'checkin', ...fields });
-      setSent({ about: fields.about });
-      if (label === 'detail' || detailed) setDraft(newDraft(station.settings));
+      const ask = label === 'help' && !detailed;
+      setSent({ about: fields.about, ask });
+      // The status stays as sent: after a call for help, the form must not quietly say Safe.
+      if (label === 'detail' || detailed) setDraft({ ...newDraft(station.settings, d.status), needs: d.needs });
+      if (ask) {
+        // One tap said only "help": the details open beside it, ready to say where and what.
+        setDraft(newDraft(station.settings, 'help'));
+        more.current!.open = true;
+        requestAnimationFrame(() => more.current?.querySelector<HTMLInputElement>('input[aria-label="Where"]')?.focus());
+      }
     } catch (e) {
       setErr(errorText(e));
     }
@@ -134,13 +148,13 @@ function CheckInCard({ station }: { station: Station }) {
           {sending === 'help' ? 'Sending…' : 'I need help'}
         </button>
       </div>
-      {sent && <p role="status">{sentText(station, sent.about)}</p>}
+      {sent && <p role="status">{sentText(station, sent.about, sent.ask)}</p>}
       <p class="muted small">
         One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at "${place}".`}
         {outside && ` Whoever gets signal first can tell ${outside}.`}
       </p>
-      <details class="more" onToggle={(e) => setDetailed(e.currentTarget.open)}>
+      <details class="more" ref={more} onToggle={(e) => setDetailed(e.currentTarget.open)}>
         <summary>More detail: what you need, where, someone without a phone, family outside</summary>
         <form
           onSubmit={(e) => {

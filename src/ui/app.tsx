@@ -5,7 +5,7 @@ import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
 import type { RosterEntry } from '../roster';
 import type { Station } from '../station';
 import { AirPanel, AirStatus } from './air';
-import { Compose } from './compose';
+import { Compose, focusCompose } from './compose';
 import { Feed, who } from './feed';
 import { STATUS_TEXT } from './format';
 import { rovingKeys, useMedia, useStation, useTicker } from './hooks';
@@ -28,11 +28,15 @@ function Gate({ station }: { station: Station }) {
   const sim = station.transport.kind === 'simulated';
   return (
     <section class="gate" aria-labelledby="gate-title">
-      <p class="label">Offline mesh · made of sound</p>
-      <h2 id="gate-title">Messages that travel through the air between the devices people already carry.</h2>
+      <p class="label">Works with no internet or signal</p>
+      <h2 id="gate-title">Messages that travel by sound between the phones people already carry.</h2>
       <p class="lede">
-        Resonance sends messages as sound, from one device's speaker to another's microphone. It needs no internet, no cell signal, no pairing
-        and no accounts. Every device that hears a message repeats it, so it hops through a crowd or a building.
+        Your phone plays a message as a short burst of sound. Phones nearby hear it and play it on, so it crosses a room, a building or a crowd. No
+        internet, cell signal, pairing or account needed.
+      </p>
+      <p class="lede">
+        In an emergency, open <strong>Safety</strong> and tap <strong>I'm safe</strong> or <strong>I need help</strong>. Everyone nearby sees who
+        is safe, who needs help, and where.
       </p>
       {station.status === 'error' && (
         <p class="error" role="alert">
@@ -46,7 +50,7 @@ function Gate({ station }: { station: Station }) {
         {!sim && (
           // This tab joins the simulated room, and a second one opens beside it, 3 m away.
           <a class="button ghost large" href="?air=sim" onClick={() => window.open('?air=sim&at=3,0', '_blank')}>
-            Try it in two tabs, no microphone
+            Try a demo, no microphone needed
           </a>
         )}
       </div>
@@ -54,15 +58,18 @@ function Gate({ station }: { station: Station }) {
         Your browser will ask for the microphone. Resonance decodes sound on this device and never records or uploads it. It turns off echo
         cancellation, which would erase the chirps.
       </p>
-      <dl class="gate-modes" aria-label="Three ways to send">
-        {MODES.map(([id, name, range]) => (
-          <div key={id}>
-            <dt>{name}</dt>
-            <dd class="rate">{Math.round(rawBitrate(PROFILES[id])).toLocaleString('en')} bit/s raw</dd>
-            <dd>{range}</dd>
-          </div>
-        ))}
-      </dl>
+      <details class="more">
+        <summary>Three ways to send, from across a room to almost silent</summary>
+        <dl class="gate-modes" aria-label="Three ways to send">
+          {MODES.map(([id, name, range]) => (
+            <div key={id}>
+              <dt>{name}</dt>
+              <dd class="rate">{Math.round(rawBitrate(PROFILES[id])).toLocaleString('en')} bit/s raw</dd>
+              <dd>{range}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
     </section>
   );
 }
@@ -100,6 +107,7 @@ export function App({ station }: { station: Station }) {
   const wide = useMedia('(min-width: 960px)');
   const [tab, setTab] = useState<Tab>('feed');
   const [dst, setDst] = useState(BROADCAST);
+  const [writeTo, setWriteTo] = useState(0);
   const tabs: Tab[] = wide ? ['feed', 'safety', 'people', 'settings'] : ['feed', 'safety', 'air', 'people', 'settings'];
   const current: Tab = !wide || tab !== 'air' ? tab : 'feed';
   const live = station.status === 'listening';
@@ -108,10 +116,24 @@ export function App({ station }: { station: Station }) {
   const messageNode = (id: number) => {
     setDst(id);
     setTab('feed');
+    setWriteTo((n) => n + 1);
   };
+  const composing = current === 'feed' && live;
 
   return (
     <div class={wide ? 'shell wide' : 'shell'}>
+      {composing && (
+        <a
+          class="skip"
+          href="#compose"
+          onClick={(e) => {
+            e.preventDefault();
+            focusCompose();
+          }}
+        >
+          Skip to the message box
+        </a>
+      )}
       <TopBar station={station} compact={!wide} homeLabel="Resonance home" right={live && !wide ? <AirStatus station={station} compact announce /> : null}>
         <span class="node-chip" title="This device's id on the mesh">
           #{nodeHex(station.id)}
@@ -148,13 +170,13 @@ export function App({ station }: { station: Station }) {
         <div class="left">
           <div class="scroll" role="tabpanel" id="section" aria-labelledby={`tab-${current}`}>
             {!live && current !== 'settings' && current !== 'air' && <Gate station={station} />}
-            {current === 'feed' && (live || station.journal.feed.length > 0) && <Feed station={station} />}
+            {current === 'feed' && (live || station.journal.feed.length > 0) && <Feed station={station} onReply={live ? messageNode : undefined} />}
             {current === 'safety' && <Safety station={station} />}
             {current === 'people' && <People station={station} onMessage={messageNode} />}
             {current === 'settings' && <Settings station={station} />}
             {current === 'air' && <AirPanel station={station} />}
           </div>
-          {current === 'feed' && live && <Compose station={station} dst={dst} setDst={setDst} />}
+          {composing && <Compose station={station} dst={dst} setDst={setDst} writeTo={writeTo} />}
         </div>
         {wide && <AirPanel station={station} announce />}
       </main>

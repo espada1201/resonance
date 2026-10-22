@@ -7,6 +7,15 @@
   color: var(--muted);
   font-size: 13px;
 }
+.extras,
+.needs,
+.name-field {
+  display: grid;
+  gap: 8px;
+}
+.extras {
+  margin-top: 8px;
+}
 .more form {
   display: grid;
   gap: 10px;

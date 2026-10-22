@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { airRow, checkInRow, expect, feedItem, joinAir, openTab, proof, sendText, test } from './helpers';
+import { airRow, checkInRow, expect, feedItem, joinAir, nodeId, openTab, proof, sendText, test } from './helpers';
 
 // The jobs people have when the network is down: say how you are and what you need, see who
 // needs help and answer them, get word to family outside, and tell everyone nearby what matters.
@@ -80,6 +80,7 @@ test('a check-in from the compose bar goes out without a position when GPS fails
   });
   await joinAir(page, '/?air=sim', 'Ana');
   await page.getByRole('radio', { name: 'Check in', exact: true }).click();
+  await page.getByText('Someone without a phone, family outside, GPS').click();
   await page.getByLabel('Attach my GPS position').check();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
@@ -117,6 +118,53 @@ test('the big help button sends the details open beside it, then says whether an
   await proof(a, 'big-button-details');
 });
 
+test('a call for help in the feed is answered from the feed', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  await openTab(a, 'Safety');
+  await a.getByRole('button', { name: 'I need help' }).click();
+  const request = feedItem(b, 'Needs help');
+  await request.getByRole('button', { name: 'On my way' }).click();
+  await expect(request).toContainText('You are on the way');
+  await expect(request.getByRole('button', { name: 'On my way' })).toHaveCount(0);
+  // The button that was pressed is gone; the keyboard lands on the next one, not back at the top.
+  await expect(request.getByRole('button', { name: 'Sound file' })).toBeFocused();
+  await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
+  await proof(b, 'on-my-way-from-feed');
+});
+
+test('one tap for help, nameless, says how others see you and then asks where and what', async ({ page }) => {
+  await joinAir(page);
+  await openTab(page, 'Safety');
+  await expect(page.getByText(`Without a name, others see you as #${await nodeId(page)}.`)).toBeVisible();
+  await page.getByRole('button', { name: 'I need help' }).click();
+  await expect(page.getByText('Sent. Nobody has answered yet. Add where you are and what you need, and send again.')).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Needs help' })).toBeChecked();
+  await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
+});
+
+test('a check-in keeps the status sent, and the keyboard meets its fields in the order they are typed', async ({ page }) => {
+  await joinAir(page, '/?air=sim', 'Ana');
+  await page.getByRole('radio', { name: 'Check in', exact: true }).click();
+  await page.getByRole('radio', { name: 'Needs medical help' }).click();
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
+  await page.keyboard.type('Dark stairs');
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Note')).toBeFocused();
+  await page.keyboard.type('Hurt ankle');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('group', { name: 'What is needed' }).getByRole('button').first()).toBeFocused();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByLabel('Note')).toBeEmpty();
+  await expect(page.getByRole('radio', { name: 'Needs medical help' })).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Injured' })).toHaveAttribute('aria-pressed', 'false');
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -129,6 +177,7 @@ test.describe('on a phone', () => {
     await openTab(b, 'Safety');
     await b.getByText('More detail').click();
     await b.getByRole('radio', { name: 'Needs help' }).click();
+    await b.getByText('Someone without a phone, family outside, GPS').click();
     await b.getByLabel('Family outside: phone or email').fill('+1 (555) 010-0199');
     await b.getByRole('button', { name: 'Send check-in' }).click();
     await openTab(a, 'Safety');
@@ -137,6 +186,7 @@ test.describe('on a phone', () => {
 
     await openTab(a, 'Feed');
     await a.getByRole('radio', { name: 'Check in', exact: true }).click();
+    await a.getByText('Someone without a phone, family outside, GPS').click();
     await a.getByLabel('Family outside: phone or email').fill('+1 (555) 010-0100');
     await a.getByRole('button', { name: 'Send', exact: true }).click();
     await openTab(a, 'Safety');
@@ -158,6 +208,7 @@ test('a phone with signal passes a check-in on to family outside, once', async (
 
   await openTab(a, 'Safety');
   await a.getByText('More detail').click();
+  await a.getByText('Someone without a phone, family outside, GPS').click();
   await a.getByLabel('Family outside: phone or email').fill('+1 (555) 010-0100');
   await a.getByRole('button', { name: 'Send check-in' }).click();
 
@@ -200,6 +251,7 @@ test('the safety list downloads as a spreadsheet, people without a phone include
 
   await openTab(a, 'Safety');
   await a.getByText('More detail').click();
+  await a.getByText('Someone without a phone, family outside, GPS').click();
   await a.getByLabel('For someone without a phone').check();
   await a.getByLabel('Their name').fill('María López');
   await a.getByRole('button', { name: 'Send check-in' }).click();

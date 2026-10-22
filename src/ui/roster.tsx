@@ -4,6 +4,7 @@ import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
 import { type Heard, type ReplyBody, type RosterEntry, writtenAt } from '../roster';
 import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago } from './format';
+import { handFocusOn } from './hooks';
 import { Compass } from './icons';
 
 /** Where someone is from here, in words, if both positions are known. */
@@ -105,7 +106,14 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
             {(e.open || e.stale) && !confirming && (
               <div class="actions">
                 {reply && !mine && !e.replies.some((r) => r.src === self && r.body.what === 'coming') && (
-                  <button type="button" class="ghost small" onClick={() => reply(e, 'coming')}>
+                  <button
+                    type="button"
+                    class="ghost small"
+                    onClick={(ev) => {
+                      handFocusOn(ev.currentTarget);
+                      reply(e, 'coming');
+                    }}
+                  >
                     On my way
                   </button>
                 )}

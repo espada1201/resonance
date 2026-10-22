@@ -51,7 +51,14 @@ interface ContactDraft {
   skills: Skill[];
 }
 
-export function Compose({ station, dst, setDst }: { station: Station; dst: number; setDst: (d: number) => void }) {
+/** Where the keyboard goes in the composer: the message box, else the choice of what to send. */
+export function focusCompose() {
+  const field = document.querySelector<HTMLElement>('#compose textarea') ?? document.querySelector<HTMLElement>('#compose [role="radio"][aria-checked="true"]');
+  field?.focus();
+}
+
+/** `writeTo` counts requests to write a message to `dst` (Reply, Message): each one opens the message box and puts the keyboard in it. */
+export function Compose({ station, dst, setDst, writeTo }: { station: Station; dst: number; setDst: (d: number) => void; writeTo: number }) {
   const [mode, setMode] = useState<Mode>('text');
   const [text, setText] = useState('');
   const [checkin, setCheckin] = useState<CheckInDraft>(() => newDraft(station.settings));
@@ -60,6 +67,12 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   const [picked, setPicked] = useState<Picked | null>(null);
   const [error, setError] = useState('');
   const [working, setWorking] = useState(false);
+  const [said, setSaid] = useState('');
+  useEffect(() => {
+    if (!writeTo) return;
+    setMode('text');
+    requestAnimationFrame(focusCompose);
+  }, [writeTo]);
   // A picked photo's preview lives until another is picked or it is sent.
   useEffect(() => () => void (picked?.preview && URL.revokeObjectURL(picked.preview)), [picked?.preview]);
 
@@ -108,6 +121,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
     if (problem) return setError(problem);
     setWorking(true);
     setError('');
+    setSaid('');
     try {
       const target = dst === BROADCAST ? undefined : dst;
       if (mode === 'text') {
@@ -116,7 +130,8 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
       } else if (mode === 'checkin') {
         const geo = checkin.withGeo ? await checkInFix(station, setError) : undefined;
         await station.say({ kind: 'checkin', ...draftFields(checkin, geo) });
-        setCheckin(newDraft(station.settings));
+        // The status stays as sent: after a call for help, the form must not quietly say Safe.
+        setCheckin((d) => ({ ...newDraft(station.settings, d.status), needs: d.needs }));
       } else if (mode === 'notice') {
         await station.say({ kind: 'notice', ...notice, place: notice.place.trim(), text: notice.text.trim() });
         setNotice(newNotice());
@@ -128,10 +143,13 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         await station.sendFile(picked.name, picked.mime, picked.data);
         setPicked(null);
       }
+      setSaid(dst === BROADCAST || toEveryone ? 'Sent to everyone in earshot.' : `Sent to ${who(station, dst)}.`);
     } catch (err) {
       setError(errorText(err));
     } finally {
       setWorking(false);
+      // Send turned itself off while sending, which drops the keyboard on the page: bring it back.
+      if (document.activeElement === document.body || !document.activeElement) focusCompose();
     }
   }
 
@@ -140,7 +158,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   const toggleSkill = (s: Skill) => setContact((c) => ({ ...c, skills: c.skills.includes(s) ? c.skills.filter((x) => x !== s) : [...c.skills, s] }));
 
   return (
-    <form class="compose" onSubmit={submit} aria-label="Compose">
+    <form class="compose" id="compose" onSubmit={submit} aria-label="Compose">
       <div class="seg" role="radiogroup" aria-label="What to send" onKeyDown={rovingKeys(MODE_IDS, mode, setMode)}>
         {MODES.map(([m, label]) => (
           <button key={m} type="button" role="radio" aria-checked={mode === m} tabIndex={mode === m ? 0 : -1} onClick={() => setMode(m)}>
@@ -227,6 +245,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
             {dst !== BROADCAST && !station.mesh.neighbors.has(dst) && <option value={String(dst)}>{who(station, dst)}</option>}
           </select>
         </label>
+        {!toEveryone && neighbors.length === 0 && <span class="muted small">People appear here once their phone is heard.</span>}
         <span class="budget small">
           {(mode === 'text' || mode === 'contact') && <span class={room < 0 ? 'over' : ''}>{room} bytes left · </span>}
           {eta > 0 && (mode === 'file' ? <>about {seconds(eta)} to send</> : <>about {seconds(eta)} on air</>)}
@@ -251,6 +270,9 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           {error}
         </p>
       )}
+      <p class="sr-only" aria-live="polite">
+        {said}
+      </p>
     </form>
   );
 }

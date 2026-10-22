@@ -5,6 +5,9 @@
   padding-bottom: max(12px, env(safe-area-inset-bottom));
   display: grid;
   gap: 10px;
+  /* A long form scrolls in place rather than push the feed, and what was just sent, out of sight. */
+  max-height: 45dvh;
+  overflow-y: auto;
 }
 /* Kinds that do not fit wrap onto a second line: scrolled off the edge, one could not be found. */
 .seg {

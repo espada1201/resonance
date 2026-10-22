@@ -5,9 +5,10 @@ import { missing, received } from '../mesh/files';
 import { BROADCAST, nodeHex } from '../mesh/packet';
 import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
-import { writtenAt } from '../roster';
+import { type RosterEntry, writtenAt } from '../roster';
 import type { Station } from '../station';
 import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes } from './format';
+import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
 
@@ -58,6 +59,15 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
 function Delivery({ station, item }: { station: Station; item: FeedItem }) {
   const [err, setErr] = useState('');
   if (station.queued(item)) return <span class="delivery">waiting to go on air…</span>;
+  if (item.mine && item.dst === BROADCAST) {
+    return item.passedOn ? (
+      <span class="delivery ok">
+        <Check size={14} /> sent · another phone has it
+      </span>
+    ) : (
+      <span class="delivery">sent · no other phone has passed it on yet</span>
+    );
+  }
   const state = item.delivery;
   if (!state) return null;
   if (state === 'acked') return <span class="delivery ok"><Check size={14} /> delivered</span>;
@@ -87,6 +97,30 @@ export function saveSound(station: Station, item: FeedItem) {
   const blob = station.exportWav(item);
   if (!blob) throw new Error('This device no longer keeps this packet, so it cannot be saved as sound.');
   download(blob, `resonance-${nodeHex(item.src)}-${item.msgId.toString(16)}.wav`);
+}
+
+/** A call for help answered where it was read. */
+function OnMyWay({ station, request }: { station: Station; request: RosterEntry }) {
+  const [err, setErr] = useState('');
+  return (
+    <>
+      <button
+        type="button"
+        class="ghost small"
+        onClick={(e) => {
+          handFocusOn(e.currentTarget);
+          station.reply(request.latest, 'coming').catch((x: Error) => setErr(x.message));
+        }}
+      >
+        On my way
+      </button>
+      {err && (
+        <span class="error small" role="alert">
+          {err}
+        </span>
+      )}
+    </>
+  );
 }
 
 function SoundFileButton({ station, item }: { station: Station; item: FeedItem }) {
@@ -264,7 +298,16 @@ function Item({ station, item, kind, actions, children }: { station: Station; it
   );
 }
 
-function FeedItemView({ station, item, position }: { station: Station; item: FeedItem; position: Geo | null }) {
+interface ItemProps {
+  station: Station;
+  item: FeedItem;
+  position: Geo | null;
+  /** The open request this check-in makes, if it is one. */
+  request?: RosterEntry;
+  onReply?: (src: number) => void;
+}
+
+function FeedItemView({ station, item, position, request, onReply }: ItemProps) {
   const shell = { station, item };
   if (item.locked) {
     return (
@@ -290,6 +333,8 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
   const delivery = <Delivery station={station} item={item} />;
   if (b.kind === 'checkin') {
     const replies = station.journal.repliesTo(item.src, item.msgId);
+    const answerable =
+      request && station.status === 'listening' && !(item.mine && !b.about) && !replies.some((r) => r.src === station.id && r.body.what === 'coming');
     return (
       <Item
         {...shell}
@@ -297,6 +342,7 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
         actions={
           <>
             {delivery}
+            {answerable && <OnMyWay station={station} request={request} />}
             {sound}
           </>
         }
@@ -383,6 +429,11 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
       actions={
         <>
           {delivery}
+          {!item.mine && onReply && (
+            <button type="button" class="ghost small" aria-label={`Reply to ${named(station, item.src, b.nick)}`} onClick={() => onReply(item.src)}>
+              Reply
+            </button>
+          )}
           {sound}
         </>
       }
@@ -392,7 +443,7 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
   );
 }
 
-export function Feed({ station }: { station: Station }) {
+export function Feed({ station, onReply }: { station: Station; onReply?: (src: number) => void }) {
   const notices = <NoticeBoard notices={station.journal.notices()} by={(src, nick) => who(station, src, nick)} />;
   if (!station.journal.feed.length) {
     return (
@@ -416,11 +467,17 @@ export function Feed({ station }: { station: Station }) {
       </div>
     );
   }
+  const open = new Map(
+    station.journal
+      .roster()
+      .filter((e) => e.open)
+      .map((e) => [`${e.latest.src}:${e.latest.msgId}`, e]),
+  );
   return (
     <div class="feed">
       {notices}
       {station.journal.feed.map((item) => (
-        <FeedItemView key={item.id} station={station} item={item} position={station.position} />
+        <FeedItemView key={item.id} station={station} item={item} position={station.position} request={open.get(item.id)} onReply={onReply} />
       ))}
     </div>
   );

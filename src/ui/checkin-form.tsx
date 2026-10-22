@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { parseOutside } from '../courier';
 import { locateWithin } from '../geo';
+import { nodeHex } from '../mesh/packet';
 import { type Geo, MAX_CONTACT_NAME, MAX_NICK, MAX_OUTSIDE, MAX_PLACE, NEEDS, type Need, STATUSES, type Status } from '../mesh/payloads';
 import type { CheckInBody } from '../roster';
 import type { Station } from '../station';
@@ -72,12 +73,15 @@ export function NameField({ station }: { station: Station }) {
   const [namelessAtOpen] = useState(!station.settings.nick);
   if (!namelessAtOpen) return null;
   return (
-    <input
-      value={station.settings.nick}
-      placeholder="Your name, so people know who checked in"
-      aria-label="Your name"
-      onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })}
-    />
+    <div class="name-field">
+      <input
+        value={station.settings.nick}
+        placeholder="Your name, so people know who checked in"
+        aria-label="Your name"
+        onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })}
+      />
+      {!station.settings.nick && <p class="muted small">Without a name, others see you as #{nodeHex(station.id)}.</p>}
+    </div>
   );
 }
 
@@ -89,6 +93,8 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
   const noteMax = room + new TextEncoder().encode(draft.note).length;
   const toggle = (n: Need) => set({ needs: draft.needs.includes(n) ? draft.needs.filter((x) => x !== n) : [...draft.needs, n] });
   const badOutside = draft.outside.trim() !== '' && !parseOutside(draft.outside);
+  // Folded away unless something in them is already set, such as a family contact remembered from last time.
+  const [extrasAtOpen] = useState(draft.forSomeone || draft.outside.trim() !== '' || draft.withGeo);
   return (
     <div class="checkin-fields">
       <div class="pills" role="radiogroup" aria-label="Status" onKeyDown={rovingKeys(STATUSES, draft.status, (status) => set({ status }))}>
@@ -98,15 +104,6 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
           </button>
         ))}
       </div>
-      {asking(draft.status) && (
-        <div class="pills" role="group" aria-label="What is needed">
-          {NEEDS.map((n) => (
-            <button key={n} type="button" class="pill need" aria-pressed={draft.needs.includes(n)} onClick={() => toggle(n)}>
-              {NEED_TEXT[n]}
-            </button>
-          ))}
-        </div>
-      )}
       <input value={draft.place} placeholder="Where: floor, room or street (optional)" aria-label="Where" onInput={(e) => set({ place: fitInput(e, MAX_PLACE) })} />
       <label class="field-with-count">
         <input value={draft.note} placeholder="Short note (optional)" aria-label="Note" onInput={(e) => set({ note: fitInput(e, Math.max(0, noteMax)) })} />
@@ -114,28 +111,48 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
           {room} bytes left
         </span>
       </label>
-      <label class="toggle">
-        <input type="checkbox" checked={draft.forSomeone} onChange={(e) => set({ forSomeone: (e.target as HTMLInputElement).checked })} />
-        For someone without a phone
-      </label>
-      {draft.forSomeone && (
-        <input value={draft.about} placeholder="Their name" aria-label="Their name" onInput={(e) => set({ about: fitInput(e, MAX_CONTACT_NAME) })} />
+      {/* After the boxes, not between them: someone tabbing on to type must not land on a need and switch it on. */}
+      {asking(draft.status) && (
+        <div class="needs">
+          <span class="small" aria-hidden="true">
+            What is needed?
+          </span>
+          <div class="pills" role="group" aria-label="What is needed">
+            {NEEDS.map((n) => (
+              <button key={n} type="button" class="pill need" aria-pressed={draft.needs.includes(n)} onClick={() => toggle(n)}>
+                {NEED_TEXT[n]}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
-      <input
-        value={draft.outside}
-        placeholder="Family outside: phone or email (optional)"
-        aria-label="Family outside: phone or email"
-        aria-invalid={badOutside}
-        inputMode="email"
-        onInput={(e) => set({ outside: fitInput(e, MAX_OUTSIDE) })}
-      />
-      <p class="muted small">
-        Whoever gets signal first can text or email it to them. Everyone who carries it can read it, unless your circle seals it.
-      </p>
-      <label class="toggle">
-        <input type="checkbox" checked={draft.withGeo} onChange={(e) => set({ withGeo: (e.target as HTMLInputElement).checked })} />
-        <Pin size={14} /> Attach my GPS position
-      </label>
+      <details class="more" open={extrasAtOpen}>
+        <summary>Someone without a phone, family outside, GPS</summary>
+        <div class="extras">
+          <label class="toggle">
+            <input type="checkbox" checked={draft.forSomeone} onChange={(e) => set({ forSomeone: (e.target as HTMLInputElement).checked })} />
+            For someone without a phone
+          </label>
+          {draft.forSomeone && (
+            <input value={draft.about} placeholder="Their name" aria-label="Their name" onInput={(e) => set({ about: fitInput(e, MAX_CONTACT_NAME) })} />
+          )}
+          <input
+            value={draft.outside}
+            placeholder="Family outside: phone or email (optional)"
+            aria-label="Family outside: phone or email"
+            aria-invalid={badOutside}
+            inputMode="email"
+            onInput={(e) => set({ outside: fitInput(e, MAX_OUTSIDE) })}
+          />
+          <p class="muted small">
+            Whoever gets signal first can text or email it to them. Everyone who carries it can read it, unless your circle seals it.
+          </p>
+          <label class="toggle">
+            <input type="checkbox" checked={draft.withGeo} onChange={(e) => set({ withGeo: (e.target as HTMLInputElement).checked })} />
+            <Pin size={14} /> Attach my GPS position
+          </label>
+        </div>
+      </details>
     </div>
   );
 }

@@ -7,7 +7,7 @@ An offline mesh network made of sound, for when the phone network is down: a pow
 1. Install Node once: open Terminal and run `brew install node`. If you have no Homebrew yet, install it from https://brew.sh first.
 2. Get the code: `git clone https://github.com/espada1201/resonance.git && cd resonance`
 3. Start it: `npm install && npm start`. Your browser opens at http://localhost:4173.
-4. Click **Start listening** and allow the microphone. To try it without a second device, click **Try it in two tabs**.
+4. Click **Start listening** and allow the microphone. To try it without a second device, click **Try a demo**: it opens a second tab, and the two talk over simulated air.
 5. To leave a laptop in a hallway as a beacon, run `npm run beacon` instead.
 
 ## What it does

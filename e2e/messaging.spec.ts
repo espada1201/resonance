@@ -19,6 +19,39 @@ test('two stations trade messages over the air', async ({ context }) => {
   await proof(a, 'messages');
 });
 
+test('a message to everyone says once another phone has passed it on, and the keyboard stays in the box', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b);
+
+  await a.getByRole('link', { name: 'Skip to the message box' }).focus();
+  await a.keyboard.press('Enter');
+  const box = a.getByPlaceholder('Say something');
+  await expect(box).toBeFocused();
+  await a.keyboard.type('Water and blankets at the north stairwell');
+  await a.keyboard.press('Tab');
+  await a.keyboard.press('Tab');
+  await expect(a.getByRole('button', { name: 'Send', exact: true })).toBeFocused();
+  await a.keyboard.press('Enter');
+  await expect(box).toBeEmpty();
+  await expect(box).toBeFocused();
+  await expect(feedItem(a, 'Water and blankets')).toContainText('another phone has it');
+  await proof(a, 'passed-on');
+});
+
+test('Reply on a message addresses the answer to whoever wrote it', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  await sendText(b, 'Anyone on floor 3?');
+  await feedItem(a, 'Anyone on floor 3?').getByRole('button', { name: 'Reply to Ben' }).click();
+  await expect(a.getByPlaceholder('Say something to Ben')).toBeFocused();
+  await expect(a.getByRole('combobox', { name: 'To' })).toHaveValue(String(parseInt(await nodeId(b), 16)));
+});
+
 test('a direct message shows only to its addressee and comes back delivered', async ({ context }) => {
   const [a, b, c] = await Promise.all([0, 1, 2].map(() => context.newPage()));
   for (const p of [a, b, c]) await joinAir(p);
