@@ -27,6 +27,14 @@ class Capture extends AudioWorkletProcessor {
 }
 registerProcessor('resonance-capture', Capture);`;
 
+/** MicTransport.start's refusal, before it asks for anything, on a page that cannot listen at all. */
+export class CannotListen extends Error {
+  constructor(readonly lack: 'insecure' | 'unsupported') {
+    super(lack === 'insecure' ? 'The microphone needs an https:// page.' : 'This browser lacks microphone capture or audio worklets.');
+    this.name = 'CannotListen';
+  }
+}
+
 export class MicTransport implements AirTransport {
   readonly kind = 'mic';
   private ctx: AudioContext | null = null;
@@ -34,26 +42,46 @@ export class MicTransport implements AirTransport {
   private volume = 1;
 
   async start(onSamples: (chunk: Float32Array) => void): Promise<number> {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('This browser cannot reach a microphone here. Open Resonance over https:// or on localhost.');
+    // Capture and audio worklets exist only on secure (https) pages, in browsers new enough to have them.
+    if (!globalThis.isSecureContext) throw new CannotListen('insecure');
+    if (typeof navigator.mediaDevices?.getUserMedia !== 'function' || typeof AudioContext !== 'function' || typeof AudioWorkletNode !== 'function') {
+      throw new CannotListen('unsupported');
     }
-    // Voice processing would treat our tones as noise and erase them.
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
-    });
-    const ctx = (this.ctx = new AudioContext({ latencyHint: 'interactive' }));
-    await ctx.resume();
-    const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: 'application/javascript' }));
-    await ctx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
-    const node = new AudioWorkletNode(ctx, 'resonance-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
-    node.port.onmessage = (e: MessageEvent<Float32Array>) => onSamples(e.data);
-    ctx.createMediaStreamSource(stream).connect(node);
-    // Phones suspend audio for a call or a trip to the background; pick it up again on return.
-    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && ctx.state !== 'running' && void ctx.resume().catch(() => undefined));
-    const sink = ctx.createGain();
-    sink.gain.value = 0;
-    node.connect(sink).connect(ctx.destination);
+    // Safari lets audio start only within the tap that asked for it, and the microphone prompt can
+    // take any time: the context is made and woken before the first await.
+    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    void ctx.resume().catch(() => undefined);
+    let stream: MediaStream | undefined;
+    try {
+      // Voice processing would treat our tones as noise and erase them.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      });
+      await ctx.resume();
+      const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: 'application/javascript' }));
+      await ctx.audioWorklet.addModule(url).finally(() => URL.revokeObjectURL(url));
+      const node = new AudioWorkletNode(ctx, 'resonance-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+      node.port.onmessage = (e: MessageEvent<Float32Array>) => onSamples(e.data);
+      ctx.createMediaStreamSource(stream).connect(node);
+      const sink = ctx.createGain();
+      sink.gain.value = 0;
+      node.connect(sink).connect(ctx.destination);
+    } catch (err) {
+      // Let go of the microphone and the audio device, or the next try finds them still held.
+      for (const t of stream?.getTracks() ?? []) t.stop();
+      void ctx.close().catch(() => undefined);
+      throw err;
+    }
+    // Phones suspend audio for a call, an alarm or a trip to the background (Safari says
+    // 'interrupted' until it is over). Ask for it back whenever that can work: when its state
+    // changes, on return to the page, and at the next tap.
+    const wake = () => {
+      if (ctx.state !== 'running') void ctx.resume().catch(() => undefined);
+    };
+    ctx.addEventListener('statechange', wake);
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && wake());
+    for (const type of ['pointerup', 'keydown']) document.addEventListener(type, wake);
+    this.ctx = ctx;
     this.gain = ctx.createGain();
     this.gain.gain.value = this.volume;
     this.gain.connect(ctx.destination);

@@ -1,7 +1,7 @@
 import type { ProfileId } from '../modem/profiles';
 import type { DecodedFrame } from '../modem/receiver';
 import type { FromWorker, ToWorker } from './protocol';
-import type { AirTransport } from './transport';
+import { type AirTransport, CannotListen } from './transport';
 
 // The station's ears and voice: the speaker, the microphone and the decoder worker behind it.
 // The air is half-duplex: while we transmit, the decoder is muted, or it would hear our own
@@ -54,6 +54,31 @@ export class AirLink {
     private readonly on: LinkEvents,
     private readonly spawnDecoder: () => Worker = decoder,
   ) {}
+
+  /** What to tell someone whose start() failed: what went wrong, and what to do about it. */
+  static explain(err: unknown): string {
+    if (err instanceof CannotListen) {
+      return err.lack === 'insecure'
+        ? 'Resonance can use the microphone only on a secure page. Open it from its https:// address, then try again.'
+        : 'This browser cannot listen for Resonance. Open the page in an up-to-date Chrome, Edge, Firefox, Samsung Internet or Safari ' +
+            '(on iPhone and iPad, iOS 15.4 or later). If it opened inside another app, open it in your browser instead.';
+    }
+    switch (err instanceof Error ? err.name : '') {
+      case 'NotAllowedError':
+      case 'SecurityError':
+        return (
+          'The microphone is blocked for this page. Allow it in the site settings beside the address bar (on iPhone and iPad: aA, then ' +
+          'Website Settings), and check that your device lets this browser use the microphone. Then try again.'
+        );
+      case 'NotFoundError':
+      case 'OverconstrainedError':
+        return 'No microphone was found. Connect or switch on a microphone, then try again.';
+      case 'NotReadableError':
+      case 'AbortError':
+        return 'The microphone is busy: another app or tab is using it, perhaps a call or a recording. Close it, then try again.';
+    }
+    return `${err instanceof Error ? err.message : String(err)} Check that this page may use the microphone, then try again.`;
+  }
 
   /** How long the decoder stays muted after our own frame ends: the tail of our sound still in the capture path. */
   get muteTailMs() {
