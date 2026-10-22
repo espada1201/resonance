@@ -1,6 +1,8 @@
+import { useState } from 'preact/hooks';
 import { parseOutside } from '../courier';
-import { type Geo, MAX_CONTACT_NAME, MAX_OUTSIDE, MAX_PLACE, NEEDS, type Need, STATUSES, type Status } from '../mesh/payloads';
+import { type Geo, MAX_CONTACT_NAME, MAX_NICK, MAX_OUTSIDE, MAX_PLACE, NEEDS, type Need, STATUSES, type Status } from '../mesh/payloads';
 import type { CheckInBody } from '../roster';
+import type { Station } from '../station';
 import { NEED_TEXT, STATUS_TEXT, fitInput } from './format';
 import { rovingKeys } from './hooks';
 import { Pin } from './icons';
@@ -53,6 +55,23 @@ export function draftProblem(d: CheckInDraft): string | null {
   if (d.forSomeone && !d.about.trim()) return 'Whom is this check-in for? Type their name.';
   if (d.outside.trim() && !parseOutside(d.outside)) return 'The outside contact must be a phone number or an email address.';
   return null;
+}
+
+/**
+ * Asks someone with no name yet for one where they check in: "#4F2A1C is safe" tells their family
+ * nothing. It stays while the form is open, so it does not vanish at the first letter.
+ */
+export function NameField({ station }: { station: Station }) {
+  const [ask] = useState(!station.settings.nick);
+  if (!ask) return null;
+  return (
+    <input
+      value={station.settings.nick}
+      placeholder="Your name, so people know who checked in"
+      aria-label="Your name"
+      onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })}
+    />
+  );
 }
 
 /**

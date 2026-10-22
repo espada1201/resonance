@@ -4,7 +4,7 @@ import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
 import { type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
 import type { Draft, Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, draftFields, draftProblem, newDraft } from './checkin-form';
 import { who } from './feed';
 import { SKILL_TEXT, bytes, fitInput, seconds } from './format';
 import { rovingKeys } from './hooks';
@@ -172,7 +172,12 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         </label>
       )}
 
-      {mode === 'checkin' && <CheckInFields draft={checkin} set={(p) => setCheckin((d) => ({ ...d, ...p }))} room={room} />}
+      {mode === 'checkin' && (
+        <>
+          <NameField station={station} />
+          <CheckInFields draft={checkin} set={(p) => setCheckin((d) => ({ ...d, ...p }))} room={room} />
+        </>
+      )}
 
       {mode === 'notice' && <NoticeFields draft={notice} set={(p) => setNotice((d) => ({ ...d, ...p }))} room={room} />}
 

@@ -3,7 +3,7 @@ import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, ReplyKind, Status } from '../mesh/payloads';
 import { type RosterEntry, rosterCsv, search } from '../roster';
 import type { Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, draftFields, draftProblem, newDraft } from './checkin-form';
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
@@ -116,6 +116,7 @@ function CheckInCard({ station }: { station: Station }) {
   const { place, outside } = station.settings;
   return (
     <section class="checkin-card" aria-label="Check in">
+      <NameField station={station} />
       <div class="quick">
         <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => void send({ ...newDraft(station.settings, 'safe'), withGeo: true }, 'safe')}>
           {sending === 'safe' ? 'Sending…' : "I'm safe"}

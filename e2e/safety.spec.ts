@@ -7,11 +7,13 @@ import { checkInRow, expect, feedItem, joinAir, openTab, proof, sendText, test }
 test('a call for help travels with its details, gets an answer, and closes when they are safe', async ({ context }) => {
   test.setTimeout(240_000);
   const a = await context.newPage();
-  await joinAir(a, '/?air=sim', 'Ana');
+  await joinAir(a);
   const b = await context.newPage();
   await joinAir(b, '/?air=sim', 'Ben');
 
+  // Someone who never set a name is asked for one where they check in.
   await openTab(a, 'Safety');
+  await a.getByLabel('Your name').fill('Ana');
   await a.getByText('More detail').click();
   await a.getByRole('radio', { name: 'Needs help' }).click();
   await a.getByRole('button', { name: 'Trapped' }).click();
