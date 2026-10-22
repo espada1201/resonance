@@ -32,6 +32,16 @@ test('a call for help travels with its details, gets an answer, and closes when 
 
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
   await expect(checkInRow(a, 'You')).not.toContainText('heard directly');
+  // Resolved closes the request on every phone, so it asks once more.
+  await ana.getByRole('button', { name: 'Resolved', exact: true }).click();
+  await expect(ana.getByRole('group', { name: 'Resolved for everyone?' })).toBeVisible();
+  await expect(ana.getByRole('button', { name: 'Not yet' })).toBeFocused();
+  await ana.getByRole('button', { name: 'Not yet' }).click();
+  await expect(ana).toContainText('Help on the way');
+  await ana.getByRole('button', { name: 'Resolved', exact: true }).click();
+  await ana.getByRole('button', { name: 'Yes, resolved' }).click();
+  await expect(checkInRow(a, 'You')).toContainText('Resolved');
+  await expect(a.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await a.getByRole('button', { name: "I'm safe" }).click();
   await expect(ana).toContainText('Safe');
   await expect(ana).not.toContainText('Waiting for help');

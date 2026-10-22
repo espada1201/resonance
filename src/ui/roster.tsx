@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
 import { type Heard, type ReplyBody, type RosterEntry, writtenAt } from '../roster';
@@ -43,12 +44,18 @@ export function headcount(entries: RosterEntry[]) {
 
 /** Everyone's latest check-in, in the order a responder works through them. */
 export function RosterList({ entries, me, self, name, by, reply, find, readout }: RosterProps) {
+  // Resolved closes a request on every phone, and it sits beside On my way: it asks once more.
+  // Keyed by the ask, so a new one from the same person never opens with the question showing.
+  const [closing, setClosing] = useState<string | null>(null);
+  const notYet = useRef<HTMLButtonElement>(null);
+  useEffect(() => notYet.current?.focus(), [closing]);
   return (
     <ul class="people roster">
       {entries.map((e) => {
-        const { body: b, src, hops } = e.latest;
+        const { body: b, src, msgId, hops } = e.latest;
         const mine = src === self && !b.about;
         const findIt = e.open || e.stale ? find(e) : null;
+        const asking = reply && closing === `${src}:${msgId}`;
         const where = [b.place, relative(me, b.geo)].filter(Boolean).join(' · ');
         return (
           <li key={e.key} class={`s-${b.status}${e.open ? ' open' : ''}`}>
@@ -77,7 +84,25 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
                 {replyText(r, self, by)} · {ago(writtenAt(r))}
               </p>
             ))}
-            {(e.open || e.stale) && (
+            {(e.open || e.stale) && asking && (
+              <div class="actions" role="group" aria-label="Resolved for everyone?">
+                <span class="small">Resolved for everyone?</span>
+                <button type="button" class="ghost small" ref={notYet} onClick={() => setClosing(null)}>
+                  Not yet
+                </button>
+                <button
+                  type="button"
+                  class="ghost small"
+                  onClick={() => {
+                    setClosing(null);
+                    reply(e, 'resolved');
+                  }}
+                >
+                  Yes, resolved
+                </button>
+              </div>
+            )}
+            {(e.open || e.stale) && !asking && (
               <div class="actions">
                 {reply && !mine && !e.replies.some((r) => r.src === self && r.body.what === 'coming') && (
                   <button type="button" class="ghost small" onClick={() => reply(e, 'coming')}>
@@ -85,7 +110,7 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
                   </button>
                 )}
                 {reply && (
-                  <button type="button" class="ghost small" onClick={() => reply(e, 'resolved')}>
+                  <button type="button" class="ghost small" onClick={() => (mine ? reply(e, 'resolved') : setClosing(`${src}:${msgId}`))}>
                     {mine ? 'I got help' : 'Resolved'}
                   </button>
                 )}
