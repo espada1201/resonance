@@ -1,5 +1,5 @@
 import type { Need, Status } from './mesh/payloads';
-import { type CheckInBody, type Heard, type ReplyBody, rosterKey } from './roster';
+import { type CheckInBody, type Heard, type ReplyBody, rosterKey, sentAt } from './roster';
 
 // Courier to the outside world. A check-in can name a phone number or an email address. Every
 // device that carries it lists it, and whichever one gets a signal (a hilltop, a neighbour's
@@ -44,9 +44,9 @@ export function parcels(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody
     if (!address) continue;
     const k = `${rosterKey(c)} ${address.to}`;
     const prev = latest.get(k);
-    if (!prev || c.body.ts > prev.checkin.body.ts) latest.set(k, { checkin: c, address, passed: passed.get(ref(c.src, c.msgId)) });
+    if (!prev || sentAt(c) > sentAt(prev.checkin)) latest.set(k, { checkin: c, address, passed: passed.get(ref(c.src, c.msgId)) });
   }
-  return [...latest.values()].sort((a, b) => b.checkin.body.ts - a.checkin.body.ts);
+  return [...latest.values()].sort((a, b) => sentAt(b.checkin) - sentAt(a.checkin));
 }
 
 const SAYS: Record<Status, string> = { safe: 'is safe', help: 'needs help', medical: 'needs medical help', sheltering: 'is sheltering' };

@@ -1,4 +1,4 @@
-import { type Heard, type NoticeBody, fold } from './roster';
+import { type Heard, type NoticeBody, fold, sentAt } from './roster';
 
 // Notices: "Water at the school gym until 6 pm", "Bridge on Elm St is out". A pinned board for
 // what everyone nearby needs to know, each one shown until the time its author gave runs out.
@@ -9,9 +9,9 @@ export function activeNotices(notices: Heard<NoticeBody>[], nowSec: number): Hea
   for (const n of notices) {
     const k = `${n.src} ${n.body.topic} ${fold(n.body.place)}`;
     const prev = latest.get(k);
-    if (!prev || n.body.ts > prev.body.ts) latest.set(k, n);
+    if (!prev || sentAt(n) > sentAt(prev)) latest.set(k, n);
   }
   return [...latest.values()]
-    .filter((n) => n.body.ts + n.body.hours * 3600 > nowSec)
-    .sort((a, b) => Number(b.body.topic === 'danger') - Number(a.body.topic === 'danger') || b.body.ts - a.body.ts);
+    .filter((n) => sentAt(n) + n.body.hours * 3600 > nowSec)
+    .sort((a, b) => Number(b.body.topic === 'danger') - Number(a.body.topic === 'danger') || sentAt(b) - sentAt(a));
 }

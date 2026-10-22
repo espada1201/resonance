@@ -27,5 +27,8 @@ Preconditions: none beyond the baseline.
 ## Gotchas
 
 - A request with no news for a day reads `No news for a day` and stops counting as open.
+- Asking again keeps a request's place in the list (it is ordered by the first ask), and asking again after it was marked resolved opens it again: a `Resolved` counts only when sent after the latest ask. Proved by the unit tests in src/roster.test.ts (`keeps your place`, `opens a request again`).
+- Someone checked in by others gets one entry per reporter, so one person's `safe` for a name never hides another's request for that name.
+- A date from the future counts from when the check-in, reply or notice arrived, so a forged or wrong clock cannot pin an entry for good.
 - A reply is sealed exactly when its check-in was. Answering a circle's request after leaving the circle shows `Join the circle again to answer this.`
 - The list keeps three days of check-ins, replies and notices, longer than the feed, which keeps only its newest 400 items.

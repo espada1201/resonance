@@ -20,6 +20,9 @@ export interface Heard<B extends Body = Body> {
 
 export type NoticeBody = Extract<Body, { kind: 'notice' }>;
 
+/** When the sender says it was sent, but no later than it arrived here: a date from the future would outrank everything for good. */
+export const sentAt = (h: Heard<CheckInBody | ReplyBody | NoticeBody>) => Math.min(h.body.ts, Math.floor(h.at / 1000));
+
 /** Lasting news is kept this long, as long as the mesh carries it. */
 const KEEP_MS = 72 * 3600_000;
 /** Most of each kind kept: a big shelter's worth, small enough for the browser's storage. */
@@ -92,15 +95,15 @@ export const URGENT: Status[] = ['help', 'medical'];
 
 const ref = (h: Pick<Heard, 'src' | 'msgId'>) => `${h.src}:${h.msgId}`;
 export const fold = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
-export const rosterKey = (c: Heard<CheckInBody>) => (c.body.about ? `name:${fold(c.body.about)}` : `node:${c.src}`);
+export const rosterKey = (c: Heard<CheckInBody>) => (c.body.about ? `name:${c.src}:${fold(c.body.about)}` : `node:${c.src}`);
 
 /** Newest by the sender's own clock: an old "I need help" carried in from another room must not hide a newer "I'm safe". */
-const newer = (a: Heard<CheckInBody>, b: Heard<CheckInBody>) => a.body.ts > b.body.ts || (a.body.ts === b.body.ts && a.at > b.at);
+const newer = (a: Heard<CheckInBody>, b: Heard<CheckInBody>) => sentAt(a) > sentAt(b) || (sentAt(a) === sentAt(b) && a.at > b.at);
 
 /**
- * One entry per person, in the order a responder works through them: open requests nobody is
- * coming to (longest waiting first), then those someone is coming to, then stale ones, sheltering,
- * resolved and safe (newest first).
+ * One entry per person (and per reporter, for someone checked in by others), in the order a
+ * responder works through them: open requests nobody is coming to (longest waiting first), then
+ * those someone is coming to, then stale ones, sheltering, resolved and safe (newest first).
  */
 export function roster(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody>[], nowSec: number): RosterEntry[] {
   const byKey = new Map<string, Heard<CheckInBody>[]>();
@@ -108,16 +111,19 @@ export function roster(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody>
   const repliesTo = new Map<string, Heard<ReplyBody>[]>();
   for (const r of replies) repliesTo.set(ref(r.body), [...(repliesTo.get(ref(r.body)) ?? []), r]);
 
+  const askedAt = new Map<string, number>();
   const entries = [...byKey].map(([key, all]): RosterEntry => {
     const sorted = all.sort((a, b) => (newer(a, b) ? 1 : newer(b, a) ? -1 : 0));
     const latest = sorted[sorted.length - 1];
-    // The request still running: the trailing run of help and medical check-ins. Replies to any of them count.
+    // The request still running: the trailing run of help and medical check-ins. Replies to any of
+    // them count, but asking again after it was resolved opens it again.
     const episode: Heard<CheckInBody>[] = [];
     for (let i = sorted.length - 1; i >= 0 && URGENT.includes(sorted[i].body.status); i--) episode.push(sorted[i]);
-    const answers = episode.flatMap((c) => repliesTo.get(ref(c)) ?? []).sort((a, b) => a.body.ts - b.body.ts);
-    const resolved = answers.some((r) => r.body.what === 'resolved');
+    askedAt.set(key, sentAt(episode.at(-1) ?? latest));
+    const answers = episode.flatMap((c) => repliesTo.get(ref(c)) ?? []).sort((a, b) => sentAt(a) - sentAt(b));
+    const resolved = answers.some((r) => r.body.what === 'resolved' && sentAt(r) >= sentAt(latest));
     const asking = episode.length > 0 && !resolved;
-    const old = nowSec - latest.body.ts > STALE_AFTER_SEC;
+    const old = nowSec - sentAt(latest) > STALE_AFTER_SEC;
     return {
       key,
       latest,
@@ -133,7 +139,7 @@ export function roster(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody>
   return entries.sort((a, b) => {
     const g = group(a) - group(b);
     if (g) return g;
-    return group(a) < 2 ? a.latest.body.ts - b.latest.body.ts : b.latest.body.ts - a.latest.body.ts;
+    return group(a) < 2 ? askedAt.get(a.key)! - askedAt.get(b.key)! : sentAt(b.latest) - sentAt(a.latest);
   });
 }
 

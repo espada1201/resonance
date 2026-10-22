@@ -27,4 +27,11 @@ describe('notices', () => {
     // A day later, only the three-day one is left.
     expect(activeNotices([water, waterUpdate, info, danger, otherPlace], T + 24 * 3600)).toEqual([info]);
   });
+
+  it('counts a notice dated in the future from when it arrived', () => {
+    const forged = { ...notice(1, 'danger', 0xffffffff, 1), at: T * 1000 };
+    const update = notice(1, 'danger', T + 600, 1);
+    expect(activeNotices([forged, update], T + 700)).toEqual([update]);
+    expect(activeNotices([forged], T + 2 * 3600)).toEqual([]);
+  });
 });

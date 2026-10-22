@@ -25,14 +25,50 @@ describe('safety roster', () => {
 
   it('gives someone without a phone their own entry, however their name is typed', () => {
     const r = roster(
-      [checkIn(5, 'safe', T), checkIn(6, 'help', T + 60, { about: 'María  López' }), checkIn(7, 'safe', T + 120, { about: 'maria lopez' })],
+      [checkIn(5, 'safe', T), checkIn(6, 'help', T + 60, { about: 'María  López' }), checkIn(6, 'safe', T + 120, { about: 'maria lopez' })],
       [],
       T + 200,
     );
     expect(r).toHaveLength(2);
-    const maria = r.find((e) => e.key === 'name:maria lopez')!;
-    expect(maria.latest.src).toBe(7);
+    const maria = r.find((e) => e.latest.body.about)!;
     expect(maria.latest.body.status).toBe('safe');
+  });
+
+  it('keeps a request for someone open when another person checks them in as safe', () => {
+    const help = checkIn(6, 'help', T, { about: 'Maria' });
+    const safe = checkIn(7, 'safe', T + 60, { about: 'maria' });
+    const r = roster([help, safe], [], T + 120);
+    expect(r.map((e) => [e.latest, e.open])).toEqual([
+      [help, true],
+      [safe, false],
+    ]);
+  });
+
+  it('dates a check-in from the future when it arrived, so the next real one replaces it', () => {
+    const forged = checkIn(5, 'safe', 0xffffffff, {}, T * 1000);
+    const help = checkIn(5, 'help', T + 60);
+    const [ana] = roster([forged, help], [], T + 120);
+    expect(ana.latest).toBe(help);
+    expect(ana.open).toBe(true);
+  });
+
+  it('keeps your place in the queue when you ask for help again', () => {
+    const first = checkIn(1, 'help', T);
+    const other = checkIn(2, 'help', T + 600);
+    const again = checkIn(1, 'help', T + 1200, { note: 'still here' });
+    expect(names(roster([first, other, again], [], T + 1300))).toEqual(['n1', 'n2']);
+  });
+
+  it('opens a request again when the person asks again after it was marked resolved', () => {
+    const first = checkIn(1, 'help', T);
+    const resolved = reply(first, 'resolved', T + 60);
+    const again = checkIn(1, 'help', T + 600);
+    let [e] = roster([first, again], [resolved], T + 700);
+    expect([e.open, e.resolved]).toEqual([true, false]);
+    // Marked resolved after the second ask, even from the first one: it is over.
+    const late = reply(first, 'resolved', T + 900);
+    [e] = roster([first, again], [resolved, late], T + 1000);
+    expect([e.open, e.resolved]).toEqual([false, true]);
   });
 
   it('puts requests nobody is coming to first, longest waiting first, then the rest', () => {
