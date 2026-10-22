@@ -147,11 +147,12 @@ describe('flooding terminates: a node puts each packet on the air a bounded numb
   });
 });
 
-// A packet that left a node's store but not its dedupe memory (`seen`) is carried back at every
-// HELLO: receive() drops the copy as already seen, so the next summary asks for it again. Only the
-// carrier's own copy expiring (12 h, or 72 h for check-ins) ends it. Recorded as found, not fixed.
-// If one of these fails, read the new counterexample: the same story in other words means update
-// it (vitest -u); no violation means the finding is fixed, so move the scenario into `holding`.
+// A packet that left a node's store but not its dedupe memory (`seen`) is carried back to it:
+// receive() drops the copy as already seen. This check found that it then came back at every
+// HELLO; now the dropped copy is remembered and later summaries list it, so it comes back once
+// (mesh.test.ts, 'a packet a node forgot is carried back to it once'). That one carry still
+// exceeds airBudget's bound, so these stay pinned. If one fails, read the new counterexample: the
+// same story in other words means update it (vitest -u); no violation means move it into `holding`.
 describe('known finding: a node carries back what its neighbour forgot but still remembers hearing', () => {
   it('a store forgets a chat after 12 h that a neighbour heard three hours later', () => {
     const r = explore(

@@ -467,6 +467,27 @@ describe('how long news lasts', () => {
     expect([...n.neighbors.keys()]).toEqual([0x200000]);
   });
 
+  it('a packet a node forgot is carried back to it once, not at every hello', () => {
+    // N kept a chat for its 12 hours; B heard it three hours later and keeps it longer. N drops the
+    // copy B carries back, as already seen, so its hellos must list it or B carries it at every one.
+    const w = new World();
+    const [n, b] = ['N', 'B'].map((name, i) => w.add(name, i + 1));
+    for (const node of [n, b]) node.config.relay = false;
+    w.link('BN');
+    n.receive(farAway(5));
+    w.t += 3 * HOUR;
+    b.receive(farAway(5));
+    w.t += 10 * HOUR;
+    n.tick();
+    expect(n.store.size).toBe(0);
+    for (let k = 0; k < 3; k++) {
+      n.hello('n', 'phone');
+      w.run(5 * 60_000);
+    }
+    expect(w.tx.filter((t) => t.reason === 'carry')).toHaveLength(1);
+    expect(w.inbox.get('N')).toHaveLength(1);
+  });
+
   it('a full store drops chat and file chunks before check-ins', () => {
     // A few photos must not push out who asked for help.
     let t = 0;

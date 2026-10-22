@@ -131,6 +131,8 @@ export class MeshNode {
   private readonly seen = new Map<string, number>();
   /** When each packet was handed to the app, so a retry of it is not handed over twice. */
   private readonly delivered = new Map<string, number>();
+  /** Packets our store forgot that a neighbour carried back, by msgId: our hellos list them, or they come back at every one. */
+  private readonly forgotten = new Map<number, number>();
   private relays: PendingRelay[] = [];
   private acks = new Map<number, PendingAck>();
   private echoes = new Map<number, PendingAck>();
@@ -200,7 +202,10 @@ export class MeshNode {
 
     // Another copy of something we already have (and acknowledged, if it was for us). A retry
     // carries a new attempt number, so it is not a copy.
-    if (this.seen.has(rk)) return p;
+    if (this.seen.has(rk)) {
+      if (this.isStorable(p) && !this.store.has(sk)) this.forgotten.set(p.msgId, now);
+      return p;
+    }
     this.seen.set(rk, now);
     this.pruneSeen(now);
 
@@ -228,7 +233,7 @@ export class MeshNode {
    */
   hello(nick: string, role: 'phone' | 'beacon') {
     const msgId = (this.clock.random() * 2 ** 32) >>> 0;
-    const held = [...this.store.values()].map((s) => decodePacket(s.bytes)!.msgId);
+    const held = [...[...this.store.values()].map((s) => decodePacket(s.bytes)!.msgId), ...this.forgotten.keys()];
     const parts = Math.max(1, Math.ceil(held.length / HELLO_SLICE));
     const part = this.hellos++ % parts;
     const have = Bloom.of(held.filter((id) => sliceOf(id, parts) === part), msgId);
@@ -458,13 +463,14 @@ export class MeshNode {
 
   /**
    * Dedupe memory outlives everything stored, so a late copy of something we hold is not relayed
-   * again. Deliveries and neighbours go with it: a beacon runs for days.
+   * again. Deliveries, forgotten packets and neighbours go with it: a beacon runs for days.
    */
   private pruneSeen(now: number) {
     if (this.seen.size < 4000) return;
     const keep = Math.max(this.config.storeTtlMs, this.config.lastingTtlMs);
     for (const [k, t] of this.seen) if (now - t > keep) this.seen.delete(k);
     for (const [k, t] of this.delivered) if (now - t > keep) this.delivered.delete(k);
+    for (const [id, t] of this.forgotten) if (now - t > keep) this.forgotten.delete(id);
     for (const [id, n] of this.neighbors) if (now - n.lastHeard > keep) this.neighbors.delete(id);
   }
 }
