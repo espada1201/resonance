@@ -27,6 +27,14 @@ class Capture extends AudioWorkletProcessor {
 }
 registerProcessor('resonance-capture', Capture);`;
 
+/** MicTransport.start's refusal, before it asks for anything, on a page that cannot listen at all. */
+export class CannotListen extends Error {
+  constructor(readonly lack: 'insecure' | 'unsupported') {
+    super(lack === 'insecure' ? 'The microphone needs an https:// page.' : 'This browser lacks microphone capture or audio worklets.');
+    this.name = 'CannotListen';
+  }
+}
+
 export class MicTransport implements AirTransport {
   readonly kind = 'mic';
   private ctx: AudioContext | null = null;
@@ -34,8 +42,10 @@ export class MicTransport implements AirTransport {
   private volume = 1;
 
   async start(onSamples: (chunk: Float32Array) => void): Promise<number> {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('This browser cannot reach a microphone here. Open Resonance over https:// or on localhost.');
+    // Capture and audio worklets exist only on secure (https) pages, in browsers new enough to have them.
+    if (!globalThis.isSecureContext) throw new CannotListen('insecure');
+    if (typeof navigator.mediaDevices?.getUserMedia !== 'function' || typeof AudioContext !== 'function' || typeof AudioWorkletNode !== 'function') {
+      throw new CannotListen('unsupported');
     }
     // Voice processing would treat our tones as noise and erase them.
     const stream = await navigator.mediaDevices.getUserMedia({

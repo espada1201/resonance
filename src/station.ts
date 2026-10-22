@@ -214,7 +214,7 @@ export class Station {
       setInterval(() => this.hello(), HELLO_MS[this.role] * (0.85 + Math.random() * 0.3));
     } catch (err) {
       this.status = 'error';
-      this.error = `${err instanceof Error ? err.message : String(err)} Check that this page may use the microphone, then try again.`;
+      this.error = AirLink.explain(err);
     }
     this.changed();
   }

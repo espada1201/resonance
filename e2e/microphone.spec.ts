@@ -39,3 +39,14 @@ for (const profile of FAKE_MIC_PROFILES) {
     await proof(page, `microphone-${profile}`);
   });
 }
+
+test('a refused microphone says where to allow it again, and can be tried again', async ({ page }) => {
+  // The browser's answer when someone has blocked the microphone for the site.
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Start listening' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'The microphone is blocked for this page' })).toContainText('site settings beside the address bar');
+  await expect(page.getByRole('button', { name: 'Start listening' })).toBeEnabled();
+});

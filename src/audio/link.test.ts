@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DecodedFrame } from '../modem/receiver';
 import { StubWorker } from '../testing';
 import { AirLink, type Spectrum } from './link';
-import type { AirTransport } from './transport';
+import { type AirTransport, CannotListen } from './transport';
 
 const T0 = Date.parse('2026-10-22T09:00:00Z');
 const ms = () => Date.now() - T0;
@@ -87,6 +87,32 @@ describe('starting', () => {
     expect(worker().terminated).toBe(true);
     expect(link.sampleRate).toBe(0);
     expect(volume).toEqual([]);
+  });
+});
+
+describe('explaining a start that failed', () => {
+  it.each([
+    ['NotAllowedError', /^The microphone is blocked.*site settings beside the address bar.*aA, then Website Settings/],
+    ['SecurityError', /^The microphone is blocked/],
+    ['NotFoundError', /^No microphone was found/],
+    ['OverconstrainedError', /^No microphone was found/],
+    ['NotReadableError', /^The microphone is busy/],
+    ['AbortError', /^The microphone is busy/],
+  ])('%s', (name, advice) => {
+    expect(AirLink.explain(new DOMException('Whatever the browser says.', name))).toMatch(advice);
+  });
+
+  it('anything else keeps its own words', () => {
+    expect(AirLink.explain(new TypeError('Out of cheese.'))).toBe('Out of cheese. Check that this page may use the microphone, then try again.');
+    expect(AirLink.explain('gone')).toBe('gone Check that this page may use the microphone, then try again.');
+  });
+
+  it('a page that is not https says to open it over https', () => {
+    expect(AirLink.explain(new CannotListen('insecure'))).toMatch(/only on a secure page.*https:\/\//);
+  });
+
+  it('a browser that cannot listen names the browsers that can', () => {
+    expect(AirLink.explain(new CannotListen('unsupported'))).toMatch(/^This browser cannot listen.*Chrome, Edge, Firefox, Samsung Internet or Safari/);
   });
 });
 
