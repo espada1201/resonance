@@ -20,6 +20,9 @@ export interface CheckInDraft {
 
 export const asking = (s: Status) => s === 'help' || s === 'medical';
 
+/** Stands in for a GPS fix when measuring how much room a check-in leaves: every fix is the same size. */
+export const ANY_FIX: Geo = { lat: 0, lon: 0, accuracyM: 0 };
+
 /** A fresh draft that remembers where you are and whom to tell outside. */
 export const newDraft = (remembered: { place: string; outside: string }, status: Status = 'safe'): CheckInDraft => ({
   status,

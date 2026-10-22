@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'preact/hooks';
 import { bearingDeg, distanceM, locate } from '../geo';
-import type { Geo, Status } from '../mesh/payloads';
+import type { Geo, ReplyKind, Status } from '../mesh/payloads';
 import { type RosterEntry, rosterCsv, search } from '../roster';
 import type { Station } from '../station';
-import { CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
@@ -87,7 +87,7 @@ function CheckInCard({ station }: { station: Station }) {
   const [err, setErr] = useState('');
   const listening = station.status === 'listening';
   const set = (patch: Partial<CheckInDraft>) => setDraft((d) => ({ ...d, ...patch }));
-  const room = station.room({ kind: 'checkin', ts: 0, nick: station.settings.nick, ...draftFields(draft, draft.withGeo ? { lat: 0, lon: 0, accuracyM: 0 } : undefined) });
+  const room = station.budget({ kind: 'checkin', ...draftFields(draft, draft.withGeo ? ANY_FIX : undefined) }).left;
 
   async function send(d: CheckInDraft, label: Status | 'detail') {
     const problem = draftProblem(d);
@@ -104,9 +104,8 @@ function CheckInCard({ station }: { station: Station }) {
       }
     }
     try {
-      await station.sendCheckIn(draftFields(d, geo));
-      // Where you are and whom to tell outside ride along with your next check-ins too.
-      if (!d.forSomeone) station.update({ place: d.place.trim(), outside: d.outside.trim() });
+      // Saying it also remembers where you are and whom to tell outside, for your next check-ins.
+      await station.say({ kind: 'checkin', ...draftFields(d, geo) });
       if (label === 'detail') setDraft(newDraft(station.settings));
     } catch (e) {
       setErr(message(e));
@@ -156,7 +155,7 @@ function CheckInCard({ station }: { station: Station }) {
 /** Contact cards that say what their owner can help with, newest card per person. */
 function helpers(station: Station): Helper[] {
   const latest = new Map<string, Helper>();
-  for (const i of station.feed) {
+  for (const i of station.journal.feed) {
     if (i.body?.kind !== 'contact' || !i.body.skills?.length) continue;
     const key = `${i.src}:${i.body.name.toLowerCase()}`;
     if (!latest.has(key)) latest.set(key, { key, name: i.body.name, phone: i.body.phone, note: i.body.note, skills: i.body.skills, at: i.at });
@@ -165,18 +164,25 @@ function helpers(station: Station): Helper[] {
 }
 
 export function Safety({ station }: { station: Station }) {
-  const entries = station.roster();
-  const parcels = station.parcels();
+  const entries = station.journal.roster();
+  const parcels = station.journal.parcels();
   const helping = helpers(station);
   const [query, setQuery] = useState('');
   const [heading, enableCompass] = useHeading();
   const [err, setErr] = useState('');
+  const [replyErr, setReplyErr] = useState('');
   const me = station.position;
   const listening = station.status === 'listening';
   const name = (e: RosterEntry) => e.latest.body.about ?? who(station, e.latest.src, e.latest.body.nick);
   const by = (src: number, nick: string) => who(station, src, nick);
   const shown = search(entries, query, name, NEED_TEXT);
   const open = entries.filter((e) => e.open).length;
+
+  const answer = (to: RosterEntry['latest'], what: ReplyKind) =>
+    station.reply(to, what).then(
+      () => setReplyErr(''),
+      (e) => setReplyErr(message(e)),
+    );
 
   const findMe = async () => {
     try {
@@ -212,7 +218,7 @@ export function Safety({ station }: { station: Station }) {
             parcels={parcels}
             self={station.id}
             name={(src, nick) => named(station, src, nick)}
-            passed={listening ? (p) => void station.sendReply(p.checkin, 'passed') : null}
+            passed={listening ? (p) => void answer(p.checkin, 'passed') : null}
           />
         </section>
       )}
@@ -234,6 +240,11 @@ export function Safety({ station }: { station: Station }) {
             </div>
           )}
         </div>
+        {replyErr && (
+          <p class="error small" role="alert">
+            {replyErr}
+          </p>
+        )}
         {entries.length === 0 ? (
           <p class="empty small">No check-ins heard yet.</p>
         ) : shown.length === 0 ? (
@@ -245,7 +256,7 @@ export function Safety({ station }: { station: Station }) {
             self={station.id}
             name={name}
             by={by}
-            reply={listening ? (e, what) => void station.sendReply(e.latest, what) : null}
+            reply={listening ? (e, what) => void answer(e.latest, what) : null}
             find={(e) => {
               const n = e.latest.body.about ? undefined : station.mesh.neighbors.get(e.latest.src);
               return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;

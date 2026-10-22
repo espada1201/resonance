@@ -8,7 +8,7 @@ import { Feed } from './feed';
 import { rovingKeys, useMedia, useStation, useTicker } from './hooks';
 import { Logo, Mic } from './icons';
 import { People } from './people';
-import { Safety, latestCheckIns } from './safety';
+import { Safety } from './safety';
 import { Settings } from './settings';
 
 const MODES: Array<[ProfileId, string, string]> = [
@@ -71,7 +71,7 @@ export function App({ station }: { station: Station }) {
   const tabs: Tab[] = wide ? ['feed', 'safety', 'people', 'settings'] : ['feed', 'safety', 'air', 'people', 'settings'];
   const current: Tab = !wide || tab !== 'air' ? tab : 'feed';
   const live = station.status === 'listening';
-  const urgent = latestCheckIns(station.feed).filter((c) => c.body.status === 'help' || c.body.status === 'medical').length;
+  const urgent = station.journal.roster().filter((e) => e.open).length;
 
   const messageNode = (id: number) => {
     setDst(id);
@@ -115,7 +115,7 @@ export function App({ station }: { station: Station }) {
         <div class="left">
           <div class="scroll" role="tabpanel" id="section" aria-labelledby={`tab-${current}`}>
             {!live && current !== 'settings' && current !== 'air' && <Gate station={station} />}
-            {current === 'feed' && (live || station.feed.length > 0) && <Feed station={station} />}
+            {current === 'feed' && (live || station.journal.feed.length > 0) && <Feed station={station} />}
             {current === 'safety' && <Safety station={station} />}
             {current === 'people' && <People station={station} onMessage={messageNode} />}
             {current === 'settings' && <Settings station={station} />}

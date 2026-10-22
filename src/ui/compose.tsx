@@ -2,9 +2,9 @@ import { useEffect, useState } from 'preact/hooks';
 import { locate } from '../geo';
 import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
-import { type Body, type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill, nowSec } from '../mesh/payloads';
-import type { Station } from '../station';
-import { CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
+import { type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
+import type { Draft, Station } from '../station';
+import { ANY_FIX, CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
 import { who } from './feed';
 import { SKILL_TEXT, bytes, fitInput, seconds } from './format';
 import { rovingKeys } from './hooks';
@@ -20,8 +20,6 @@ const MODES: Array<[Mode, string]> = [
   ['file', 'Tiny file'],
 ];
 const MODE_IDS = MODES.map(([m]) => m);
-/** Stands in for a GPS fix when measuring how much room a check-in leaves: every fix is the same size. */
-const ANY_FIX: Geo = { lat: 0, lon: 0, accuracyM: 0 };
 
 /** Shrinks a photo to a JPEG small enough to cross the air in a few minutes. */
 async function shrinkImage(file: File, maxBytes: number): Promise<Blob> {
@@ -69,15 +67,16 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   const sealed = station.circleChannel !== null;
   // Check-ins feed everyone's safety list, notices everyone's board, and files go to everyone; only messages and contacts go to one person.
   const toEveryone = mode === 'checkin' || mode === 'notice' || mode === 'file';
-  const nick = station.settings.nick;
 
-  let body: Body | null = null;
-  if (mode === 'text') body = { kind: 'text', ts: nowSec(), nick, text };
-  if (mode === 'checkin') body = { kind: 'checkin', ts: nowSec(), nick, ...draftFields(checkin, checkin.withGeo ? ANY_FIX : undefined) };
-  if (mode === 'notice') body = { kind: 'notice', ts: nowSec(), nick, ...notice };
-  if (mode === 'contact') body = { kind: 'contact', ts: nowSec(), ...contact };
-  const room = body ? station.room(body) : 0;
-  const eta = mode === 'file' ? (picked ? station.estimateFileSeconds(picked.data.length) : 0) : body ? station.estimateAirtime(body) : 0;
+  // One draft drives the bytes left, the time on air and the send, so what is measured is what goes.
+  let draft: Draft | null = null;
+  if (mode === 'text') draft = { kind: 'text', text };
+  if (mode === 'checkin') draft = { kind: 'checkin', ...draftFields(checkin, checkin.withGeo ? ANY_FIX : undefined) };
+  if (mode === 'notice') draft = { kind: 'notice', ...notice };
+  if (mode === 'contact') draft = { kind: 'contact', ...contact };
+  const cost = draft ? station.budget(draft) : null;
+  const room = cost?.left ?? 0;
+  const eta = mode === 'file' ? (picked ? station.fileSeconds(picked.data.length) : 0) : (cost?.seconds ?? 0);
   const filled =
     (mode === 'text' && text.trim()) ||
     mode === 'checkin' ||
@@ -113,7 +112,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
     try {
       const target = dst === BROADCAST ? undefined : dst;
       if (mode === 'text') {
-        await station.sendText(text.trim(), target);
+        await station.say({ kind: 'text', text: text.trim() }, target);
         setText('');
       } else if (mode === 'checkin') {
         let geo: Geo | undefined;
@@ -121,14 +120,14 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           geo = await locate();
           station.setPosition(geo);
         }
-        await station.sendCheckIn(draftFields(checkin, geo));
-        if (!checkin.forSomeone) station.update({ place: checkin.place.trim(), outside: checkin.outside.trim() });
+        await station.say({ kind: 'checkin', ...draftFields(checkin, geo) });
         setCheckin(newDraft(station.settings));
       } else if (mode === 'notice') {
-        await station.sendNotice({ ...notice, place: notice.place.trim(), text: notice.text.trim() });
+        await station.say({ kind: 'notice', ...notice, place: notice.place.trim(), text: notice.text.trim() });
         setNotice(newNotice());
       } else if (mode === 'contact') {
-        await station.sendContact({ name: contact.name.trim(), phone: contact.phone.trim(), note: contact.note.trim(), skills: contact.skills }, target);
+        const { name, phone, note, skills } = contact;
+        await station.say({ kind: 'contact', name: name.trim(), phone: phone.trim(), note: note.trim(), skills: skills.length ? skills : undefined }, target);
         setContact({ name: '', phone: '', note: '', skills: [] });
       } else if (picked) {
         await station.sendFile(picked.name, picked.mime, picked.data);

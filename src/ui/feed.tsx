@@ -3,7 +3,8 @@ import { bearingDeg, compassPoint, distanceM, formatDistance, locate } from '../
 import { missing, received } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
 import type { Geo } from '../mesh/payloads';
-import { type FeedItem, type Station, nodeHex } from '../station';
+import type { FeedItem } from '../journal';
+import { type Station, nodeHex } from '../station';
 import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, writtenAt } from './format';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -53,6 +54,7 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
 }
 
 function Delivery({ station, item }: { station: Station; item: FeedItem }) {
+  const [err, setErr] = useState('');
   const state = item.delivery;
   if (!state) return null;
   if (state === 'acked') return <span class="delivery ok"><Check size={14} /> delivered</span>;
@@ -66,9 +68,14 @@ function Delivery({ station, item }: { station: Station; item: FeedItem }) {
       ) : (
         <span class="delivery">no receipt: the app was closed while waiting</span>
       )}
-      <button type="button" class="ghost small" disabled={station.status !== 'listening'} onClick={() => void station.resend(item)}>
+      <button type="button" class="ghost small" disabled={station.status !== 'listening'} onClick={() => station.resend(item).catch((e: Error) => setErr(e.message))}>
         Send again
       </button>
+      {err && (
+        <span class="error small" role="alert">
+          {err}
+        </span>
+      )}
     </>
   );
 }
@@ -187,7 +194,7 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
   const b = item.body;
   if (!b) return null;
   if (b.kind === 'checkin') {
-    const replies = station.repliesTo(item.src, item.msgId);
+    const replies = station.journal.repliesTo(item.src, item.msgId);
     return (
       <article class={`item checkin s-${b.status}`}>
         <Meta station={station} item={item} />
@@ -274,8 +281,8 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
 }
 
 export function Feed({ station }: { station: Station }) {
-  const notices = <NoticeBoard notices={station.notices()} by={(src, nick) => who(station, src, nick)} />;
-  if (!station.feed.length) {
+  const notices = <NoticeBoard notices={station.journal.notices()} by={(src, nick) => who(station, src, nick)} />;
+  if (!station.journal.feed.length) {
     return (
       <div class="empty">
         {notices}
@@ -300,7 +307,7 @@ export function Feed({ station }: { station: Station }) {
   return (
     <div class="feed">
       {notices}
-      {station.feed.map((item) => (
+      {station.journal.feed.map((item) => (
         <FeedItemView key={item.id} station={station} item={item} position={station.position} />
       ))}
     </div>
