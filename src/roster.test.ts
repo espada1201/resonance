@@ -6,10 +6,10 @@ const T = 1_700_000_000;
 let ids = 0;
 
 function checkIn(src: number, status: Status, sentSec: number, extra: Partial<CheckInBody> = {}, heardMs = sentSec * 1000): Heard<CheckInBody> {
-  return { src, msgId: ++ids, at: heardMs, hops: 1, body: { kind: 'checkin', ts: sentSec, nick: `n${src}`, status, note: '', ...extra } };
+  return { src, msgId: ++ids, at: heardMs, hops: 1, encrypted: false, body: { kind: 'checkin', ts: sentSec, nick: `n${src}`, status, note: '', ...extra } };
 }
 function reply(to: Heard<CheckInBody>, what: ReplyKind, sentSec: number, by = 9): Heard<ReplyBody> {
-  return { src: by, msgId: ++ids, at: sentSec * 1000, hops: 0, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId } };
+  return { src: by, msgId: ++ids, at: sentSec * 1000, hops: 0, encrypted: false, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId } };
 }
 const names = (es: RosterEntry[]) => es.map((e) => e.latest.body.about ?? e.latest.body.nick);
 
@@ -117,9 +117,9 @@ describe('safety roster', () => {
     expect(log.add(ana)).toBe(true);
     expect(log.add({ ...ana, at: ana.at + 5000, hops: 3 })).toBe(false);
     log.add(reply(ana, 'coming', T + 60));
-    const notice: Heard = { src: 2, msgId: ++ids, at: (T + 120) * 1000, hops: 0, body: { kind: 'notice', ts: T + 120, nick: 'desk', topic: 'water', hours: 3, place: 'Gym', text: 'Water' } };
+    const notice: Heard = { src: 2, msgId: ++ids, at: (T + 120) * 1000, hops: 0, encrypted: false, body: { kind: 'notice', ts: T + 120, nick: 'desk', topic: 'water', hours: 3, place: 'Gym', text: 'Water' } };
     log.add(notice);
-    log.add({ src: 3, msgId: ++ids, at: 0, hops: 0, body: { kind: 'text', ts: T, nick: 'x', text: 'not safety news' } });
+    log.add({ src: 3, msgId: ++ids, at: 0, hops: 0, encrypted: false, body: { kind: 'text', ts: T, nick: 'x', text: 'not safety news' } });
     const copy = new SafetyLog();
     copy.restore(JSON.parse(JSON.stringify(log.snapshot())));
     expect(copy.checkins).toEqual([ana]);

@@ -7,12 +7,14 @@ import type { Body, Need, Status } from './mesh/payloads';
 export type CheckInBody = Extract<Body, { kind: 'checkin' }>;
 export type ReplyBody = Extract<Body, { kind: 'reply' }>;
 
-/** Something heard on the mesh: who sent it, when it arrived here, and over how many hops. */
+/** Something heard on the mesh (or sent from here): who sent it, when it arrived here, and over how many hops. */
 export interface Heard<B extends Body = Body> {
   src: number;
   msgId: number;
   at: number;
   hops: number;
+  /** Sealed for a circle. A reply to it is sealed too, and one to an open check-in is not. */
+  encrypted: boolean;
   body: B;
 }
 
@@ -52,7 +54,7 @@ export class SafetyLog {
     return { checkins: this.checkins, replies: this.replies, notices: this.notices };
   }
 
-  restore(s: Partial<ReturnType<SafetyLog['snapshot']>>) {
+  restore(s: Partial<SafetySnapshot>) {
     this.checkins = s.checkins ?? [];
     this.replies = s.replies ?? [];
     this.notices = s.notices ?? [];
@@ -65,6 +67,9 @@ export class SafetyLog {
     return null;
   }
 }
+
+/** The safety log as saved. */
+export type SafetySnapshot = ReturnType<SafetyLog['snapshot']>;
 
 export interface RosterEntry {
   /** Whom the entry is about: a device, or a person without a phone that someone checked in for. */
