@@ -34,17 +34,17 @@ Vitest 5.0.5 from package.json on Node 22; nothing else to install. Run the defa
 
 ## Does my change touch it?
 
-Sync commit: **91bbe75** (`A broadcast nobody echoed is repeated again when neighbours are about`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
+Sync commit: **c16fd68** (`Say in code what comments explained: named shares, tries and states`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
 
 ```sh
-git diff 91bbe75 -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
+git diff c16fd68 -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
 ```
 
 Any output means rerun the check and follow "Keeping it in step".
 
 | File | What the check covers | How |
 | --- | --- | --- |
-| `src/mesh/node.ts` | `MeshNode`: `originate`, `awaitAnswer`, `aired`, `receive`, `hello`, `onAck`, `onHello`, `carry`, `feedNeighbors`, `tick`, `alone`, `schedule`, `remember`, `sendAck`, `touchNeighbor`, `keepMs`, `ackTimeout`, `echoTimeout`, `pruneSeen` (below its 4000 entries only) | runs the real code |
+| `src/mesh/node.ts` | `MeshNode`: `originate`, `awaitAnswer`, `aired`, `receive`, `hello`, `onAck`, `onHello`, `lackedBy`, `carry`, `feedNeighbors`, `tick`, `alone`, `schedule`, `remember`, `sendAck`, `touchNeighbor`, `keepMs`, `ackTimeout`, `echoTimeout`, `pruneSeen` (below its 4000 entries only) | runs the real code |
 | `src/mesh/packet.ts` | `encodePacket`, `decodePacket`, `peekType` | runs the real code |
 | `src/mesh/payloads.ts` | `encodeBody`, `decodeBody` | runs the real code |
 | `src/mesh/bloom.ts` | `Bloom`, `sliceOf` (the HELLO summary) | runs the real code |
