@@ -93,6 +93,36 @@ test('a phone that pauses its sound says so, holds what you send, and a tap brin
   await expect(airRow(page, 'OUT', 'message')).toBeVisible();
 });
 
+test('a Bluetooth headset at 8 kHz is refused, the microphone let go, and listening starts once it is gone', async ({ page }) => {
+  // A headset on its call codec runs the page's audio at 8 kHz. Note every microphone track handed out.
+  await page.addInitScript(() => {
+    const w = window as unknown as { headset: boolean; tracks: MediaStreamTrack[] };
+    w.headset = true;
+    w.tracks = [];
+    const Real = AudioContext;
+    window.AudioContext = class extends Real {
+      constructor(options?: AudioContextOptions) {
+        super(w.headset ? { ...options, sampleRate: 8000 } : options);
+      }
+    };
+    const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      const stream = await getUserMedia(constraints);
+      w.tracks.push(...stream.getTracks());
+      return stream;
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Start listening' }).click();
+  await expect(page.getByRole('alert')).toContainText('Disconnect the headset');
+  // Not listening, so not recording: the browser's microphone light goes out.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { tracks: MediaStreamTrack[] }).tracks.map((t) => t.readyState))).toEqual(['ended']);
+
+  await page.evaluate(() => void ((window as unknown as { headset: boolean }).headset = false));
+  await page.getByRole('button', { name: 'Start listening' }).click();
+  await expect(feedItem(page, /Hello from the fake microphone/).first()).toBeVisible();
+});
+
 test('a refused microphone says where to allow it again, and can be tried again', async ({ page }) => {
   // The browser's answer when someone has blocked the microphone for the site.
   await page.addInitScript(() => {

@@ -38,6 +38,8 @@ const decoder = () => new Worker(new URL('./rx-worker.ts', import.meta.url), { t
 export class AirLink {
   /** The capture rate, once started; 0 before. */
   sampleRate = 0;
+  /** The microphone and speaker are running (and stay so: a decoder that gives up leaves them on). */
+  running = false;
   /** The rate sounds are made at: the capture rate, or the usual 48 kHz until it is known. */
   get rate() {
     return this.sampleRate || 48_000;
@@ -115,9 +117,12 @@ export class AirLink {
       if (!Object.values(PROFILES).some((p) => playableAt(p, this.sampleRate))) throw new CannotListen('slow');
       this.transport.setVolume(volume);
       this.post({ type: 'init', sampleRate: this.sampleRate });
+      this.running = true;
     } catch (err) {
       this.worker?.terminate();
       this.worker = null;
+      // Not listening, so not holding the microphone either.
+      this.transport.stop?.();
       throw err;
     }
   }

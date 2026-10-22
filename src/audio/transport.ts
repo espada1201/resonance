@@ -13,6 +13,8 @@ export interface AirTransport {
   /** Plays a waveform rendered at `sampleRate`; resolves once it has finished, or with false if suspended audio cut it short. */
   play(wave: Float32Array, sampleRate: number): Promise<boolean>;
   setVolume(v: number): void;
+  /** Lets go of the microphone and the audio device. */
+  stop?(): void;
 }
 
 const CAPTURE_WORKLET = `
@@ -65,6 +67,8 @@ export class MicTransport implements AirTransport {
   readonly kind = 'mic';
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
+  private stream: MediaStream | null = null;
+  private wakes = new AbortController();
   private volume = 1;
   private listening: Promise<boolean> | null = null;
 
@@ -110,10 +114,12 @@ export class MicTransport implements AirTransport {
     const wake = () => {
       if (ctx.state !== 'running') void ctx.resume().catch(() => undefined);
     };
-    ctx.addEventListener('statechange', wake);
-    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && wake());
-    for (const type of ['pointerup', 'keydown']) document.addEventListener(type, wake);
+    const { signal } = (this.wakes = new AbortController());
+    ctx.addEventListener('statechange', wake, { signal });
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && wake(), { signal });
+    for (const type of ['pointerup', 'keydown']) document.addEventListener(type, wake, { signal });
     this.ctx = ctx;
+    this.stream = stream;
     this.gain = ctx.createGain();
     this.gain.gain.value = this.volume;
     this.gain.connect(ctx.destination);
@@ -154,6 +160,13 @@ export class MicTransport implements AirTransport {
   setVolume(v: number) {
     this.volume = v;
     if (this.gain) this.gain.gain.value = v;
+  }
+
+  stop() {
+    this.wakes.abort();
+    for (const t of this.stream?.getTracks() ?? []) t.stop();
+    void this.ctx?.close().catch(() => undefined);
+    this.ctx = this.gain = this.stream = null;
   }
 }
 

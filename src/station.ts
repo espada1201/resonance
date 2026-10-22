@@ -210,7 +210,7 @@ export class Station {
   async start() {
     if (this.status === 'listening' || this.status === 'starting') return;
     // Audio is already running and the decoder gave up: only a fresh page starts cleanly.
-    if (this.link.sampleRate) return location.reload();
+    if (this.link.running) return location.reload();
     this.status = 'starting';
     this.error = '';
     this.changed();
