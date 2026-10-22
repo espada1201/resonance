@@ -16,6 +16,56 @@ export interface Heard<B extends Body = Body> {
   body: B;
 }
 
+export type NoticeBody = Extract<Body, { kind: 'notice' }>;
+
+/** Lasting news is kept this long, as long as the mesh carries it. */
+const KEEP_MS = 72 * 3600_000;
+/** Most of each kind kept: a big shelter's worth, small enough for the browser's storage. */
+const KEEP_MOST = 600;
+
+/**
+ * Check-ins, replies and notices heard or sent, kept apart from the chat feed (which keeps only the
+ * newest few hundred items of everything) for as long as the mesh carries them.
+ */
+export class SafetyLog {
+  checkins: Heard<CheckInBody>[] = [];
+  replies: Heard<ReplyBody>[] = [];
+  notices: Heard<NoticeBody>[] = [];
+
+  /** Adds safety news (anything else is ignored); false if it was already here. */
+  add(h: Heard): boolean {
+    const list = this.listFor(h.body);
+    if (!list || list.some((x) => x.src === h.src && x.msgId === h.msgId)) return false;
+    list.push(h);
+    return true;
+  }
+
+  /** Forgets what is older than the mesh keeps, then the oldest of anything over the limit. */
+  prune(nowMs: number) {
+    const keep = <B extends Body>(list: Heard<B>[]) => list.filter((h) => nowMs - h.at <= KEEP_MS).slice(-KEEP_MOST);
+    this.checkins = keep(this.checkins);
+    this.replies = keep(this.replies);
+    this.notices = keep(this.notices);
+  }
+
+  snapshot() {
+    return { checkins: this.checkins, replies: this.replies, notices: this.notices };
+  }
+
+  restore(s: Partial<ReturnType<SafetyLog['snapshot']>>) {
+    this.checkins = s.checkins ?? [];
+    this.replies = s.replies ?? [];
+    this.notices = s.notices ?? [];
+  }
+
+  private listFor(b: Body): Heard[] | null {
+    if (b.kind === 'checkin') return this.checkins;
+    if (b.kind === 'reply') return this.replies;
+    if (b.kind === 'notice') return this.notices;
+    return null;
+  }
+}
+
 export interface RosterEntry {
   /** Whom the entry is about: a device, or a person without a phone that someone checked in for. */
   key: string;

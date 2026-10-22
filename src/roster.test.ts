@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Need, ReplyKind, Status } from './mesh/payloads';
-import { type CheckInBody, type Heard, type ReplyBody, type RosterEntry, roster, rosterCsv, search } from './roster';
+import { type CheckInBody, type Heard, type ReplyBody, type RosterEntry, SafetyLog, roster, rosterCsv, search } from './roster';
 
 const T = 1_700_000_000;
 let ids = 0;
@@ -109,5 +109,23 @@ describe('safety roster', () => {
       `n1,,Needs help,open,Trapped,"Room 4, ""north""","'=HYPERLINK(""http://x"")",35.59512,-82.55151,12,2023-11-14T22:13:20.000Z,1,n9 on the way 2023-11-14T22:14:20.000Z,'+1 555 0100`,
     );
     expect(maria).toBe('Maria,n2,Safe,,,,,,,,2023-11-14T22:13:20.000Z,1,,');
+  });
+
+  it('keeps what it heard for three days, once each, and survives a reload', () => {
+    const log = new SafetyLog();
+    const ana = checkIn(1, 'help', T);
+    expect(log.add(ana)).toBe(true);
+    expect(log.add({ ...ana, at: ana.at + 5000, hops: 3 })).toBe(false);
+    log.add(reply(ana, 'coming', T + 60));
+    const notice: Heard = { src: 2, msgId: ++ids, at: (T + 120) * 1000, hops: 0, body: { kind: 'notice', ts: T + 120, nick: 'desk', topic: 'water', hours: 3, place: 'Gym', text: 'Water' } };
+    log.add(notice);
+    log.add({ src: 3, msgId: ++ids, at: 0, hops: 0, body: { kind: 'text', ts: T, nick: 'x', text: 'not safety news' } });
+    const copy = new SafetyLog();
+    copy.restore(JSON.parse(JSON.stringify(log.snapshot())));
+    expect(copy.checkins).toEqual([ana]);
+    expect(copy.replies.map((r) => r.body.what)).toEqual(['coming']);
+    expect(copy.notices).toEqual([notice]);
+    copy.prune((T + 72 * 3600 + 100) * 1000);
+    expect([copy.checkins.length, copy.replies.length, copy.notices.length]).toEqual([0, 0, 1]);
   });
 });

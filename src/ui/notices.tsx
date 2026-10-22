@@ -1,6 +1,5 @@
 import { MAX_PLACE, TOPICS, type Topic } from '../mesh/payloads';
-import type { NoticeBody } from '../notices';
-import type { Heard } from '../roster';
+import type { Heard, NoticeBody } from '../roster';
 import { TOPIC_TEXT, clock, fitInput } from './format';
 import { rovingKeys } from './hooks';
 

@@ -1,10 +1,7 @@
-import type { Body } from './mesh/payloads';
-import { type Heard, fold } from './roster';
+import { type Heard, type NoticeBody, fold } from './roster';
 
 // Notices: "Water at the school gym until 6 pm", "Bridge on Elm St is out". A pinned board for
 // what everyone nearby needs to know, each one shown until the time its author gave runs out.
-
-export type NoticeBody = Extract<Body, { kind: 'notice' }>;
 
 /** The notices still running, danger first, then newest; an author's update replaces their earlier notice about the same topic and place. */
 export function activeNotices(notices: Heard<NoticeBody>[], nowSec: number): Heard<NoticeBody>[] {

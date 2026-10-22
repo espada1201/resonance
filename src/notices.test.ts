@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Topic } from './mesh/payloads';
-import { type NoticeBody, activeNotices } from './notices';
-import type { Heard } from './roster';
+import { activeNotices } from './notices';
+import type { Heard, NoticeBody } from './roster';
 
 const T = 1_700_000_000;
 let ids = 0;
