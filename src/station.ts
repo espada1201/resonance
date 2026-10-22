@@ -182,6 +182,11 @@ export class Station {
     return this.link.transmitting;
   }
 
+  /** The device has paused its sound (a locked screen, a call): nothing is heard or sent until it is back. */
+  get suspended() {
+    return this.link.suspended;
+  }
+
   get circleChannel() {
     return this.circle?.channel ?? null;
   }
@@ -211,10 +216,15 @@ export class Station {
       await this.link.start(this.settings.volume);
       this.status = 'listening';
       void this.keepAwake();
+      let paused = false;
       setInterval(() => {
         this.mesh.tick();
         void this.radio.tick();
         this.files.chase((r) => void this.ask(r));
+        if (this.suspended !== paused) {
+          paused = this.suspended;
+          this.changed();
+        }
       }, 200);
       setTimeout(() => this.hello(), 1500 + Math.random() * 3000);
       setInterval(() => this.hello(), HELLO_MS[this.role] * (0.85 + Math.random() * 0.3));

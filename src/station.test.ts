@@ -819,6 +819,19 @@ describe('decoder worker and mute', () => {
 });
 
 describe('audio the phone suspends', () => {
+  it('tells the page when the device pauses its sound, and when it is back', async () => {
+    const { s, audio } = await listening();
+    await vi.advanceTimersByTimeAsync(20_000);
+    let told = 0;
+    s.subscribe(() => told++);
+    audio.suspended = true;
+    await vi.advanceTimersByTimeAsync(200);
+    expect([s.suspended, told]).toEqual([true, 1]);
+    audio.suspended = false;
+    await vi.advanceTimersByTimeAsync(200);
+    expect([s.suspended, told]).toEqual([false, 2]);
+  });
+
   it('a check-in cut short by a locked screen is not taken for sent: it waits, says so, and goes on air once when audio is back', async () => {
     const { s, plays, audio } = await listening();
     await vi.advanceTimersByTimeAsync(20_000);
