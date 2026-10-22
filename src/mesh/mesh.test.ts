@@ -440,6 +440,19 @@ describe('how long news lasts', () => {
     expect(relayed.filter((id) => id === 7)).toEqual([7]);
   });
 
+  it('a relay waits for busy air no longer than its own frames do', () => {
+    // Carrier sense can be fooled for hours (a hum, a stuck decoder). The device sends its own
+    // frames after 25 s regardless; held relays would leave it looking alive while it stops being a hop.
+    let t = 0;
+    const relayed: number[] = [];
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => void relayed.push(t), deliver: () => undefined, channelBusy: () => true });
+    n.receive(farCheckIn(7));
+    for (; t < 3 * 60_000; t += 200) n.tick();
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0]).toBeGreaterThan(25_000);
+    expect(relayed[0]).toBeLessThan(35_000);
+  });
+
   it('a full store drops chat and file chunks before check-ins', () => {
     // A few photos must not push out who asked for help.
     let t = 0;

@@ -18,7 +18,7 @@ const SENSE_BACKOFF_MS: [number, number] = [250, 1500];
  * Longest the queue defers to a busy channel: past the longest frame (20.3 s), since talking into
  * a frame loses both; but carrier sense can be fooled, and silence forever is worse.
  */
-const MAX_DEFER_MS = 25_000;
+export const MAX_DEFER_MS = 25_000;
 const QUEUE_LIMIT = 64;
 /** Sent ahead of chat and files, own or relayed: "I need help" (and "On my way") must not wait behind a photo. */
 const SAFETY_NEWS = new Set<PacketType | null>([PacketType.CheckIn, PacketType.Reply]);

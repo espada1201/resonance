@@ -1,6 +1,7 @@
 import { Bloom, sliceOf } from './bloom';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket, peekType } from './packet';
 import { decodeBody, encodeBody } from './payloads';
+import { MAX_DEFER_MS } from './radio';
 
 // Store-and-forward flooding for a broadcast medium where every transmission is heard by every
 // neighbour. Relays wait a random backoff and cancel if they overhear enough copies first
@@ -86,6 +87,8 @@ interface PendingRelay {
   quorum: number;
   reason: 'relay' | 'answer' | 'carry';
   bytes: Uint8Array;
+  /** When busy air first held it back. */
+  heldSince?: number;
 }
 
 interface PendingAck {
@@ -333,7 +336,8 @@ export class MeshNode {
     const now = this.clock.now();
     const [lo, hi] = this.config.backoffMs;
     if (this.events.channelBusy?.()) {
-      for (const r of this.relays) if (r.due <= now) r.due = now + lo + this.clock.random() * (hi - lo);
+      // Held no longer than the radio holds our own frames: carrier sense can be fooled for hours.
+      for (const r of this.relays) if (r.due <= now && now - (r.heldSince ??= now) < MAX_DEFER_MS) r.due = now + lo + this.clock.random() * (hi - lo);
     }
     const due = this.relays.filter((r) => r.due <= now);
     this.relays = this.relays.filter((r) => r.due > now);
