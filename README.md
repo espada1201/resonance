@@ -41,7 +41,7 @@ With symbol timing known, the demodulators land within 0.25 dB of the textbook e
 
 ## Phones and GitHub Pages
 
-Browsers only allow the microphone on https pages or on localhost, so phones need the published copy. GitHub Pages only serves public repositories on a free plan: keep the repo public, then turn Pages on once in Settings → Pages → Source: GitHub Actions. Each push to the default branch then publishes https://espada1201.github.io/resonance/. Open it on a phone once and add it to the home screen.
+Browsers only allow the microphone on https pages or on localhost, so phones need the published copy. GitHub Pages only serves public repositories on a free plan: keep the repo public, then turn Pages on once in Settings → Pages → Source: GitHub Actions, and press **Run workflow** under Actions → Pages. That publishes https://espada1201.github.io/resonance/, and every later push to the default branch updates it. Open it on a phone once and add it to the home screen.
 
 ## Known limits
 
