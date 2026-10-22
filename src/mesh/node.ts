@@ -67,7 +67,7 @@ interface MeshEvents {
   /** Whether this node can open a packet; only readable direct messages are acknowledged. */
   readable?(p: Packet): boolean;
   /** A neighbour said hello; `newcomer` if we had not heard it for a while (a chance to say hello back). */
-  heardHello?(src: number, newcomer: boolean): void;
+  heardHello?(newcomer: boolean): void;
 }
 
 interface PendingRelay {
@@ -177,7 +177,7 @@ export class MeshNode {
     if (p.type === PacketType.Ack) this.onAck(p);
     if (p.type === PacketType.Hello && p.hops === 0) {
       this.onHello(p, newcomer);
-      this.events.heardHello?.(p.src, newcomer);
+      this.events.heardHello?.(newcomer);
     }
     const forMe = p.dst === BROADCAST || p.dst === this.id;
     if (forMe && p.type !== PacketType.Ack && p.type !== PacketType.Hello && !this.delivered.has(sk)) {
@@ -201,10 +201,7 @@ export class MeshNode {
     const held = [...this.store.values()].map((s) => decodePacket(s.bytes)!.msgId);
     const parts = Math.max(1, Math.ceil(held.length / HELLO_SLICE));
     const part = this.hellos++ % parts;
-    const have = Bloom.of(
-      held.filter((id) => sliceOf(id, parts) === part),
-      msgId,
-    );
+    const have = Bloom.of(held.filter((id) => sliceOf(id, parts) === part), msgId);
     return this.originate({
       type: PacketType.Hello,
       encrypted: false,

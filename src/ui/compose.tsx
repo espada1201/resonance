@@ -98,7 +98,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
     setWorking(true);
     setError('');
     try {
-      const target = dst === BROADCAST || toEveryone ? undefined : dst;
+      const target = dst === BROADCAST ? undefined : dst;
       if (mode === 'text') {
         await station.sendText(text.trim(), target);
         setText('');

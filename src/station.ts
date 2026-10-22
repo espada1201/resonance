@@ -156,7 +156,7 @@ export class Station {
       channelBusy: () => this.busy,
       // A receipt says "read": not for a message sealed for another circle (as far as its one-byte tag tells).
       readable: (p) => !p.encrypted || p.channel === this.circle?.channel,
-      heardHello: (_src, newcomer) => this.onHello(newcomer),
+      heardHello: (newcomer) => this.onHello(newcomer),
     });
     this.mesh.config.relay = this.settings.relay;
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];

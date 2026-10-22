@@ -516,7 +516,7 @@ describe('HELLO summaries', () => {
   it('greets a neighbour it has not heard for a while, once', () => {
     let t = 0;
     let greetings = 0;
-    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined, heardHello: (_id, newcomer) => void (newcomer && greetings++) });
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined, heardHello: (newcomer) => void (newcomer && greetings++) });
     const hello = (msgId: number) => encodePacket({ type: PacketType.Hello, encrypted: false, ackRequested: false, msgId, src: 5, dst: BROADCAST, ttl: 1, hops: 0, attempt: 0, channel: 0, body: encodeBody({ kind: 'hello', role: 'beacon', nick: 'hall', hashes: 0, part: 0, parts: 1, bits: new Uint8Array() }) });
     n.receive(hello(1));
     t += 60_000;

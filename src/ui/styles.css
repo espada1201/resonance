@@ -651,7 +651,6 @@ input[type='radio'] {
 /* The air panel and the beacon are an instrument screen, dark in light mode too (palette at the top). */
 .airpanel,
 .beacon-page {
-  --bg: var(--screen);
   background: var(--screen);
   color: var(--text);
 }

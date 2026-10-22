@@ -108,8 +108,8 @@ class Reader {
 /** The longest start of `s`, cut at a character boundary, whose UTF-8 fits in `max` bytes. */
 export function fitUtf8(s: string, max: number): string {
   const enc = new TextEncoder();
-  let chars = [...s];
-  while (enc.encode(chars.join('')).length > max) chars = chars.slice(0, -1);
+  const chars = [...s];
+  while (enc.encode(chars.join('')).length > max) chars.pop();
   return chars.join('');
 }
 
