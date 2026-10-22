@@ -83,14 +83,14 @@ function Radar({ me, people, heading, name }: { me: Geo; people: RosterEntry[]; 
 function sentText(station: Station, about: string | undefined, ask: boolean) {
   const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
   if (mine && station.queued(mine.latest)) return 'Waiting to go on air…';
-  if (!mine || !asking(mine.latest.body.status)) {
-    const item = mine && station.journal.feed.find((i) => i.mine && i.msgId === mine.latest.msgId);
-    return item?.passedOn ? 'Sent. Another phone has it.' : 'Sent.';
-  }
+  const item = mine && station.journal.feed.find((i) => i.mine && i.msgId === mine.latest.msgId);
+  const sent = item?.passedOn ? 'Sent. Another phone has it.' : 'Sent.';
+  if (!mine || !asking(mine.latest.body.status)) return sent;
   const answer = mine.replies.at(-1);
-  if (answer) return `Sent. ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.`;
-  if (!ask) return 'Sent. Nobody has answered yet.';
-  return `Sent. Nobody has answered yet. Add ${mine.latest.body.place ? 'what you need' : 'where you are and what you need'}, and send again.`;
+  if (answer) return `${sent} ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.`;
+  // "Nobody has answered" read as nobody heard: say what is known, and what is still awaited.
+  const waiting = `${sent} No one has said they are coming yet.`;
+  return ask ? `${waiting} Add ${mine.latest.body.place ? 'what you need' : 'where you are and what you need'}, and send again.` : waiting;
 }
 
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */

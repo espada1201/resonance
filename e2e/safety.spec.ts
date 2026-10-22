@@ -107,14 +107,14 @@ test('the big help button sends the details open beside it, then says whether an
   await expect(mine).toContainText('Leg stuck under a beam');
   await expect(a.getByLabel('Note')).toBeEmpty();
   await expect(a.getByText('Waiting to go on air…')).toBeVisible();
-  await expect(a.getByText('Sent. Nobody has answered yet.')).toBeVisible();
+  await expect(a.getByText('Sent. Another phone has it. No one has said they are coming yet.')).toBeVisible();
 
   await openTab(b, 'Safety');
   const ana = checkInRow(b, 'Ana');
   await expect(ana).toContainText('Trapped');
   await expect(ana).toContainText('Leg stuck under a beam');
   await ana.getByRole('button', { name: 'On my way' }).click();
-  await expect(a.getByText('Sent. Ben is on the way.')).toBeVisible();
+  await expect(a.getByText(/^Sent\.( Another phone has it\.)? Ben is on the way\.$/)).toBeVisible();
   await proof(a, 'big-button-details');
 });
 
@@ -145,7 +145,7 @@ test('one tap for help, nameless, says how others see you and then asks where an
   // It turned itself off while sending; the keyboard comes back to it, not to the top of the page.
   await expect(page.getByRole('button', { name: "I'm safe" })).toBeFocused();
   await page.getByRole('button', { name: 'I need help' }).click();
-  await expect(page.getByText('Sent. Nobody has answered yet. Add where you are and what you need, and send again.')).toBeVisible();
+  await expect(page.getByText('Sent. No one has said they are coming yet. Add where you are and what you need, and send again.')).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Needs help' })).toBeChecked();
   await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
 });
@@ -161,8 +161,15 @@ test('a check-in keeps the status sent but not its needs, and the keyboard meets
   await expect(page.getByLabel('Note')).toBeFocused();
   await page.keyboard.type('Hurt ankle');
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('group', { name: 'What is needed' }).getByRole('button').first()).toBeFocused();
-  await page.getByRole('button', { name: 'Injured' }).click();
+  // The needs are one stop: arrows move along them, Space switches one on, Tab goes on past them all.
+  const needs = page.getByRole('toolbar', { name: 'What is needed' });
+  await expect(needs.getByRole('button').first()).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(needs.getByRole('button', { name: 'Injured' })).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(needs.getByRole('button', { name: 'Injured' })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Tab');
+  await expect(page.getByText('Someone without a phone, family outside, GPS')).toBeFocused();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   await expect(page.getByLabel('Note')).toBeEmpty();

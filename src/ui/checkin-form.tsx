@@ -94,6 +94,7 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
   const toggle = (n: Need) => set({ needs: draft.needs.includes(n) ? draft.needs.filter((x) => x !== n) : [...draft.needs, n] });
   const badOutside = draft.outside.trim() !== '' && !parseOutside(draft.outside);
   // Folded away unless something in them is already set, such as a family contact remembered from last time.
+  const [needAt, setNeedAt] = useState<Need>(NEEDS[0]);
   const [extrasAtOpen] = useState(draft.forSomeone || draft.outside.trim() !== '' || draft.withGeo);
   return (
     <div class="checkin-fields">
@@ -117,9 +118,18 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
           <span class="small" aria-hidden="true">
             What is needed?
           </span>
-          <div class="pills" role="group" aria-label="What is needed">
+          {/* One Tab stop, so eight needs do not stand between the note and Send. */}
+          <div class="pills" role="toolbar" aria-label="What is needed" onKeyDown={rovingKeys(NEEDS, needAt, setNeedAt)}>
             {NEEDS.map((n) => (
-              <button key={n} type="button" class="pill need" aria-pressed={draft.needs.includes(n)} onClick={() => toggle(n)}>
+              <button
+                key={n}
+                type="button"
+                class="pill need"
+                aria-pressed={draft.needs.includes(n)}
+                tabIndex={n === needAt ? 0 : -1}
+                onFocus={() => setNeedAt(n)}
+                onClick={() => toggle(n)}
+              >
                 {NEED_TEXT[n]}
               </button>
             ))}
