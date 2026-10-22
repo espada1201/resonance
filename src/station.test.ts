@@ -832,6 +832,16 @@ describe('audio the phone suspends', () => {
     expect([s.suspended, told]).toEqual([false, 2]);
   });
 
+  it('Find says the sound is paused rather than blame the volume', async () => {
+    const { s, audio } = await listening();
+    await vi.advanceTimersByTimeAsync(20_000);
+    audio.suspended = true;
+    s.ranger.start(BEN);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(s.ranger.find?.note).toBe('Sound is paused on this device. Tap the screen to resume.');
+    s.ranger.stop();
+  });
+
   it('a check-in cut short by a locked screen is not taken for sent: it waits, says so, and goes on air once when audio is back', async () => {
     const { s, plays, audio } = await listening();
     await vi.advanceTimersByTimeAsync(20_000);

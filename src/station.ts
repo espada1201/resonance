@@ -341,7 +341,7 @@ export class Station {
       const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       while (this.radio.onAir) await sleep(50);
       for (let waited = 0; this.link.busy && waited < 4000; waited += 100) await sleep(100);
-      await this.playWave(wave, 'audible', label);
+      return await this.playWave(wave, 'audible', label);
     } finally {
       this.radio.paused = false;
     }

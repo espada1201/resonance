@@ -16,8 +16,8 @@ interface RangerIO {
   readonly id: number;
   sampleRate(): number;
   modulate(bytes: Uint8Array): Float32Array;
-  /** Plays audio as soon as the air is free, holding back the normal transmit queue. */
-  playExclusive(wave: Float32Array, label: string): Promise<void>;
+  /** Plays audio as soon as the air is free, holding back the normal transmit queue; false if paused sound cut it short. */
+  playExclusive(wave: Float32Array, label: string): Promise<boolean>;
   /** Queues a frame ahead of everything else. */
   sendUrgent(bytes: Uint8Array): void;
   changed(): void;
@@ -119,12 +119,16 @@ export class Ranger {
         setTimeout(() => resolve(null), REPLY_TIMEOUT_MS + wave.length / fs * 1000);
       });
       const t0 = Date.now();
-      await this.io.playExclusive(wave, 'range request + ping');
+      const played = await this.io.playExclusive(wave, 'range request + ping');
       await sleep(DETECT_MS);
       if (!live()) return;
       const own = this.loudestSince(t0);
       f.phase = 'waiting';
-      f.note = own ? 'Listening for their answer…' : 'This device did not hear its own ping. Turn the volume up.';
+      f.note = !played
+        ? 'Sound is paused on this device. Tap the screen to resume.'
+        : own
+          ? 'Listening for their answer…'
+          : 'This device did not hear its own ping. Turn the volume up.';
       this.io.changed();
       const r = await reply;
       this.waiter = null;
