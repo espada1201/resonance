@@ -564,13 +564,12 @@ input[type='radio'] {
   display: grid;
   gap: 10px;
 }
+/* Kinds that do not fit wrap onto a second line: scrolled off the edge, one could not be found. */
 .seg {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-/* All five kinds fit a 390 px phone; a narrower screen scrolls them. */
 .seg button {
   min-height: 32px;
   font-size: 13px;
