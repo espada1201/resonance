@@ -141,6 +141,17 @@ describe('file transfer', () => {
     expect(reloaded.request(fileKey(NEIGHBOUR, 78))?.missing).toEqual([0, 2]);
   });
 
+  it('holds the 100 files heard last, forgetting the oldest first', () => {
+    // A beacon hears files for days. Storage holds about 5 MB, and every save encodes every file.
+    const { files } = transfer();
+    for (let id = 0; id <= 100; id++) files.heard(NEIGHBOUR, chunkFile(id, { name: 'p.jpg', mime: 'image/jpeg' }, new Uint8Array(400))[1], 1000 + id, 8);
+    expect(files.get(fileKey(NEIGHBOUR, 0))).toBeUndefined();
+    expect(files.asked({ kind: 'filereq', fileSrc: NEIGHBOUR, fileId: 0, missing: [1] })).toEqual([]);
+    expect(files.asked({ kind: 'filereq', fileSrc: NEIGHBOUR, fileId: 100, missing: [1] })).toEqual([1100]);
+    expect(files.snapshot().files).toHaveLength(100);
+    expect(files.snapshot().chunks).toHaveLength(100);
+  });
+
   it('forgets everything on clear; a wait still pending lapses without asking', () => {
     const { files, asks, run } = transfer();
     for (const i of [0, 1, 3]) files.heard(NEIGHBOUR, chunks[i], 900 + i, 8);

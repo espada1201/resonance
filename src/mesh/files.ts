@@ -21,6 +21,8 @@ const PATIENCE_AIRTIMES = 4;
 const AUTO_ASKS = 3;
 /** Chunks of one request a holder answers: the first this many asked for. */
 const ANSWERS_PER_ASK = 8;
+/** Files held at once (about 400 KB at most); the oldest goes first. Each save encodes every one. */
+const MAX_FILES = 100;
 
 export type FileBody = Extract<Body, { kind: 'file' }>;
 export type FileRequest = Extract<Body, { kind: 'filereq' }>;
@@ -130,6 +132,11 @@ export class FileTransfer {
     this.track(src, c, msgId);
     const f = addChunk(this.files, src, c);
     this.expectMore(f.key, airtimeSec);
+    if (this.files.size > MAX_FILES) {
+      const [oldest] = this.files.keys();
+      this.files.delete(oldest);
+      this.ids.delete(oldest);
+    }
     return f;
   }
 

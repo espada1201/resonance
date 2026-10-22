@@ -440,6 +440,33 @@ describe('how long news lasts', () => {
     expect(relayed.filter((id) => id === 7)).toEqual([7]);
   });
 
+  it('a relay waits for busy air no longer than its own frames do', () => {
+    // Carrier sense can be fooled for hours (a hum, a stuck decoder). The device sends its own
+    // frames after 25 s regardless; held relays would leave it looking alive while it stops being a hop.
+    let t = 0;
+    const relayed: number[] = [];
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => void relayed.push(t), deliver: () => undefined, channelBusy: () => true });
+    n.receive(farCheckIn(7));
+    for (; t < 3 * 60_000; t += 200) n.tick();
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0]).toBeGreaterThan(25_000);
+    expect(relayed[0]).toBeLessThan(35_000);
+  });
+
+  it('forgets a neighbour it has not heard from for as long as it keeps anything', () => {
+    // A beacon runs for days among phones that come and go, and a stranger can invent ids: the
+    // People list and the To menu must not fill with ghosts.
+    let t = 0;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    const from = (src: number, msgId: number) =>
+      encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId, src, dst: BROADCAST, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody(text('hi')) });
+    for (let i = 0; i < 4000; i++) n.receive(from(0x100000 + i, i));
+    expect(n.neighbors.size).toBe(4000);
+    t += 73 * HOUR;
+    n.receive(from(0x200000, 1));
+    expect([...n.neighbors.keys()]).toEqual([0x200000]);
+  });
+
   it('a full store drops chat and file chunks before check-ins', () => {
     // A few photos must not push out who asked for help.
     let t = 0;

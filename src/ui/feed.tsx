@@ -74,20 +74,26 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
   );
 }
 
+/**
+ * Pictures a browser shows without running anything. Any other file someone sends, a web page or an
+ * SVG, stays a plain download: opened from this app's address, it could read the circle passphrase.
+ */
+const PICTURES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
 function FileView({ station, item }: { station: Station; item: FeedItem }) {
   const f = station.files.get(item.fileKey!);
   const data = useMemo(() => (f ? station.files.data(f.key) : null), [f, f && received(f)]);
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!data || !f?.meta) return;
-    const u = URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>], { type: f.meta.mime || 'application/octet-stream' }));
+    const u = URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>], { type: PICTURES.has(f.meta.mime) ? f.meta.mime : 'application/octet-stream' }));
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [data]);
   if (!f) return <p class="muted">File details are gone.</p>;
   const got = received(f);
   const name = f.meta?.name ?? 'Incoming file';
-  const isImage = f.meta?.mime.startsWith('image/');
+  const isImage = PICTURES.has(f.meta?.mime ?? '');
   return (
     <div class="file">
       <div class="file-row">
