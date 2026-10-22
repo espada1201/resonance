@@ -334,7 +334,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
   if (b.kind === 'checkin') {
     const replies = station.journal.repliesTo(item.src, item.msgId);
     const answerable =
-      request && station.status === 'listening' && !(item.mine && !b.about) && !replies.some((r) => r.src === station.id && r.body.what === 'coming');
+      request && station.status === 'listening' && !(item.mine && !b.about) && !request.replies.some((r) => r.src === station.id && r.body.what === 'coming');
     return (
       <Item
         {...shell}

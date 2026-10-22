@@ -107,7 +107,7 @@ export function App({ station }: { station: Station }) {
   const wide = useMedia('(min-width: 960px)');
   const [tab, setTab] = useState<Tab>('feed');
   const [dst, setDst] = useState(BROADCAST);
-  const [writeTo, setWriteTo] = useState(0);
+  const [writing, setWriting] = useState(false);
   const tabs: Tab[] = wide ? ['feed', 'safety', 'people', 'settings'] : ['feed', 'safety', 'air', 'people', 'settings'];
   const current: Tab = !wide || tab !== 'air' ? tab : 'feed';
   const live = station.status === 'listening';
@@ -116,7 +116,7 @@ export function App({ station }: { station: Station }) {
   const messageNode = (id: number) => {
     setDst(id);
     setTab('feed');
-    setWriteTo((n) => n + 1);
+    setWriting(true);
   };
   const composing = current === 'feed' && live;
 
@@ -176,7 +176,7 @@ export function App({ station }: { station: Station }) {
             {current === 'settings' && <Settings station={station} />}
             {current === 'air' && <AirPanel station={station} />}
           </div>
-          {composing && <Compose station={station} dst={dst} setDst={setDst} writeTo={writeTo} />}
+          {composing && <Compose station={station} dst={dst} setDst={setDst} writing={writing} wrote={() => setWriting(false)} />}
         </div>
         {wide && <AirPanel station={station} announce />}
       </main>

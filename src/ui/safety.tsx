@@ -89,7 +89,8 @@ function sentText(station: Station, about: string | undefined, ask: boolean) {
   }
   const answer = mine.replies.at(-1);
   if (answer) return `Sent. ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.`;
-  return ask ? 'Sent. Nobody has answered yet. Add where you are and what you need, and send again.' : 'Sent. Nobody has answered yet.';
+  if (!ask) return 'Sent. Nobody has answered yet.';
+  return `Sent. Nobody has answered yet. Add ${mine.latest.body.place ? 'what you need' : 'where you are and what you need'}, and send again.`;
 }
 
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
@@ -100,6 +101,7 @@ function CheckInCard({ station }: { station: Station }) {
   const [sent, setSent] = useState<{ about?: string; ask: boolean } | null>(null);
   const [err, setErr] = useState('');
   const more = useRef<HTMLDetailsElement>(null);
+  const quickRow = useRef<HTMLDivElement>(null);
   const listening = station.status === 'listening';
   const set = (patch: Partial<CheckInDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const room = station.budget({ kind: 'checkin', ...draftFields(draft, ANY_FIX) }).left;
@@ -118,7 +120,7 @@ function CheckInCard({ station }: { station: Station }) {
       const ask = label === 'help' && !detailed;
       setSent({ about: fields.about, ask });
       // The status stays as sent: after a call for help, the form must not quietly say Safe.
-      if (label === 'detail' || detailed) setDraft({ ...newDraft(station.settings, d.status), needs: d.needs });
+      if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
       if (ask) {
         // One tap said only "help": the details open beside it, ready to say where and what.
         setDraft(newDraft(station.settings, 'help'));
@@ -129,6 +131,12 @@ function CheckInCard({ station }: { station: Station }) {
       setErr(errorText(e));
     }
     setSending(null);
+    // The pressed button turned itself off while sending, which drops the keyboard on the page: give it back.
+    requestAnimationFrame(() => {
+      if (document.activeElement !== document.body) return;
+      const pressed = label === 'detail' ? more.current?.querySelector<HTMLElement>('button[type="submit"]') : quickRow.current?.querySelector<HTMLElement>(`.s-${label}`);
+      pressed?.focus();
+    });
   }
 
   const quick = (status: Status) => {
@@ -140,7 +148,7 @@ function CheckInCard({ station }: { station: Station }) {
   return (
     <section class="checkin-card" aria-label="Check in">
       <NameField station={station} />
-      <div class="quick">
+      <div class="quick" ref={quickRow}>
         <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => quick('safe')}>
           {sending === 'safe' ? 'Sending…' : "I'm safe"}
         </button>

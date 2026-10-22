@@ -36,6 +36,7 @@ test('a message to everyone says once another phone has passed it on, and the ke
   await a.keyboard.press('Enter');
   await expect(box).toBeEmpty();
   await expect(box).toBeFocused();
+  await expect(a.locator('#compose [aria-live="polite"]')).toHaveText('Sent to everyone in earshot.');
   await expect(feedItem(a, 'Water and blankets')).toContainText('another phone has it');
   await proof(a, 'passed-on');
 });
@@ -50,6 +51,13 @@ test('Reply on a message addresses the answer to whoever wrote it', async ({ con
   await feedItem(a, 'Anyone on floor 3?').getByRole('button', { name: 'Reply to Ben' }).click();
   await expect(a.getByPlaceholder('Say something to Ben')).toBeFocused();
   await expect(a.getByRole('combobox', { name: 'To' })).toHaveValue(String(parseInt(await nodeId(b), 16)));
+  await a.keyboard.type('Yes, flat 3C');
+  await a.keyboard.press('Enter');
+  await expect(feedItem(b, 'Yes, flat 3C')).toContainText('direct to you');
+  // Coming back to the feed later leaves the keyboard where it was: the box is not opened again.
+  await openTab(a, 'Safety');
+  await openTab(a, 'Feed');
+  await expect(a.getByRole('tab', { name: 'Feed' })).toBeFocused();
 });
 
 test('a direct message shows only to its addressee and comes back delivered', async ({ context }) => {

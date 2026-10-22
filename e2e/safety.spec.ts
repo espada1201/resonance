@@ -140,13 +140,17 @@ test('one tap for help, nameless, says how others see you and then asks where an
   await joinAir(page);
   await openTab(page, 'Safety');
   await expect(page.getByText(`Without a name, others see you as #${await nodeId(page)}.`)).toBeVisible();
+  await page.getByRole('button', { name: "I'm safe" }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toBeVisible();
+  // It turned itself off while sending; the keyboard comes back to it, not to the top of the page.
+  await expect(page.getByRole('button', { name: "I'm safe" })).toBeFocused();
   await page.getByRole('button', { name: 'I need help' }).click();
   await expect(page.getByText('Sent. Nobody has answered yet. Add where you are and what you need, and send again.')).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Needs help' })).toBeChecked();
   await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
 });
 
-test('a check-in keeps the status sent, and the keyboard meets its fields in the order they are typed', async ({ page }) => {
+test('a check-in keeps the status sent but not its needs, and the keyboard meets its fields in the order they are typed', async ({ page }) => {
   await joinAir(page, '/?air=sim', 'Ana');
   await page.getByRole('radio', { name: 'Check in', exact: true }).click();
   await page.getByRole('radio', { name: 'Needs medical help' }).click();
@@ -158,6 +162,7 @@ test('a check-in keeps the status sent, and the keyboard meets its fields in the
   await page.keyboard.type('Hurt ankle');
   await page.keyboard.press('Tab');
   await expect(page.getByRole('group', { name: 'What is needed' }).getByRole('button').first()).toBeFocused();
+  await page.getByRole('button', { name: 'Injured' }).click();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   await expect(page.getByLabel('Note')).toBeEmpty();

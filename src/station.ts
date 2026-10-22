@@ -88,6 +88,8 @@ export class Station {
   private lastHello = 0;
   private greeting: ReturnType<typeof setTimeout> | null = null;
   private frameInFlight: DecodedFrame | null = null;
+  /** Whether the frame in flight was heard just now, rather than found in a recording. */
+  private frameLive = false;
   private readonly saved: SavedState;
 
   constructor(
@@ -135,6 +137,8 @@ export class Station {
         this.changed();
       },
       passedOn: (msgId) => {
+        // A recording can hold our own sound: only a copy heard on the air is another phone's.
+        if (!this.frameLive) return;
         this.journal.passedOn(msgId);
         this.changed();
       },
@@ -300,6 +304,7 @@ export class Station {
       clockRatio: f.clockRatio,
     });
     this.frameInFlight = f;
+    this.frameLive = live;
     this.mesh.receive(f.payload);
     this.frameInFlight = null;
     this.changed();

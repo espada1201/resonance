@@ -57,8 +57,16 @@ export function focusCompose() {
   field?.focus();
 }
 
-/** `writeTo` counts requests to write a message to `dst` (Reply, Message): each one opens the message box and puts the keyboard in it. */
-export function Compose({ station, dst, setDst, writeTo }: { station: Station; dst: number; setDst: (d: number) => void; writeTo: number }) {
+interface ComposeProps {
+  station: Station;
+  dst: number;
+  setDst: (d: number) => void;
+  /** Someone asked to write to `dst` (Reply, Message): open the message box, put the keyboard in it, then call `wrote`. */
+  writing: boolean;
+  wrote: () => void;
+}
+
+export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) {
   const [mode, setMode] = useState<Mode>('text');
   const [text, setText] = useState('');
   const [checkin, setCheckin] = useState<CheckInDraft>(() => newDraft(station.settings));
@@ -69,10 +77,11 @@ export function Compose({ station, dst, setDst, writeTo }: { station: Station; d
   const [working, setWorking] = useState(false);
   const [said, setSaid] = useState('');
   useEffect(() => {
-    if (!writeTo) return;
+    if (!writing) return;
     setMode('text');
     requestAnimationFrame(focusCompose);
-  }, [writeTo]);
+    wrote();
+  }, [writing]);
   // A picked photo's preview lives until another is picked or it is sent.
   useEffect(() => () => void (picked?.preview && URL.revokeObjectURL(picked.preview)), [picked?.preview]);
 
@@ -131,7 +140,7 @@ export function Compose({ station, dst, setDst, writeTo }: { station: Station; d
         const geo = checkin.withGeo ? await checkInFix(station, setError) : undefined;
         await station.say({ kind: 'checkin', ...draftFields(checkin, geo) });
         // The status stays as sent: after a call for help, the form must not quietly say Safe.
-        setCheckin((d) => ({ ...newDraft(station.settings, d.status), needs: d.needs }));
+        setCheckin((d) => newDraft(station.settings, d.status));
       } else if (mode === 'notice') {
         await station.say({ kind: 'notice', ...notice, place: notice.place.trim(), text: notice.text.trim() });
         setNotice(newNotice());

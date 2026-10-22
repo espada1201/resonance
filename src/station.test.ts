@@ -431,6 +431,9 @@ describe('what people say', () => {
     await s.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
     const [broadcast] = s.journal.feed.filter((i) => i.dst === BROADCAST);
     expect(broadcast.passedOn).toBeFalsy();
+    // A recording of the air can hold our own sound: that is no other phone.
+    s.onFrame(relayed(out[0].bytes, 1), false);
+    expect(broadcast.passedOn).toBeFalsy();
     s.onFrame(relayed(out[1].bytes, 1));
     expect(broadcast.passedOn).toBeFalsy();
     s.onFrame(relayed(out[0].bytes, 1));
