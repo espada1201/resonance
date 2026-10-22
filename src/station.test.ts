@@ -424,6 +424,20 @@ describe('what people say', () => {
     expect([s.settings.place, s.settings.outside]).toEqual(['Floor 4, room 412', 'Mum +44 7700 900123']);
   });
 
+  it('marks a broadcast of ours once another device is heard passing it on, and only then', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    await s.say({ kind: 'text', text: 'Water at the north stairwell' });
+    await s.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
+    const [broadcast] = s.journal.feed.filter((i) => i.dst === BROADCAST);
+    expect(broadcast.passedOn).toBeFalsy();
+    s.onFrame(relayed(out[1].bytes, 1));
+    expect(broadcast.passedOn).toBeFalsy();
+    s.onFrame(relayed(out[0].bytes, 1));
+    expect(broadcast.passedOn).toBe(true);
+    expect(s.journal.feed.find((i) => i.dst === CAL)!.passedOn).toBeFalsy();
+  });
+
   it('measures the very packet that goes: a draft with 0 bytes left fits, one more byte does not, and a seal costs its overhead', async () => {
     const s = new Station(air, 'phone', null);
     s.update({ nick: 'Ana', profile: 'fast' });

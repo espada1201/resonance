@@ -134,6 +134,10 @@ export class Station {
         this.journal.delivered(msgId, ok);
         this.changed();
       },
+      passedOn: (msgId) => {
+        this.journal.passedOn(msgId);
+        this.changed();
+      },
       channelBusy: () => this.busy,
       // A receipt says "read": not for a message sealed for another circle (as far as its one-byte tag tells).
       readable: (p) => !p.encrypted || p.channel === this.circle?.channel,

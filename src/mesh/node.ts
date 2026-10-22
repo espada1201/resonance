@@ -71,6 +71,8 @@ interface MeshEvents {
   deliver(p: Packet): void;
   /** A direct message was acknowledged, or gave up after maxAttempts. */
   delivery?(msgId: number, ok: boolean): void;
+  /** Another device was heard repeating something this node said. */
+  passedOn?(msgId: number): void;
   /** True while another node is on air; due relays wait so they can overhear it first. */
   channelBusy?(): boolean;
   /** Whether this node can open a packet; only readable direct messages are acknowledged. */
@@ -225,6 +227,7 @@ export class MeshNode {
     // Someone repeated our broadcast: it made it out.
     if (p.src === this.id) {
       this.echoes.delete(p.msgId);
+      if (p.type !== PacketType.Hello && p.type !== PacketType.Ack) this.events.passedOn?.(p.msgId);
       return p;
     }
     const now = this.clock.now();

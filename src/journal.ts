@@ -24,6 +24,8 @@ export interface FeedItem extends Meta {
   fileKey?: string;
   /** For direct messages. 'unknown': the app was closed while waiting for the receipt. */
   delivery?: 'sending' | 'acked' | 'failed' | 'unknown';
+  /** For our own broadcasts: another device was heard repeating it. */
+  passedOn?: boolean;
 }
 
 const FEED_KEPT = 400;
@@ -80,6 +82,12 @@ export class Journal {
   delivered(msgId: number, ok: boolean) {
     const item = this.feed.find((i) => i.mine && i.msgId === msgId);
     if (item) item.delivery = ok ? 'acked' : 'failed';
+  }
+
+  /** Another device repeated a broadcast of ours. */
+  passedOn(msgId: number) {
+    const item = this.feed.find((i) => i.mine && i.msgId === msgId && i.dst === BROADCAST);
+    if (item) item.passedOn = true;
   }
 
   /** Removes an item (one sent again took its place). */
