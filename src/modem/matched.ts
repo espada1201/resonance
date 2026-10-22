@@ -53,7 +53,7 @@ export class BlockSpectra {
   /** Buffers for as many blocks as one advance() has completed at most. */
   private readonly pool: Block[] = [];
 
-  constructor(readonly M: number) {
+  constructor(M: number) {
     this.N = blockSize(M);
     this.L = this.N - M + 1;
   }

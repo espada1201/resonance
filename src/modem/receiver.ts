@@ -187,10 +187,10 @@ class MfskDecoder extends FrameDecoder<MfskProfile> {
     const step = TRACK_STEP_SEC * this.fs;
     const S = this.symbolSamples(pd.r);
     const b = (pd.body ??= { k: HEADER_BYTES, tau: pd.tau, sym: new Uint8Array(nb), conf: new Float64Array(nb), snr: 0 });
-    // Each symbol is decided once every sample its late timing guess reads has arrived (rounding
-    // takes that window at most a sample past the symbol; 2 keeps clear), so the work spreads over
-    // the frame instead of stalling the push that completes it. What is left when the frame is
-    // complete is decided then, from the same samples one pass at the end would read.
+    // Each symbol is decided as soon as every sample its late timing guess reads has arrived (after
+    // rounding, that window can end a sample past the symbol; the 2 keeps clear of it), so the work
+    // spreads over the frame instead of stalling the push that completes it. Whatever is left when
+    // the frame is complete is decided then, from the same samples one pass at the end would read.
     for (; b.k < total && (complete || this.store.end >= pd.s0 + b.tau + step + (b.k + 1) * S + 2); b.k++) {
       // Early-late timing tracker absorbs residual clock error over long frames.
       const mid = this.demod(pd, b.k, b.tau);
