@@ -31,7 +31,7 @@ function until(sec: number) {
 export function NoticeBoard({ notices, by, large = false }: { notices: Heard<NoticeBody>[]; by: (src: number, nick: string) => string; large?: boolean }) {
   if (!notices.length) return null;
   return (
-    <section class={large ? 'notices large' : 'notices'} aria-label="Notices">
+    <section class={large ? 'notices huge' : 'notices'} aria-label="Notices">
       {notices.map((n) => (
         <article key={`${n.src}:${n.msgId}`} class={`notice t-${n.body.topic}`}>
           <span class="topic">{TOPIC_TEXT[n.body.topic]}</span>

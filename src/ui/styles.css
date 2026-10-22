@@ -1054,7 +1054,7 @@ input[aria-invalid='true'] {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.notices.large .notice-text {
+.notices.huge .notice-text {
   font-size: clamp(20px, 3vw, 32px);
   line-height: 1.2;
 }
