@@ -1,8 +1,8 @@
 import { render } from 'preact';
 import { useState } from 'preact/hooks';
 import { boot, useAutoStart } from './boot';
-import { MAX_NICK } from './mesh/payloads';
 import { nodeHex } from './mesh/packet';
+import { MAX_NICK } from './mesh/payloads';
 import { AirLog, AirStatus, Waterfall } from './ui/air';
 import { named } from './ui/feed';
 import { errorText, fitInput } from './ui/format';

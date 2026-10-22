@@ -28,8 +28,8 @@ describe('courier to the outside', () => {
     expect(parseOutside(' +1 (555) 010-0100 ')).toEqual({ channel: 'sms', to: '+15550100100' });
     expect(parseOutside('0612 345 678')).toEqual({ channel: 'sms', to: '0612345678' });
     expect(parseOutside('maria.lopez+family@mail.example.org')).toEqual({ channel: 'email', to: 'maria.lopez+family@mail.example.org' });
-    // From strangers on the air: nothing that could add recipients, a body or a script to the link.
     expect(parseOutside('555 0100')).toEqual({ channel: 'sms', to: '5550100' });
+    // From strangers on the air: nothing that could add recipients, a body or a script to the link.
     const encodedRecipients = 'fam%2Cspy%40evil.com%2Cb@family.com';
     const shortCodes = ['55555', '+12345', '87 654'];
     for (const bad of ['a@b.com?bcc=c@d.com', 'a@b.com&body=x', 'javascript:alert(1)', '1234', 'mum', 'a b@c.de', '+1 555 0100?body=x', encodedRecipients, ...shortCodes]) {

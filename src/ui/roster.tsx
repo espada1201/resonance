@@ -55,7 +55,7 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
         const { body: b, src, msgId, hops } = e.latest;
         const mine = src === self && !b.about;
         const findIt = e.open || e.stale ? find(e) : null;
-        const asking = reply && closing === `${src}:${msgId}`;
+        const confirming = reply && closing === `${src}:${msgId}`;
         const where = [b.place, relative(me, b.geo)].filter(Boolean).join(' · ');
         return (
           <li key={e.key} class={`s-${b.status}${e.open ? ' open' : ''}`}>
@@ -84,7 +84,7 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
                 {replyText(r, self, by)} · {ago(writtenAt(r))}
               </p>
             ))}
-            {(e.open || e.stale) && asking && (
+            {(e.open || e.stale) && confirming && (
               <div class="actions" role="group" aria-label="Resolved for everyone?">
                 <span class="small">Resolved for everyone?</span>
                 <button type="button" class="ghost small" ref={notYet} onClick={() => setClosing(null)}>
@@ -102,7 +102,7 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
                 </button>
               </div>
             )}
-            {(e.open || e.stale) && !asking && (
+            {(e.open || e.stale) && !confirming && (
               <div class="actions">
                 {reply && !mine && !e.replies.some((r) => r.src === self && r.body.what === 'coming') && (
                   <button type="button" class="ghost small" onClick={() => reply(e, 'coming')}>
