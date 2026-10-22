@@ -6,6 +6,7 @@ A laptop opened on the beacon page listens all the time, repeats everything it h
 
 - `beacon-relay` the beacon hears a phone's message, relays it, and the phone hears its own message come back.
 - `beacon-stats` the beacon's `Heard` and `Relayed` counts go up.
+- `beacon-desk` the beacon lists who checked in, open requests first, and posts notices signed with its `Sign as` name.
 
 ## How to get to it (user POV)
 
@@ -16,7 +17,9 @@ A laptop opened on the beacon page listens all the time, repeats everything it h
 Preconditions: none beyond the baseline.
 
 - **Relay.** Run `verify.sh drive e2e/beacon.spec.ts 'a beacon hears a phone'`. The beacon's air log shows the message in and `message relayed for <id>` out, its counts rise, and the phone's log shows `echo of your message`.
+- **Desk.** Run `verify.sh drive e2e/safety.spec.ts 'a beacon at the shelter desk'`. The beacon's notice signed `Front desk` reaches the phone, and the phone's `I need help` appears on the beacon as `Waiting for help` under `Check-ins · 1 person · 1 open request`.
 
 ## Gotchas
 
-- The beacon page has no compose box. Send from a phone tab.
+- The beacon page sends only notices. Send messages and check-ins from a phone tab.
+- Its list is for reading across a room: answer requests from a phone.
