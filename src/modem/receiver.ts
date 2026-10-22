@@ -1,8 +1,9 @@
-import { goertzel, nextPow2 } from './dsp';
 import { HEADER_BYTES, bodyBytes, decodeBody, decodeHeader } from './framing';
-import { MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
+import { BlockSpectra, MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
+import { demodSymbol, mfskSymbols } from './mfsk';
 import { OFDM_RATE, type Spectrum, bodyOffset, cpSize, derotate, fftSize, headerSteps, ofdmSymbols, readBytes, spectrum, stepSlope, stepSlopes, steps } from './ofdm';
-import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bytesPerSymbol, groupTones, preambleSec, symbolSec, windowSec } from './profiles';
+import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bytesPerSymbol, preambleSec, symbolSec } from './profiles';
+import { SampleStore } from './sample-store';
 
 export interface DecodedFrame {
   payload: Uint8Array;
@@ -33,92 +34,14 @@ const RHO_CFAR = 4;
  * Resonance data symbols 0.037 to 0.069.
  */
 const HUM_BUSY = 0.03;
-const MAX_CLOCK_SKEW = 0.012;
-const TRACK_STEP_SEC = 0.0005;
-
-interface SymbolDecision {
-  byte: number;
-  /** 1 - (runner-up energy / winner energy), worst group. Low values become RS erasures. */
-  conf: number;
-  /** Winner energy / all energy in its group, averaged over groups. Drives timing. */
-  purity: number;
-  /** Winner energy / mean of the other tones (linear). */
-  snr: number;
-}
-
+/** Largest sender/receiver sample-clock mismatch that sync accepts. */
+export const MAX_CLOCK_SKEW = 0.012;
 /**
- * Non-coherent square-law detection of one symbol: for every group, measure the energy of all
- * 16 candidate tones over exactly one tone period (so they are orthogonal) and keep the largest.
- * `start` is the sample index (in x) where symbol k begins, guard interval included; `r` is the
- * transmitter/receiver clock ratio, which scales every frequency and duration.
+ * Seconds of samples the receiver keeps at most. A frame is read once all of it has arrived, so
+ * the longest frame any profile can send must fit (modem.test.ts checks).
  */
-export function demodSymbol(x: Float32Array, start: number, p: MfskProfile, k: number, r: number, fs: number): SymbolDecision {
-  const from = Math.round(start + (p.guardSec * fs) / r);
-  const n = Math.round((windowSec(p) * fs) / r);
-  let byte = 0;
-  let conf = 1;
-  let purity = 0;
-  let snr = 0;
-  for (let g = 0; g < p.groups; g++) {
-    const tones = groupTones(p, k, g);
-    let best = 0, e1 = 0, e2 = 0, sum = 0;
-    for (let v = 0; v < tones.length; v++) {
-      const e = goertzel(x, from, n, tones[v] * r, fs);
-      sum += e;
-      if (e > e1) {
-        e2 = e1;
-        e1 = e;
-        best = v;
-      } else if (e > e2) e2 = e;
-    }
-    byte = (byte << 4) | best;
-    conf = Math.min(conf, e1 > 0 ? 1 - e2 / e1 : 0);
-    purity += sum > 0 ? e1 / sum : 0;
-    snr += e1 / Math.max(1e-12, (sum - e1) / (tones.length - 1));
-  }
-  return { byte, conf, purity: purity / p.groups, snr: snr / p.groups };
-}
-
-/** Append-only sample store addressed by absolute index; old samples are discarded on trim. */
-class SampleStore {
-  data = new Float32Array(1 << 16);
-  base = 0;
-  length = 0;
-  get end() {
-    return this.base + this.length;
-  }
-  push(chunk: Float32Array) {
-    if (this.length + chunk.length > this.data.length) {
-      const next = new Float32Array(nextPow2(this.length + chunk.length) * 2);
-      next.set(this.data.subarray(0, this.length));
-      this.data = next;
-    }
-    this.data.set(chunk, this.length);
-    this.length += chunk.length;
-  }
-  trimBefore(abs: number) {
-    const drop = Math.min(this.length, Math.floor(abs - this.base));
-    if (drop <= 0) return;
-    this.data.copyWithin(0, drop, this.length);
-    this.length -= drop;
-    this.base += drop;
-  }
-  view(abs: number, n: number): Float32Array {
-    const out = new Float32Array(n);
-    const from = abs - this.base;
-    for (let i = Math.max(0, -from); i < n && from + i < this.length; i++) out[i] = this.data[from + i];
-    return out;
-  }
-  /** Cubic interpolation at a fractional absolute position (0 outside what is stored). */
-  at(pos: number): number {
-    const x = pos - this.base;
-    const i = Math.floor(x);
-    const f = x - i;
-    const y = (j: number) => (j >= 0 && j < this.length ? this.data[j] : 0);
-    const y0 = y(i - 1), y1 = y(i), y2 = y(i + 1), y3 = y(i + 2);
-    return y1 + 0.5 * f * (y2 - y0 + f * (2 * y0 - 5 * y1 + 4 * y2 - y3 + f * (3 * (y1 - y2) + y3 - y0)));
-  }
-}
+export const MAX_HISTORY_SEC = 30;
+const TRACK_STEP_SEC = 0.0005;
 
 interface Pending {
   /** Absolute sample where the first symbol after the preamble begins. */
@@ -128,11 +51,15 @@ interface Pending {
   tau: number;
   len?: number;
   started: number;
+  /** MFSK body decisions so far: symbol k is next, and tau is where the timing tracker has got to. */
+  body?: { k: number; tau: number; sym: Uint8Array; conf: Float64Array; snr: number };
 }
 
 /** Streaming matched filter and chirp-pair sync for one profile; subclasses demodulate the frame. */
 abstract class FrameDecoder<P extends Profile> {
   private readonly filter: MatchedFilter;
+  /** The stream's blocks for this profile's chirp length, shared with every profile of that length. */
+  private readonly blocks: BlockSpectra;
   private readonly picker: PeakPicker;
   private readonly D: number;
   private peaks: Peak[] = [];
@@ -147,9 +74,11 @@ abstract class FrameDecoder<P extends Profile> {
     readonly p: P,
     protected readonly fs: number,
     protected readonly store: SampleStore,
+    blocksFor: (M: number) => BlockSpectra,
     private readonly listener: ReceiverListener,
   ) {
     this.filter = new MatchedFilter(chirpTemplate(p.chirpLowHz, p.chirpHighHz, Math.round(p.chirpSec * fs) / fs, fs));
+    this.blocks = blocksFor(this.filter.M);
     this.picker = new PeakPicker(RHO_THRESHOLD, this.filter.M / 2, 0, 0.5, RHO_CFAR, 1 / (0.05 * fs));
     this.D = (p.chirpSec + p.chirpGapSec) * fs;
     this.humAlpha = 1 / (0.2 * fs);
@@ -157,17 +86,21 @@ abstract class FrameDecoder<P extends Profile> {
 
   /** Oldest absolute sample this decoder still needs. */
   get horizon() {
-    return this.pending ? this.pending.s0 - preambleSec(this.p) * this.fs : this.filter.next - this.D * 1.1;
+    return this.pending ? this.pending.s0 - preambleSec(this.p) * this.fs : this.blocks.next - this.D * 1.1;
   }
 
+  /** Scores the blocks this push completed (see Receiver.push), then decodes what it can. */
   process() {
-    this.filter.run(this.store.end, (abs, n) => this.store.view(abs, n), (pos, rho) => {
-      this.hum += (rho * rho - this.hum) * this.humAlpha;
-      const peak = this.picker.push(pos, rho);
-      if (peak) this.onPeak(peak);
-    });
+    for (const b of this.blocks.ready) this.filter.correlate(b, this.score);
     if (this.pending) this.advance(this.pending);
   }
+
+  /** Takes one sync score: carrier sense, then the peak picker. */
+  private readonly score = (pos: number, rho: number) => {
+    this.hum += (rho * rho - this.hum) * this.humAlpha;
+    const peak = this.picker.push(pos, rho);
+    if (peak) this.onPeak(peak);
+  };
 
   private onPeak(peak: Peak) {
     this.lastActivity = peak.pos;
@@ -247,29 +180,32 @@ class MfskDecoder extends FrameDecoder<MfskProfile> {
       if (len === null) return this.finish(pd, 'header', pd.s0);
       pd.len = len;
     }
-    const total = HEADER_BYTES + bodyBytes(pd.len);
+    const total = mfskSymbols(pd.len);
     const end = this.needed(pd, total);
-    if (this.store.end < end + maxTau) return;
+    const complete = this.store.end >= end + maxTau;
     const nb = total - HEADER_BYTES;
-    const sym = new Uint8Array(nb);
-    const conf = new Float64Array(nb);
     const step = TRACK_STEP_SEC * this.fs;
-    let tau = pd.tau;
-    let snr = 0;
-    for (let k = HEADER_BYTES; k < total; k++) {
+    const S = this.symbolSamples(pd.r);
+    const b = (pd.body ??= { k: HEADER_BYTES, tau: pd.tau, sym: new Uint8Array(nb), conf: new Float64Array(nb), snr: 0 });
+    // Each symbol is decided as soon as every sample its late timing guess reads has arrived (after
+    // rounding, that window can end a sample past the symbol; the 2 keeps clear of it), so the work
+    // spreads over the frame instead of stalling the push that completes it. Whatever is left when
+    // the frame is complete is decided then, from the same samples one pass at the end would read.
+    for (; b.k < total && (complete || this.store.end >= pd.s0 + b.tau + step + (b.k + 1) * S + 2); b.k++) {
       // Early-late timing tracker absorbs residual clock error over long frames.
-      const mid = this.demod(pd, k, tau);
-      const early = this.demod(pd, k, tau - step).purity;
-      const late = this.demod(pd, k, tau + step).purity;
-      if (late > mid.purity && late > early) tau += step / 2;
-      else if (early > mid.purity && early > late) tau -= step / 2;
-      sym[k - HEADER_BYTES] = mid.byte;
-      conf[k - HEADER_BYTES] = mid.conf;
-      snr += mid.snr;
+      const mid = this.demod(pd, b.k, b.tau);
+      const early = this.demod(pd, b.k, b.tau - step).purity;
+      const late = this.demod(pd, b.k, b.tau + step).purity;
+      if (late > mid.purity && late > early) b.tau += step / 2;
+      else if (early > mid.purity && early > late) b.tau -= step / 2;
+      b.sym[b.k - HEADER_BYTES] = mid.byte;
+      b.conf[b.k - HEADER_BYTES] = mid.conf;
+      b.snr += mid.snr;
     }
-    const res = decodeBody(pd.len, sym, conf);
+    if (!complete) return;
+    const res = decodeBody(pd.len, b.sym, b.conf);
     if (!res) return this.finish(pd, 'body', end);
-    this.emit(pd, end, res.payload, 10 * Math.log10(snr / nb), res.corrected);
+    this.emit(pd, end, res.payload, 10 * Math.log10(b.snr / nb), res.corrected);
   }
 }
 
@@ -340,6 +276,8 @@ class OfdmDecoder extends FrameDecoder<OfdmProfile> {
  */
 export class Receiver {
   private readonly store = new SampleStore();
+  /** One BlockSpectra per distinct chirp length, shared by every profile of that length. */
+  private readonly spectra = new Map<number, BlockSpectra>();
   private readonly decoders: Array<FrameDecoder<Profile>>;
 
   constructor(
@@ -347,7 +285,14 @@ export class Receiver {
     profiles: Profile[],
     listener: ReceiverListener,
   ) {
-    this.decoders = profiles.map((p) => (p.kind === 'ofdm' ? new OfdmDecoder(p, fs, this.store, listener) : new MfskDecoder(p, fs, this.store, listener)));
+    const blocksFor = (M: number) => {
+      const b = this.spectra.get(M) ?? new BlockSpectra(M);
+      this.spectra.set(M, b);
+      return b;
+    };
+    this.decoders = profiles.map((p) =>
+      p.kind === 'ofdm' ? new OfdmDecoder(p, fs, this.store, blocksFor, listener) : new MfskDecoder(p, fs, this.store, blocksFor, listener),
+    );
   }
 
   get samplesSeen() {
@@ -366,8 +311,11 @@ export class Receiver {
 
   push(chunk: Float32Array) {
     this.store.push(chunk);
+    // Transform each new block once, then let each decoder in turn score all of them and decode:
+    // the listener hears all of one profile's events, then the next profile's.
+    for (const s of this.spectra.values()) s.advance(this.store);
     for (const d of this.decoders) d.process();
-    const keep = Math.max(Math.min(...this.decoders.map((d) => d.horizon)), this.store.end - 30 * this.fs);
+    const keep = Math.max(Math.min(...this.decoders.map((d) => d.horizon)), this.store.end - MAX_HISTORY_SEC * this.fs);
     if (keep - this.store.base > 4 * this.fs) this.store.trimBefore(keep);
   }
 }

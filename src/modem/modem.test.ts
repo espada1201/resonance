@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { addNoise, mix, resample, reverb, rng } from './channel-sim';
-import { HEADER_BYTES, bodyBytes, decodeBody, encodeBody } from './framing';
+import { HEADER_BYTES, MAX_PAYLOAD, bodyBytes, decodeBody, encodeBody } from './framing';
 import { airtimeSec, modulate } from './modulator';
 import { PROFILES, type ProfileId, preambleSec, rawBitrate } from './profiles';
-import { type DecodedFrame, Receiver } from './receiver';
+import { type DecodedFrame, MAX_CLOCK_SKEW, MAX_HISTORY_SEC, Receiver } from './receiver';
 
 const ALL = [PROFILES.audible, PROFILES.fast, PROFILES.ultrasonic];
 
@@ -138,6 +138,19 @@ describe('receiver behaviour', () => {
     expect(got).toEqual(['audible:loud and far', 'ultrasonic:quiet and near']);
   });
 
+  it('listens on profiles whose chirps differ in length', () => {
+    // Profiles with one chirp length share each block's transform; another length gets its own.
+    const fs = 48000;
+    const short = { ...PROFILES.audible, chirpSec: 0.05 };
+    const a = new TextEncoder().encode('short chirp');
+    const b = new TextEncoder().encode('standard chirp');
+    const stream = mix(4 * fs, [[1000, modulate(a, short, fs)], [9000, modulate(b, PROFILES.ultrasonic, fs)]], 0.01, rng(6));
+    const got: string[] = [];
+    const rx = new Receiver(fs, [short, PROFILES.fast, PROFILES.ultrasonic], { frame: (f) => got.push(`${f.profile}:${new TextDecoder().decode(f.payload)}`) });
+    for (let i = 0; i < stream.length; i += 2048) rx.push(stream.subarray(i, i + 2048));
+    expect(got.sort()).toEqual(['audible:short chirp', 'ultrasonic:standard chirp']);
+  });
+
   it('decodes all three profiles back to back without a false alarm', () => {
     const fs = 48000;
     const text: Record<ProfileId, string> = { audible: 'far away', fast: 'close and quick', ultrasonic: 'quiet' };
@@ -226,6 +239,12 @@ describe('receiver behaviour', () => {
     expect((255 * 8) / airtimeSec(fast, 255)).toBeLessThan(rawBitrate(fast) * 0.6);
     // A full frame goes ten times quicker on the fast profile.
     expect(airtimeSec(fast, 255) * 10).toBeLessThan(airtimeSec(p, 255));
+  });
+
+  it('keeps every sample of the longest frame any profile can send', () => {
+    // A frame is read once all of it has arrived, from a store that keeps MAX_HISTORY_SEC at most:
+    // a full frame from the slowest sender clock that sync accepts must fit, or it is cut short.
+    for (const p of ALL) expect(airtimeSec(p, MAX_PAYLOAD) / (1 - MAX_CLOCK_SKEW), p.id).toBeLessThan(MAX_HISTORY_SEC);
   });
 });
 
