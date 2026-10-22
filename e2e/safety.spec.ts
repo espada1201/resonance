@@ -148,6 +148,8 @@ test('one tap for help, nameless, says how others see you and then asks where an
   await expect(page.getByText('Sent. No one has said they are coming yet. Add where you are and what you need, and send again.')).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Needs help' })).toBeChecked();
   await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
+  // The one tap sent a position; the details sent after it must not quietly drop it.
+  await expect(page.getByLabel('Attach my GPS position')).toBeChecked();
 });
 
 test('a check-in keeps the status sent but not its needs, and the keyboard meets its fields in the order they are typed', async ({ page }) => {

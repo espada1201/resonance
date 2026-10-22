@@ -123,7 +123,7 @@ function CheckInCard({ station }: { station: Station }) {
       if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
       if (ask) {
         // One tap said only "help": the details open beside it, ready to say where and what.
-        setDraft(newDraft(station.settings, 'help'));
+        setDraft({ ...newDraft(station.settings, 'help'), withGeo: d.withGeo });
         more.current!.open = true;
         requestAnimationFrame(() => more.current?.querySelector<HTMLInputElement>('input[aria-label="Where"]')?.focus());
       }
