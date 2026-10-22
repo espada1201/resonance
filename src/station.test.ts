@@ -7,7 +7,7 @@ import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from '
 import { type Body, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
 import { rng } from './modem/channel-sim';
 import type { DecodedFrame } from './modem/receiver';
-import { Station } from './station';
+import { Station, nodeHex } from './station';
 import { MemoryStorage } from './testing';
 
 // Characterization tests: they pin what the station does today, so that its collaborators can
@@ -333,6 +333,40 @@ describe('settings', () => {
     s.update({ nick: 'Ana' });
     s.update({ volume: 0.4 });
     expect(volume).toEqual([0.4]);
+  });
+});
+
+describe('sound files', () => {
+  /** The browser's decoder, for the 16-bit WAVs the station writes; it hands back two equal channels. */
+  class WavDecoder {
+    async decodeAudioData(data: ArrayBuffer) {
+      const ch = Float32Array.from(new Int16Array(data, 44), (x) => x / 32767);
+      return { length: ch.length, numberOfChannels: 2, sampleRate: new DataView(data).getUint32(24, true), getChannelData: () => ch };
+    }
+  }
+
+  it('a packet saved as a sound file plays back into another station', async () => {
+    const a = new Station(air, 'phone', null);
+    a.update({ profile: 'fast' });
+    await a.sendText('Meet at six');
+    expect(a.exportWav({ ...a.feed[0], msgId: a.feed[0].msgId + 1 })).toBeNull();
+    const blob = a.exportWav(a.feed[0])!;
+    expect(blob.type).toBe('audio/wav');
+    const data = await blob.arrayBuffer();
+    const v = new DataView(data);
+    const ascii = (from: number) => new TextDecoder().decode(data.slice(from, from + 4));
+    // 16-bit mono at 48 kHz, with a quarter of a second of quiet before the frame and after it.
+    expect([ascii(0), ascii(8), ascii(12), ascii(36)]).toEqual(['RIFF', 'WAVE', 'fmt ', 'data']);
+    expect([v.getUint16(22, true), v.getUint32(24, true), v.getUint16(34, true), v.getUint32(40, true)]).toEqual([1, 48000, 16, data.byteLength - 44]);
+    const pcm = new Int16Array(data, 44);
+    expect(pcm.subarray(0, 12000).every((x) => x === 0)).toBe(true);
+    expect(pcm.subarray(-12000).every((x) => x === 0)).toBe(true);
+
+    vi.stubGlobal('OfflineAudioContext', WavDecoder);
+    const b = new Station(air, 'phone', null);
+    expect(await b.importRecording(data)).toBe(1);
+    expect(b.feed[0]).toMatchObject({ src: a.id, msgId: a.feed[0].msgId, body: { kind: 'text', text: 'Meet at six' } });
+    expect(b.air[0]).toMatchObject({ dir: 'rx', profile: 'fast', label: `message from ${nodeHex(a.id)}` });
   });
 });
 
