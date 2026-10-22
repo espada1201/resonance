@@ -20,7 +20,7 @@ import { Links } from './signal';
 // The station is the whole app minus pixels: it owns the link to the air (speaker, microphone
 // and demodulator worker), the mesh node, the transmit queue, encryption and persistence.
 
-type Role = 'phone' | 'beacon';
+export type Role = 'phone' | 'beacon';
 type Unstamped<B> = B extends unknown ? Omit<B, 'ts' | 'nick'> : never;
 /** What a person writes. The station adds their name and the time as it sends. */
 export type Draft = Unstamped<ContentBody>;

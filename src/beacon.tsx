@@ -1,24 +1,22 @@
 import { render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
-import { MicTransport, SimulatedAir } from './audio/transport';
+import { useState } from 'preact/hooks';
+import { boot, useAutoStart } from './boot';
 import { MAX_NICK } from './mesh/payloads';
-import { Station, nodeHex } from './station';
+import { nodeHex } from './station';
 import { AirLog, AirStatus, Waterfall } from './ui/air';
 import { named } from './ui/feed';
 import { fitInput } from './ui/format';
 import { useMedia, useStation, useTicker } from './ui/hooks';
-import { Logo, Mic } from './ui/icons';
+import { Mic } from './ui/icons';
 import { NoticeBoard, type NoticeDraft, NoticeFields, newNotice } from './ui/notices';
 import { RosterList, headcount } from './ui/roster';
+import { StatGrid, TopBar } from './ui/shell';
 import './ui/styles.css';
 
 // A laptop left in a hallway: listens forever, relays everything, and hands stored messages
 // to phones that come within earshot (they trade hellos, then each sends what the other lacks).
 
-const params = new URLSearchParams(location.search);
-const sim = params.get('air') === 'sim';
-const [x = 0, y = 0] = (params.get('at') ?? '').split(',').map(Number).filter(Number.isFinite);
-const station = new Station(sim ? new SimulatedAir({ x, y }) : new MicTransport(), 'beacon', sim ? null : undefined);
+const station = boot('beacon');
 // Its notices are signed with this, as a person's are with their nickname.
 if (!station.settings.nick) station.update({ nick: 'Beacon' });
 
@@ -71,11 +69,9 @@ function NoticeForm() {
 
 function Beacon() {
   useStation(station);
+  useAutoStart(station);
   useTicker(5_000);
   const narrow = useMedia('(max-width: 600px)');
-  useEffect(() => {
-    if (sim) void station.start();
-  }, []);
   const m = station.mesh.stats;
   const live = station.status === 'listening';
   const entries = station.journal.roster();
@@ -90,15 +86,9 @@ function Beacon() {
   ];
   return (
     <div class="beacon-page">
-      <header class="top">
-        <a class="brand" href="./">
-          <Logo size={22} />
-          <span>Resonance</span>
-        </a>
+      <TopBar station={station} compact={narrow} right={live && <AirStatus station={station} compact={narrow} announce />}>
         <span class="chip beacon">Beacon #{nodeHex(station.id)}</span>
-        {sim && <span class="chip sim">{narrow ? 'Sim' : 'Simulated air'}</span>}
-        <div class="top-right">{live && <AirStatus station={station} compact={narrow} announce />}</div>
-      </header>
+      </TopBar>
       <main class="beacon-main">
         {!live && (
           <section class="gate">
@@ -118,14 +108,7 @@ function Beacon() {
           </section>
         )}
         <NoticeBoard large notices={station.journal.notices()} by={by} />
-        <dl class="stats huge">
-          {cells.map(([k, v]) => (
-            <div key={k}>
-              <dt>{k}</dt>
-              <dd>{v}</dd>
-            </div>
-          ))}
-        </dl>
+        <StatGrid variant="huge" cells={cells} />
         <section aria-labelledby="roster-title">
           <h2 class="label" id="roster-title">
             Check-ins{entries.length > 0 && ` · ${headcount(entries)}`}
@@ -153,7 +136,3 @@ function Beacon() {
 }
 
 render(<Beacon />, document.getElementById('app')!);
-
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => undefined);
-}

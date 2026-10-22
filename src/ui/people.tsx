@@ -4,6 +4,7 @@ import { ago } from './format';
 import { FindPanel } from './find';
 import { Compass, Relay, Send } from './icons';
 import { linkWords } from './links';
+import { StatGrid } from './shell';
 
 export function People({ station, onMessage }: { station: Station; onMessage: (id: number) => void }) {
   const ns = [...station.mesh.neighbors.values()].sort((a, b) => b.lastHeard - a.lastHeard);
@@ -28,14 +29,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
         </p>
       </section>
 
-      <dl class="stats wide">
-        {stats.map(([k, v, t]) => (
-          <div key={k} title={t}>
-            <dt>{k}</dt>
-            <dd>{v}</dd>
-          </div>
-        ))}
-      </dl>
+      <StatGrid variant="wide" cells={stats} />
 
       <h2 class="label">Heard directly</h2>
       {ns.length === 0 ? (

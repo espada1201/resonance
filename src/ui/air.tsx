@@ -3,6 +3,7 @@ import { PROFILES, type ProfileId, bandHz } from '../modem/profiles';
 import type { AirEvent, Station } from '../station';
 import { clock, seconds } from './format';
 import { LinkDoctor } from './links';
+import { StatGrid } from './shell';
 
 // The waterfall shows the two slices of the spectrum Resonance actually uses, side by side,
 // newest sound at the top. It is the app's way of making the invisible visible.
@@ -180,16 +181,7 @@ function AirStats({ station }: { station: Station }) {
     ['Relayed', `${m.relayed}`, 'packets this device repeated for others'],
     ['Lost', `${t.lost}`, 'frames detected but too damaged to repair'],
   ];
-  return (
-    <dl class="stats">
-      {cells.map(([k, v, title]) => (
-        <div key={k} title={title}>
-          <dt>{k}</dt>
-          <dd>{v}</dd>
-        </div>
-      ))}
-    </dl>
-  );
+  return <StatGrid cells={cells} />;
 }
 
 const DIR_TEXT: Record<AirEvent['dir'], string> = { rx: 'IN', tx: 'OUT', sync: 'SYNC', lost: 'LOST' };

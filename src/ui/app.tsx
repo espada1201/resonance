@@ -6,10 +6,11 @@ import { AirPanel, AirStatus } from './air';
 import { Compose } from './compose';
 import { Feed } from './feed';
 import { rovingKeys, useMedia, useStation, useTicker } from './hooks';
-import { Logo, Mic } from './icons';
+import { Mic } from './icons';
 import { People } from './people';
 import { Safety } from './safety';
 import { Settings } from './settings';
+import { TopBar } from './shell';
 
 const MODES: Array<[ProfileId, string, string]> = [
   ['audible', 'Audible', 'across a room'],
@@ -81,18 +82,12 @@ export function App({ station }: { station: Station }) {
 
   return (
     <div class={wide ? 'shell wide' : 'shell'}>
-      <header class="top">
-        <a class="brand" href="./" aria-label="Resonance home">
-          <Logo size={22} />
-          <span>Resonance</span>
-        </a>
+      <TopBar station={station} compact={!wide} homeLabel="Resonance home" right={live && !wide ? <AirStatus station={station} compact announce /> : null}>
         <span class="node-chip" title="This device's id on the mesh">
           #{nodeHex(station.id)}
           {station.settings.nick && <b>{station.settings.nick}</b>}
         </span>
-        {station.transport.kind === 'simulated' && <span class="chip sim">{wide ? 'Simulated air' : 'Sim'}</span>}
-        <div class="top-right">{live && !wide ? <AirStatus station={station} compact announce /> : null}</div>
-      </header>
+      </TopBar>
 
       <nav class="tabs" role="tablist" aria-label="Sections" onKeyDown={rovingKeys(tabs, current, setTab)}>
         {tabs.map((t) => (
