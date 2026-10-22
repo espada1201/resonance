@@ -242,6 +242,9 @@ input[type='radio'] {
 .brand span {
   color: var(--text);
 }
+.top h1 {
+  font-size: inherit;
+}
 .node-chip {
   font: 500 12px var(--mono);
   color: var(--muted);
@@ -257,6 +260,10 @@ input[type='radio'] {
 }
 .top-right {
   margin-left: auto;
+  min-width: 0;
+}
+/* The tab bar scrolls sideways inside its landmark rather than widening the page. */
+.shell > nav {
   min-width: 0;
 }
 .tabs {
@@ -326,7 +333,7 @@ input[type='radio'] {
   display: grid;
   gap: 18px;
 }
-.gate h1 {
+.gate h2 {
   font-size: clamp(28px, 4.4vw, 44px);
   line-height: 1.08;
   letter-spacing: -0.02em;

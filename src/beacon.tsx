@@ -92,7 +92,7 @@ function Beacon() {
       <main class="beacon-main">
         {!live && (
           <section class="gate">
-            <h1>Leave this device here as a relay.</h1>
+            <h2>Leave this device here as a relay.</h2>
             <p class="lede">
               It listens in all three modes, repeats every message it hears, keeps the newest 300 packets (check-ins and notices for three days,
               the rest for 12 hours) and hands them to any phone that comes within earshot. Plug it in, turn the volume up, keep the lid open.

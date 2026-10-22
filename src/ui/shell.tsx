@@ -18,10 +18,12 @@ export function TopBar({
 }) {
   return (
     <header class="top">
-      <a class="brand" href="./" aria-label={homeLabel}>
-        <Logo size={22} />
-        <span>Resonance</span>
-      </a>
+      <h1>
+        <a class="brand" href="./" aria-label={homeLabel}>
+          <Logo size={22} />
+          <span>Resonance</span>
+        </a>
+      </h1>
       {children}
       {station.transport.kind === 'simulated' && <span class="chip sim">{compact ? 'Sim' : 'Simulated air'}</span>}
       <div class="top-right">{right}</div>

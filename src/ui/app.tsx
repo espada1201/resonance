@@ -27,7 +27,7 @@ function Gate({ station }: { station: Station }) {
   return (
     <section class="gate" aria-labelledby="gate-title">
       <p class="label">Offline mesh · made of sound</p>
-      <h1 id="gate-title">Messages that travel through the air between the devices people already carry.</h1>
+      <h2 id="gate-title">Messages that travel through the air between the devices people already carry.</h2>
       <p class="lede">
         Resonance turns speakers and microphones into a radio. No internet, no cell signal, no pairing, no accounts. Every device that hears a
         message repeats it, so it hops across a crowd, down a stairwell, through a building.
@@ -91,23 +91,25 @@ export function App({ station }: { station: Station }) {
         </span>
       </TopBar>
 
-      <nav class="tabs" role="tablist" aria-label="Sections" onKeyDown={rovingKeys(tabs, current, setTab)}>
-        {tabs.map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            id={`tab-${t}`}
-            aria-selected={current === t}
-            aria-controls="section"
-            tabIndex={current === t ? 0 : -1}
-            aria-label={t === 'safety' && open > 0 ? `Safety, ${open} open request${open > 1 ? 's' : ''}` : undefined}
-            onClick={() => setTab(t)}
-          >
-            {TAB_TEXT[t]}
-            {t === 'safety' && open > 0 && <span class="badge">{open}</span>}
-          </button>
-        ))}
+      <nav>
+        <div class="tabs" role="tablist" aria-label="Sections" onKeyDown={rovingKeys(tabs, current, setTab)}>
+          {tabs.map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              id={`tab-${t}`}
+              aria-selected={current === t}
+              aria-controls="section"
+              tabIndex={current === t ? 0 : -1}
+              aria-label={t === 'safety' && open > 0 ? `Safety, ${open} open request${open > 1 ? 's' : ''}` : undefined}
+              onClick={() => setTab(t)}
+            >
+              {TAB_TEXT[t]}
+              {t === 'safety' && open > 0 && <span class="badge">{open}</span>}
+            </button>
+          ))}
+        </div>
       </nav>
 
       <main class="main">
