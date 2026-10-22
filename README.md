@@ -50,10 +50,10 @@ Browsers only allow the microphone on https pages or on localhost, so phones nee
 ## Known limits
 
 - Tested in simulated rooms and with Chromium's fake microphone, not yet on real speakers. Phone speakers and microphones vary a lot.
-- A phone listens and relays only while Resonance is open on screen; a locked phone is deaf. A message "rides in a pocket" only if its carrier opens Resonance again at the other end. Beacons do the remembering.
+- A phone listens and relays only while Resonance is open on screen. A locked phone is deaf and mute: what you send waits, marked "waiting to go on air", until Resonance is on screen again. Keeping it open keeps the screen on; how long a battery lasts that way is not measured yet. A message "rides in a pocket" only if its carrier opens Resonance again at the other end. Beacons do the remembering.
 - Sound is slow and shared: in our tests a 4 KB photo took about 3 minutes in Fast and 14 in Audible, and of 24 messages sent 4 to 8 seconds apart between two phones, 5 needed a repeat (half a minute) and 1 waited 5 minutes for the next hello.
 - Loud talk close by drowns the chirps. In simulated rooms, with three people talking 15 dB louder than the chirps, Audible got 5 of 12 frames through and Fast none; 20 dB louder, only Near-ultrasonic got any through, 5 of 12.
-- Many phones play little above 17 kHz. A Bluetooth headset holds a phone's audio to call quality, too slow for Near-ultrasonic: Resonance then sends in Audible.
+- Many phones play little above 17 kHz. A Bluetooth headset holds a phone's audio to call quality, too slow for Near-ultrasonic: Resonance then sends in Audible, and on the oldest call codec (8 kHz) it asks you to disconnect the headset.
 - Anyone in earshot can post under any name: nothing proves who sent a check-in, reply, notice or contact card, so a false "I'm safe" or **Resolved** is possible (asking again reopens a request). Anyone loud enough can also drown out the room.
 - Phone calls, voicemail and walkie-talkies cut the tones Resonance uses, so sound files do not survive them. A walkie-talkie mode was left out for that reason; licence-free FRS radios may also send data for only one second in thirty.
 
