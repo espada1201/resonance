@@ -1,6 +1,7 @@
+import type { ComponentChildren } from 'preact';
 import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
-import type { RosterEntry } from '../roster';
+import type { Heard, ReplyBody, RosterEntry } from '../roster';
 import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, writtenAt } from './format';
 import { Compass } from './icons';
 
@@ -28,7 +29,11 @@ interface RosterProps {
   reply: ((e: RosterEntry, what: ReplyKind) => void) | null;
   /** A Find action for someone whose own device is in earshot, or null. */
   find: (e: RosterEntry) => (() => void) | null;
+  readout?: (e: RosterEntry) => ComponentChildren;
 }
+
+export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, nick: string) => string) =>
+  r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${by(r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`;
 
 /** "3 people · 1 open request" */
 export function headcount(entries: RosterEntry[]) {
@@ -37,7 +42,7 @@ export function headcount(entries: RosterEntry[]) {
 }
 
 /** Everyone's latest check-in, in the order a responder works through them. */
-export function RosterList({ entries, me, self, name, by, reply, find }: RosterProps) {
+export function RosterList({ entries, me, self, name, by, reply, find, readout }: RosterProps) {
   return (
     <ul class="people roster">
       {entries.map((e) => {
@@ -63,14 +68,13 @@ export function RosterList({ entries, me, self, name, by, reply, find }: RosterP
             )}
             {b.note && <p class="text-body">{b.note}</p>}
             <p class="muted small">
-              {[where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, hops ? `${hops} hop${hops > 1 ? 's' : ''}` : 'heard directly']
+              {[where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? `${hops} hop${hops > 1 ? 's' : ''}` : 'heard directly')]
                 .filter(Boolean)
                 .join(' · ')}
             </p>
             {e.replies.map((r) => (
               <p key={`${r.src}:${r.msgId}`} class="small reply">
-                {r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${by(r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`} ·{' '}
-                {ago(writtenAt(r))}
+                {replyText(r, self, by)} · {ago(writtenAt(r))}
               </p>
             ))}
             {(e.open || e.stale) && (
@@ -92,6 +96,7 @@ export function RosterList({ entries, me, self, name, by, reply, find }: RosterP
                 )}
               </div>
             )}
+            {readout?.(e)}
           </li>
         );
       })}

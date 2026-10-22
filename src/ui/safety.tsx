@@ -3,13 +3,13 @@ import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, ReplyKind, Status } from '../mesh/payloads';
 import { type RosterEntry, rosterCsv, search } from '../roster';
 import type { Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, newDraft } from './checkin-form';
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
 import { NEED_TEXT, STATUS_TEXT, errorText } from './format';
 import { Compass, Download, Pin } from './icons';
-import { type Helper, HelperList, RosterList, headcount } from './roster';
+import { type Helper, HelperList, RosterList, headcount, replyText } from './roster';
 
 const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
@@ -79,57 +79,67 @@ function Radar({ me, people, heading, name }: { me: Geo; people: RosterEntry[]; 
   );
 }
 
+function sentText(station: Station, about: string | undefined) {
+  const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
+  if (!mine || !asking(mine.latest.body.status)) return 'Sent.';
+  const answer = mine.replies.at(-1);
+  return answer ? `Sent. ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.` : 'Sent. Nobody has answered yet.';
+}
+
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
 function CheckInCard({ station }: { station: Station }) {
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
+  const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
+  const [sent, setSent] = useState<{ about?: string } | null>(null);
   const [err, setErr] = useState('');
   const listening = station.status === 'listening';
   const set = (patch: Partial<CheckInDraft>) => setDraft((d) => ({ ...d, ...patch }));
-  const room = station.budget({ kind: 'checkin', ...draftFields(draft, draft.withGeo ? ANY_FIX : undefined) }).left;
+  const room = station.budget({ kind: 'checkin', ...draftFields(draft, ANY_FIX) }).left;
 
   async function send(d: CheckInDraft, label: Status | 'detail') {
     const problem = draftProblem(d);
     if (problem) return setErr(problem);
     setSending(label);
     setErr('');
-    let geo: Geo | undefined;
-    if (d.withGeo) {
-      try {
-        geo = await locate(8000);
-        station.setPosition(geo);
-      } catch (e) {
-        setErr(`${errorText(e)} Sent without a position.`);
-      }
-    }
+    setSent(null);
+    const geo = d.withGeo ? await checkInFix(station, setErr) : undefined;
+    const fields = draftFields(d, geo);
     try {
       // Saying it also remembers where you are and whom to tell outside, for your next check-ins.
-      await station.say({ kind: 'checkin', ...draftFields(d, geo) });
-      if (label === 'detail') setDraft(newDraft(station.settings));
+      await station.say({ kind: 'checkin', ...fields });
+      setSent({ about: fields.about });
+      if (label === 'detail' || detailed) setDraft(newDraft(station.settings));
     } catch (e) {
       setErr(errorText(e));
     }
     setSending(null);
   }
 
+  const quick = (status: Status) => {
+    const d = detailed ? draft : newDraft(station.settings);
+    void send({ ...d, status: asking(d.status) === asking(status) ? d.status : status, withGeo: true }, status);
+  };
+
   const { place, outside } = station.settings;
   return (
     <section class="checkin-card" aria-label="Check in">
       <NameField station={station} />
       <div class="quick">
-        <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => void send({ ...newDraft(station.settings, 'safe'), withGeo: true }, 'safe')}>
+        <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => quick('safe')}>
           {sending === 'safe' ? 'Sending…' : "I'm safe"}
         </button>
-        <button type="button" class="big s-help" disabled={!listening || !!sending} onClick={() => void send({ ...newDraft(station.settings, 'help'), withGeo: true }, 'help')}>
+        <button type="button" class="big s-help" disabled={!listening || !!sending} onClick={() => quick('help')}>
           {sending === 'help' ? 'Sending…' : 'I need help'}
         </button>
       </div>
+      {sent && <p role="status">{sentText(station, sent.about)}</p>}
       <p class="muted small">
         One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at “${place}”.`}
         {outside && ` Whoever gets signal first can tell ${outside}.`}
       </p>
-      <details class="more">
+      <details class="more" onToggle={(e) => setDetailed(e.currentTarget.open)}>
         <summary>More detail: what you need, where, someone without a phone, family outside</summary>
         <form
           onSubmit={(e) => {
@@ -176,6 +186,8 @@ export function Safety({ station }: { station: Station }) {
   const name = (e: RosterEntry) => e.latest.body.about ?? who(station, e.latest.src, e.latest.body.nick);
   const by = (src: number, nick: string) => who(station, src, nick);
   const shown = search(entries, query, name, NEED_TEXT);
+  const target = station.ranger.find?.target;
+  const finding = (e: RosterEntry) => !e.latest.body.about && e.latest.src === target;
 
   const answer = (to: RosterEntry['latest'], what: ReplyKind) =>
     station.reply(to, what).then(
@@ -204,23 +216,8 @@ export function Safety({ station }: { station: Station }) {
 
   return (
     <div class="safety">
-      <FindPanel station={station} />
+      {!shown.some(finding) && <FindPanel station={station} />}
       <CheckInCard station={station} />
-
-      {parcels.length > 0 && (
-        <section aria-labelledby="courier-title">
-          <h2 class="label" id="courier-title">
-            Pass on to family outside
-          </h2>
-          <p class="muted small">Got signal? Your own text or mail app opens with the message filled in; nothing goes until you tap Send there.</p>
-          <CourierList
-            parcels={parcels}
-            self={station.id}
-            name={(src, nick) => named(station, src, nick)}
-            passed={listening ? (p) => void answer(p.checkin, 'passed') : null}
-          />
-        </section>
-      )}
 
       <section class="roster-section" aria-labelledby="roster-title">
         <div class="section-head">
@@ -260,9 +257,25 @@ export function Safety({ station }: { station: Station }) {
               const n = e.latest.body.about ? undefined : station.mesh.neighbors.get(e.latest.src);
               return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;
             }}
+            readout={(e) => finding(e) && <FindPanel station={station} />}
           />
         )}
       </section>
+
+      {parcels.length > 0 && (
+        <section aria-labelledby="courier-title">
+          <h2 class="label" id="courier-title">
+            Pass on to family outside
+          </h2>
+          <p class="muted small">Got signal? Your own text or mail app opens with the message filled in; nothing goes until you tap Send there.</p>
+          <CourierList
+            parcels={parcels}
+            self={station.id}
+            name={(src, nick) => named(station, src, nick)}
+            passed={listening ? (p) => void answer(p.checkin, 'passed') : null}
+          />
+        </section>
+      )}
 
       {helping.length > 0 && (
         <section aria-labelledby="helpers-title">

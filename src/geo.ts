@@ -44,3 +44,9 @@ export function locate(timeoutMs = 12_000): Promise<Geo> {
     );
   });
 }
+
+/** `locate`, given up after `ms` even while the browser's permission prompt is open: its own timeout starts only once the prompt is answered. */
+export function locateWithin(ms: number): Promise<Geo> {
+  const late = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('No GPS fix yet.')), ms));
+  return Promise.race([locate(ms), late]);
+}

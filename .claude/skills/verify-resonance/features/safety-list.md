@@ -1,18 +1,20 @@
 # Safety list and replies
 
-A call for help carries what is needed and where. Every station lists each person's latest check-in, open requests first, and anyone can answer `On my way` or mark a request resolved, while the person who asked sees who is coming. People without a phone can be checked in by someone else. The list can be searched, printed and downloaded as a spreadsheet.
+A call for help carries what is needed and where. Every station lists each person's latest check-in, open requests first, right under the check-in buttons, and anyone can answer `On my way` or mark a request resolved, while the person who asked sees who is coming. People without a phone can be checked in by someone else. The list can be searched, printed and downloaded as a spreadsheet.
 
 ## Sub-features
 
-- `safety-request` a check-in asking for help reaches the other station with its needs and place, and its row reads `Waiting for help`.
-- `safety-reply` `On my way` reads `You are on the way` on the responder's row and `Ben is on the way` on the asker's. The asker's next `I'm safe` closes the request.
+- `safety-request` a check-in asking for help reaches the other station with its needs and place, and its row reads `Waiting for help`. The status choices read `Safe`, `Needs help`, `Needs medical help` and `Sheltering`.
+- `safety-big-button` with `More detail` open, the big `I need help` sends what the form says (needs, note), and under the buttons reads `Sent. Nobody has answered yet.` until someone answers, then `Sent. Ben is on the way.`
+- `safety-reply` `On my way` reads `You are on the way` on the responder's row and `Ben is on the way` on the asker's, whose own row never says `heard directly`. The asker's next `I'm safe` closes the request.
+- `safety-first-screen` on a 390 x 844 phone, the first person in the list is on the first screen, above the cards for family outside.
 - `safety-someone-else` a check-in for someone without a phone is listed under their name, `reported by` the sender.
 - `safety-search` the search box finds a name typed without its accents.
 - `safety-spreadsheet` `Spreadsheet` downloads a CSV with a header row and one row per person.
 
 ## How to get to it (user POV)
 
-- Safety tab, `More detail`, then a status, what is needed, `Where`, and `Send check-in`.
+- Safety tab, `More detail`, then a status, what is needed, `Where`, and `Send check-in` or the big `I need help`.
 - Safety tab, under an open request: `On my way`, and `Resolved` (`I got help` on your own request).
 - Safety tab, `More detail`, `For someone without a phone`, `Their name`.
 - Safety tab, `Search check-ins`, `Spreadsheet`, `Print`.
@@ -21,7 +23,9 @@ A call for help carries what is needed and where. Every station lists each perso
 
 Preconditions: none beyond the baseline.
 
-- **Request and answer.** Run `verify.sh drive e2e/safety.spec.ts 'a call for help'`. Ben's row for Ana shows `Waiting for help`, `Trapped` and `Floor 4, room 412`. After `On my way`, Ana's own row shows `Ben is on the way`; after her `I'm safe`, Ben's row shows `Safe` and no longer `Waiting for help`.
+- **Request and answer.** Run `verify.sh drive e2e/safety.spec.ts 'a call for help'`. Ben's row for Ana shows `Waiting for help`, `Trapped` and `Floor 4, room 412`. After `On my way`, Ana's own row shows `Ben is on the way` and not `heard directly`; after her `I'm safe`, Ben's row shows `Safe` and no longer `Waiting for help`.
+- **Big button with the form open.** Run `verify.sh drive e2e/safety.spec.ts 'the big help button'`. Both stations' rows for Ana show `Trapped` and `Leg stuck under a beam`, her form is empty again, and under her buttons `Sent. Nobody has answered yet.` becomes `Sent. Ben is on the way.`
+- **First screen on a phone.** Run `verify.sh drive e2e/safety.spec.ts 'who needs help is on the first screen'`. With two cards for family outside, Ben's open request is wholly on Ana's first screen.
 - **Someone without a phone, search and spreadsheet.** Run `verify.sh drive e2e/safety.spec.ts 'the safety list downloads'`. The other station lists `María López` `reported by Ana`, the search `maria` still finds her, and the CSV holds `María López,Ana,Safe,`.
 
 ## Gotchas

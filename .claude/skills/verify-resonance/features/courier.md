@@ -11,7 +11,7 @@ A check-in can carry a phone number or email address of someone outside. Every s
 ## How to get to it (user POV)
 
 - Safety tab, `More detail`, `Family outside: phone or email`, then `Send check-in`.
-- Safety tab, `Pass on to family outside`, then `Send as text` or `Send as email`, then `I sent it`.
+- Safety tab, below the list of check-ins, `Pass on to family outside`, then `Send as text` or `Send as email`, then `I sent it`.
 
 ## Driving it with verify.sh
 

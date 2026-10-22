@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'preact/hooks';
-import { locate } from '../geo';
 import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
-import { type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
+import { MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
 import type { Draft, Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, checkInFix, draftFields, draftProblem, newDraft } from './checkin-form';
 import { who } from './feed';
 import { SKILL_TEXT, bytes, errorText, fitInput, seconds } from './format';
 import { rovingKeys } from './hooks';
@@ -115,11 +114,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         await station.say({ kind: 'text', text: text.trim() }, target);
         setText('');
       } else if (mode === 'checkin') {
-        let geo: Geo | undefined;
-        if (checkin.withGeo) {
-          geo = await locate();
-          station.setPosition(geo);
-        }
+        const geo = checkin.withGeo ? await checkInFix(station, setError) : undefined;
         await station.say({ kind: 'checkin', ...draftFields(checkin, geo) });
         setCheckin(newDraft(station.settings));
       } else if (mode === 'notice') {

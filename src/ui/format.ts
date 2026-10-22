@@ -42,7 +42,7 @@ export const bytes = (n: number) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed
 export const STATUS_TEXT: Record<Status, string> = {
   safe: 'Safe',
   help: 'Needs help',
-  medical: 'Medical',
+  medical: 'Needs medical help',
   sheltering: 'Sheltering',
 };
 

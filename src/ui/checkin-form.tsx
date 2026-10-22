@@ -1,9 +1,10 @@
 import { useState } from 'preact/hooks';
 import { parseOutside } from '../courier';
+import { locateWithin } from '../geo';
 import { type Geo, MAX_CONTACT_NAME, MAX_NICK, MAX_OUTSIDE, MAX_PLACE, NEEDS, type Need, STATUSES, type Status } from '../mesh/payloads';
 import type { CheckInBody } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, STATUS_TEXT, fitInput } from './format';
+import { NEED_TEXT, STATUS_TEXT, errorText, fitInput } from './format';
 import { rovingKeys } from './hooks';
 import { Pin } from './icons';
 
@@ -48,6 +49,16 @@ export function draftFields(d: CheckInDraft, geo?: Geo): Omit<CheckInBody, 'kind
     about: (d.forSomeone && d.about.trim()) || undefined,
     outside: d.outside.trim() || undefined,
   };
+}
+
+export async function checkInFix(station: Station, missed: (why: string) => void): Promise<Geo | undefined> {
+  try {
+    const geo = await locateWithin(3000);
+    station.setPosition(geo);
+    return geo;
+  } catch (e) {
+    missed(`${errorText(e)} Sent without a position.`);
+  }
 }
 
 /** Why a draft cannot go yet, or null. */

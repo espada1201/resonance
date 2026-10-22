@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { checkInRow, expect, feedItem, joinAir, openTab, proof, sendText, test } from './helpers';
+import { airRow, checkInRow, expect, feedItem, joinAir, openTab, proof, sendText, test } from './helpers';
 
 // The jobs people have when the network is down: say how you are and what you need, see who
 // needs help and answer them, get word to family outside, and tell everyone nearby what matters.
@@ -14,6 +14,7 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await openTab(a, 'Safety');
   await a.getByLabel('Your name').fill('Ana');
   await a.getByText('More detail').click();
+  await expect(a.getByRole('radiogroup', { name: 'Status' }).getByRole('radio')).toHaveText(['Safe', 'Needs help', 'Needs medical help', 'Sheltering']);
   await a.getByRole('radio', { name: 'Needs help' }).click();
   await a.getByRole('button', { name: 'Trapped' }).click();
   await a.getByRole('button', { name: 'Water' }).click();
@@ -30,11 +31,99 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(ana).toContainText('You are on the way');
 
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
+  await expect(checkInRow(a, 'You')).not.toContainText('heard directly');
   await a.getByRole('button', { name: "I'm safe" }).click();
   await expect(ana).toContainText('Safe');
   await expect(ana).not.toContainText('Waiting for help');
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await proof(b, 'call-for-help');
+});
+
+test('one tap for help goes on air within seconds while the location prompt waits for an answer', async ({ page }) => {
+  // A prompt nobody answers never calls back, and the browser's own timeout starts only after an answer.
+  await page.addInitScript(() => {
+    navigator.geolocation.getCurrentPosition = () => undefined;
+  });
+  await joinAir(page, '/?air=sim', 'Ana');
+  await openTab(page, 'Safety');
+  await page.getByRole('button', { name: 'I need help' }).click();
+  await expect(checkInRow(page, 'You')).toContainText('Waiting for help', { timeout: 8_000 });
+  await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
+  await proof(page, 'help-without-fix');
+});
+
+test('a check-in from the compose bar goes out without a position when GPS fails', async ({ page }) => {
+  await page.addInitScript(() => {
+    navigator.geolocation.getCurrentPosition = (_found, failed) => setTimeout(() => failed?.({ code: 2 } as GeolocationPositionError));
+  });
+  await joinAir(page, '/?air=sim', 'Ana');
+  await page.getByRole('radio', { name: 'Check in', exact: true }).click();
+  await page.getByLabel('Attach my GPS position').check();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByRole('alert')).toHaveText('Could not get a location fix. Sent without a position.');
+  await openTab(page, 'Safety');
+  await expect(checkInRow(page, 'You')).toContainText('Safe');
+  await proof(page, 'compose-without-fix');
+});
+
+test('the big help button sends the details open beside it, then says whether anyone answered', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  await openTab(a, 'Safety');
+  await a.getByText('More detail').click();
+  await a.getByRole('radio', { name: 'Needs help' }).click();
+  await a.getByRole('button', { name: 'Trapped' }).click();
+  await a.getByLabel('Note').fill('Leg stuck under a beam');
+  await a.getByRole('button', { name: 'I need help' }).click();
+  const mine = checkInRow(a, 'You');
+  await expect(mine).toContainText('Trapped');
+  await expect(mine).toContainText('Leg stuck under a beam');
+  await expect(a.getByLabel('Note')).toBeEmpty();
+  await expect(a.getByText('Sent. Nobody has answered yet.')).toBeVisible();
+
+  await openTab(b, 'Safety');
+  const ana = checkInRow(b, 'Ana');
+  await expect(ana).toContainText('Trapped');
+  await expect(ana).toContainText('Leg stuck under a beam');
+  await ana.getByRole('button', { name: 'On my way' }).click();
+  await expect(a.getByText('Sent. Ben is on the way.')).toBeVisible();
+  await proof(a, 'big-button-details');
+});
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('who needs help is on the first screen even with cards for family outside, and Find reads out in their entry', async ({ context }) => {
+    const a = await context.newPage();
+    await joinAir(a, '/?air=sim', 'Ana');
+    const b = await context.newPage();
+    await joinAir(b, '/?air=sim', 'Ben');
+
+    await openTab(b, 'Safety');
+    await b.getByText('More detail').click();
+    await b.getByRole('radio', { name: 'Needs help' }).click();
+    await b.getByLabel('Family outside: phone or email').fill('+1 (555) 010-0199');
+    await b.getByRole('button', { name: 'Send check-in' }).click();
+    await openTab(a, 'Safety');
+    const ben = a.getByRole('region', { name: /^Check-ins/ }).getByRole('listitem').first();
+    await expect(ben).toContainText('Ben');
+
+    await openTab(a, 'Feed');
+    await a.getByRole('radio', { name: 'Check in', exact: true }).click();
+    await a.getByLabel('Family outside: phone or email').fill('+1 (555) 010-0100');
+    await a.getByRole('button', { name: 'Send', exact: true }).click();
+    await openTab(a, 'Safety');
+    await expect(a.getByRole('region', { name: 'Pass on to family outside' }).getByRole('listitem')).toHaveCount(2);
+    await expect(ben).toBeInViewport({ ratio: 1 });
+
+    await ben.getByRole('button', { name: /^Find / }).click();
+    await expect(ben.getByRole('region', { name: 'Distance to Ben' })).toBeVisible();
+    await proof(a, 'phone-roster-first');
+  });
 });
 
 test('a phone with signal passes a check-in on to family outside, once', async ({ context }) => {
