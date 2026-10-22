@@ -676,7 +676,12 @@ export class Station {
     const store = load<Array<{ b: string; t: number }>>(s, k + 'store') ?? [];
     this.mesh.hydrate(store.map((x): StoredPacket => ({ bytes: unb64(x.b), firstHeard: x.t, lastPushed: -Infinity })));
     for (const f of load<Array<Omit<FileState, 'chunks'> & { chunks: Array<string | null> }>>(s, k + 'files') ?? []) {
-      this.files.set(f.key, { ...f, chunks: f.chunks.map((c) => (c ? unb64(c) : undefined)) });
+      // Chunk 0 holds no data, so it is saved as "": that is a chunk, not a missing one.
+      const chunks = f.chunks.map((c) => (c === null ? undefined : unb64(c)));
+      // Earlier versions lost chunk 0 on every reload. Only chunk 0 brings the name and size, so a
+      // file that has them had it.
+      if (f.meta) chunks[0] ??= new Uint8Array();
+      this.files.set(f.key, { ...f, chunks });
     }
     for (const [fk, m] of load<Array<[string, Array<[number, number]>]>>(s, k + 'chunks') ?? []) this.chunkIds.set(fk, new Map(m));
   }
