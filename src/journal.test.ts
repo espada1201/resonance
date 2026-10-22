@@ -39,8 +39,8 @@ describe('journal', () => {
   it('shows a reply under its check-in, oldest first, never as an item of its own', () => {
     j.add(met(CAL, 2), help);
     now += 60_000;
-    j.add(met(BEN, 4), answer('resolved', TS + 60));
-    j.add(met(BEN, 3), answer('coming'));
+    j.add(met(BEN, 4, { hops: 1 }), answer('resolved', TS + 60));
+    j.add(met(BEN, 3, { hops: 1 }), answer('coming'));
     expect(ids()).toEqual([`${CAL}:2`]);
     expect(j.repliesTo(CAL, 2).map((r) => r.body.what)).toEqual(['coming', 'resolved']);
     expect(j.roster()[0]).toMatchObject({ open: false, resolved: true, coming: true });

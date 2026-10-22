@@ -2,7 +2,7 @@ import { type Parcel, parcels } from './courier';
 import { BROADCAST } from './mesh/packet';
 import { type ContentBody, isContent } from './mesh/payloads';
 import { activeNotices } from './notices';
-import { type Heard, type NoticeBody, type ReplyBody, type RosterEntry, SafetyLog, type SafetySnapshot, roster, sentAt } from './roster';
+import { type Heard, type NoticeBody, type ReplyBody, type RosterEntry, SafetyLog, type SafetySnapshot, roster, writtenAt } from './roster';
 
 // Everything said on the mesh that this device knows, heard or sent: the feed people read, and the
 // safety log responders act on. The station hands it what it opened (or could not open); the
@@ -98,7 +98,7 @@ export class Journal {
 
   /** The replies to one check-in, oldest first. */
   repliesTo(src: number, msgId: number): Heard<ReplyBody>[] {
-    return this.log.replies.filter((r) => r.body.src === src && r.body.msgId === msgId).sort((a, b) => sentAt(a) - sentAt(b));
+    return this.log.replies.filter((r) => r.body.src === src && r.body.msgId === msgId).sort((a, b) => writtenAt(a) - writtenAt(b));
   }
 
   snapshot(): { safety: SafetySnapshot; feed: FeedItem[] } {

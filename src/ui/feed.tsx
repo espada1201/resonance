@@ -5,8 +5,9 @@ import { missing, received } from '../mesh/files';
 import { BROADCAST, nodeHex } from '../mesh/packet';
 import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
+import { writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, writtenAt } from './format';
+import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes } from './format';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
 

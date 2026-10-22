@@ -23,12 +23,6 @@ export function ago(ms: number): string {
   return `${Math.round(h / 24)} d ago`;
 }
 
-/**
- * When the author wrote something. Heard from the author itself, just now. Passed along, it may
- * have travelled for hours, so go by the author's clock, but never later than when we heard it.
- */
-export const writtenAt = (h: { at: number; hops: number; body?: { ts: number } }) => (h.body && h.hops > 0 ? Math.min(h.at, h.body.ts * 1000) : h.at);
-
 export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 export function seconds(s: number): string {

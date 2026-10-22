@@ -28,6 +28,12 @@ describe('notices', () => {
     expect(activeNotices([water, waterUpdate, info, danger, otherPlace], T + 24 * 3600)).toEqual([info]);
   });
 
+  it('runs a notice heard from its author from when it arrived, whatever that phone\'s clock says', () => {
+    const drawerPhone = { ...notice(1, 'danger', T - 3 * 365 * 86400, 24, 'Bridge'), at: T * 1000, hops: 0 };
+    expect(activeNotices([drawerPhone], T + 3600)).toEqual([drawerPhone]);
+    expect(activeNotices([drawerPhone], T + 25 * 3600)).toEqual([]);
+  });
+
   it('counts a notice dated in the future from when it arrived', () => {
     const forged = { ...notice(1, 'danger', 0xffffffff, 1), at: T * 1000 };
     const update = notice(1, 'danger', T + 600, 1);

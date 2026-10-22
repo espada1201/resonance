@@ -21,5 +21,5 @@ Preconditions: none beyond the baseline.
 
 ## Gotchas
 
-- A notice runs from the time it was written, by the sender's clock, for 3 hours to 3 days.
+- A notice runs for 3 hours to 3 days from when it was written: from its arrival when heard from the sender's own phone, by the sender's clock when passed along (src/notices.test.ts).
 - A newer notice from the same sender about the same topic and place replaces the earlier one.

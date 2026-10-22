@@ -1,8 +1,8 @@
 import type { ComponentChildren } from 'preact';
 import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
-import type { Heard, ReplyBody, RosterEntry } from '../roster';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, writtenAt } from './format';
+import { type Heard, type ReplyBody, type RosterEntry, writtenAt } from '../roster';
+import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago } from './format';
 import { Compass } from './icons';
 
 /** Where someone is from here, in words, if both positions are known. */

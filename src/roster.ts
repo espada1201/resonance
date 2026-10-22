@@ -20,8 +20,19 @@ export interface Heard<B extends Body = Body> {
 
 export type NoticeBody = Extract<Body, { kind: 'notice' }>;
 
-/** When the sender says it was sent, but no later than it arrived here: a date from the future would outrank everything for good. */
+/**
+ * When the sender says it was sent, but no later than it arrived here: a date from the future would
+ * outrank everything for good. Orders one sender's own news: its clock may be off, but by the same for all of it.
+ */
 export const sentAt = (h: Heard<CheckInBody | ReplyBody | NoticeBody>) => Math.min(h.body.ts, Math.floor(h.at / 1000));
+
+/**
+ * When it was most likely written, in ms, to say how long ago and to compare different senders.
+ * Heard from its author itself, just now: that phone's clock may be years off. Passed along, it may
+ * have travelled for hours, so go by the author's clock, but never later than it arrived.
+ */
+export const writtenAt = (h: { at: number; hops: number; body?: { ts: number } }) => (h.body && h.hops > 0 ? Math.min(h.at, h.body.ts * 1000) : h.at);
+const writtenSec = (h: Heard<CheckInBody>) => Math.floor(writtenAt(h) / 1000);
 
 /** Lasting news is kept this long, as long as the mesh carries it. */
 const KEEP_MS = 72 * 3600_000;
@@ -78,9 +89,9 @@ export interface RosterEntry {
   /** Whom the entry is about: a device, or a person without a phone that someone checked in for. */
   key: string;
   latest: Heard<CheckInBody>;
-  /** Replies to the request for help still running (help or medical since the last other status). */
+  /** Replies to the asks still open or, once all are resolved, to every help and medical check-in since the last other status. */
   replies: Heard<ReplyBody>[];
-  /** Asked for help or medical care, nobody marked it resolved, and it is under a day old. */
+  /** Asked for help or medical care, nobody marked that ask resolved, and it is under a day old. */
   open: boolean;
   /** Like open, but nothing new for over a day: shown, not counted. */
   stale: boolean;
@@ -111,26 +122,29 @@ export function roster(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody>
   const repliesTo = new Map<string, Heard<ReplyBody>[]>();
   for (const r of replies) repliesTo.set(ref(r.body), [...(repliesTo.get(ref(r.body)) ?? []), r]);
 
+  const answersTo = (c: Heard<CheckInBody>) => repliesTo.get(ref(c)) ?? [];
   const askedAt = new Map<string, number>();
   const entries = [...byKey].map(([key, all]): RosterEntry => {
     const sorted = all.sort((a, b) => (newer(a, b) ? 1 : newer(b, a) ? -1 : 0));
     const latest = sorted[sorted.length - 1];
-    // The request still running: the trailing run of help and medical check-ins. Replies to any of
-    // them count, but asking again after it was resolved opens it again.
-    const episode: Heard<CheckInBody>[] = [];
-    for (let i = sorted.length - 1; i >= 0 && URGENT.includes(sorted[i].body.status); i--) episode.push(sorted[i]);
-    askedAt.set(key, sentAt(episode.at(-1) ?? latest));
-    const answers = episode.flatMap((c) => repliesTo.get(ref(c)) ?? []).sort((a, b) => sentAt(a) - sentAt(b));
-    const resolved = answers.some((r) => r.body.what === 'resolved' && sentAt(r) >= sentAt(latest));
-    const asking = episode.length > 0 && !resolved;
-    const old = nowSec - sentAt(latest) > STALE_AFTER_SEC;
+    // The trailing run of help and medical check-ins. A Resolved answers the ask it replies to and
+    // the ones before: whoever sent it had heard those, whatever the clocks say. Later asks stay open.
+    let first = sorted.length;
+    while (first > 0 && URGENT.includes(sorted[first - 1].body.status)) first--;
+    const run = sorted.slice(first);
+    let closed = -1;
+    run.forEach((c, i) => answersTo(c).some((r) => r.body.what === 'resolved') && (closed = i));
+    const asks = run.slice(closed + 1);
+    askedAt.set(key, writtenSec(asks[0] ?? latest));
+    const answers = (asks.length ? asks : run).flatMap(answersTo).sort((a, b) => writtenAt(a) - writtenAt(b));
+    const old = nowSec - writtenSec(latest) > STALE_AFTER_SEC;
     return {
       key,
       latest,
       replies: answers,
-      open: asking && !old,
-      stale: asking && old,
-      resolved,
+      open: asks.length > 0 && !old,
+      stale: asks.length > 0 && old,
+      resolved: run.length > 0 && asks.length === 0,
       coming: answers.some((r) => r.body.what === 'coming'),
     };
   });
@@ -139,7 +153,7 @@ export function roster(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody>
   return entries.sort((a, b) => {
     const g = group(a) - group(b);
     if (g) return g;
-    return group(a) < 2 ? askedAt.get(a.key)! - askedAt.get(b.key)! : sentAt(b.latest) - sentAt(a.latest);
+    return group(a) < 2 ? askedAt.get(a.key)! - askedAt.get(b.key)! : writtenAt(b.latest) - writtenAt(a.latest);
   });
 }
 

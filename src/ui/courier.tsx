@@ -1,5 +1,6 @@
 import { type Parcel, courierLink, courierText } from '../courier';
-import { NEED_TEXT, STATUS_TEXT, ago, writtenAt } from './format';
+import { writtenAt } from '../roster';
+import { NEED_TEXT, STATUS_TEXT, ago } from './format';
 import { Send } from './icons';
 
 const when = (sec: number) => new Date(sec * 1000).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });

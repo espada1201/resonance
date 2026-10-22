@@ -8,8 +8,8 @@ let ids = 0;
 function checkIn(src: number, status: Status, sentSec: number, extra: Partial<CheckInBody> = {}, heardMs = sentSec * 1000): Heard<CheckInBody> {
   return { src, msgId: ++ids, at: heardMs, hops: 1, encrypted: false, body: { kind: 'checkin', ts: sentSec, nick: `n${src}`, status, note: '', ...extra } };
 }
-function reply(to: Heard<CheckInBody>, what: ReplyKind, sentSec: number, by = 9): Heard<ReplyBody> {
-  return { src: by, msgId: ++ids, at: sentSec * 1000, hops: 0, encrypted: false, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId } };
+function reply(to: Heard<CheckInBody>, what: ReplyKind, sentSec: number, by = 9, heardMs = sentSec * 1000): Heard<ReplyBody> {
+  return { src: by, msgId: ++ids, at: heardMs, hops: 0, encrypted: false, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId } };
 }
 const names = (es: RosterEntry[]) => es.map((e) => e.latest.body.about ?? e.latest.body.nick);
 
@@ -65,10 +65,32 @@ describe('safety roster', () => {
     const again = checkIn(1, 'help', T + 600);
     let [e] = roster([first, again], [resolved], T + 700);
     expect([e.open, e.resolved]).toEqual([true, false]);
-    // Marked resolved after the second ask, even from the first one: it is over.
+    // Whoever marks the first ask resolved had not heard the second: it stays open until it is answered.
     const late = reply(first, 'resolved', T + 900);
     [e] = roster([first, again], [resolved, late], T + 1000);
+    expect([e.open, e.resolved]).toEqual([true, false]);
+    [e] = roster([first, again], [resolved, late, reply(again, 'resolved', T + 950)], T + 1000);
     expect([e.open, e.resolved]).toEqual([false, true]);
+  });
+
+  it('counts a Resolved whatever the clock of the phone that sent it says', () => {
+    // Ben's phone runs two minutes behind Ana's: his answer is dated before her ask.
+    const ask = checkIn(1, 'help', T);
+    const [e] = roster([ask], [reply(ask, 'resolved', T - 120, 9, (T + 60) * 1000)], T + 100);
+    expect([e.open, e.resolved]).toEqual([false, true]);
+  });
+
+  it('queues a request asked again after it was resolved behind those who asked in between', () => {
+    const first = checkIn(1, 'help', T);
+    const other = checkIn(2, 'help', T + 600);
+    const again = checkIn(1, 'help', T + 1200);
+    expect(names(roster([first, other, again], [reply(first, 'resolved', T + 60)], T + 1300))).toEqual(['n2', 'n1']);
+  });
+
+  it('goes by arrival for a request heard from the phone itself, whose clock may be years off', () => {
+    const drawerPhone = { ...checkIn(1, 'help', T - 3 * 365 * 86400, {}, T * 1000), hops: 0 };
+    const [e] = roster([drawerPhone], [], T + 10);
+    expect([e.open, e.stale]).toEqual([true, false]);
   });
 
   it('puts requests nobody is coming to first, longest waiting first, then the rest', () => {
