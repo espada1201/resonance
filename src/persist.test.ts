@@ -81,10 +81,19 @@ describe('codecs', () => {
     expect(fromB64('')).toEqual(new Uint8Array());
   });
 
-  it("the store keeps each packet's bytes and when it was first heard; after a reload nothing has been pushed", () => {
-    const stored = saveStore([{ bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, lastPushed: 9000 }]);
-    expect(stored).toEqual([{ b: 'AQID', t: 5000 }]);
-    expect(loadStore(stored)).toEqual([{ bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, lastPushed: -Infinity }]);
+  it("the store keeps each packet's bytes, when it was first heard and whether it still waits to go on air; after a reload nothing has been pushed", () => {
+    const stored = saveStore([
+      { bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, lastPushed: 9000 },
+      { bytes: Uint8Array.of(4), firstHeard: 6000, lastPushed: -Infinity, queued: true },
+    ]);
+    expect(stored).toEqual([
+      { b: 'AQID', t: 5000 },
+      { b: 'BA==', t: 6000, q: 1 },
+    ]);
+    expect(loadStore(stored)).toEqual([
+      { bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, lastPushed: -Infinity, queued: false },
+      { bytes: Uint8Array.of(4), firstHeard: 6000, lastPushed: -Infinity, queued: true },
+    ]);
   });
 });
 

@@ -118,7 +118,8 @@ test('People rates each neighbour signal in plain words', async ({ context }) =>
   await proof(b, 'signal');
 });
 
-test('a sealed message heard before joining the circle opens once you join', async ({ context }) => {
+test('a sealed message and file heard before joining the circle open once you join', async ({ context }) => {
+  test.setTimeout(180_000);
   const a = await context.newPage();
   await joinAir(a);
   const b = await context.newPage();
@@ -132,14 +133,24 @@ test('a sealed message heard before joining the circle opens once you join', asy
   await openTab(a, 'Feed');
   await a.getByPlaceholder('Say something').fill('Meet at the library');
   await a.getByRole('button', { name: 'Send', exact: true }).click();
+  await a.getByRole('radio', { name: 'Tiny file', exact: true }).click();
+  const route = Buffer.from('Take the canal path: the bridge is out.');
+  await a.getByLabel('Choose a file or photo').setInputFiles({ name: 'route.txt', mimeType: 'text/plain', buffer: route });
+  await expect(a.getByText(`route.txt · ${route.length} B`)).toBeVisible();
+  await a.getByRole('button', { name: 'Send', exact: true }).click();
   await openTab(b, 'Feed');
   await expect(feedItem(b, 'Sealed for a circle you are not in')).toBeVisible();
+  // The file's two chunks arrive too, but sealed chunks make no item.
+  const chunks = b.getByRole('list', { name: 'Air activity' }).getByRole('listitem').filter({ hasText: 'file chunk from' });
+  await expect(chunks.nth(1)).toBeAttached({ timeout: 120_000 });
+  await expect(feedItem(b, 'route.txt')).toHaveCount(0);
 
   await openTab(b, 'Settings');
   await b.getByLabel('Circle passphrase').fill('blue lantern 7');
   await b.getByRole('button', { name: 'Apply' }).click();
   await openTab(b, 'Feed');
   await expect(feedItem(b, 'Meet at the library')).toBeVisible();
+  await expect(feedItem(b, 'route.txt').getByRole('link', { name: 'Save file' })).toBeVisible();
   await expect(feedItem(b, 'Sealed for a circle you are not in')).toHaveCount(0);
   await proof(b, 'circle-reopen');
 });

@@ -23,7 +23,7 @@ An offline mesh network made of sound, for when the phone network is down: a pow
 - **Sound files**: save a packet as a WAV to play from any speaker near a Resonance device, or decode packets from a recording.
 - **Works offline**: after the first visit the app is cached; add it to the home screen so the browser keeps its data.
 
-Each device keeps up to 300 packets: messages for 12 hours, check-ins, replies and notices for 3 days. When it is full, chat and file pieces make room first.
+Each device keeps up to 300 packets: messages for 12 hours, check-ins, replies and notices for 3 days. When it is full, chat and file pieces make room first, but check-ins, replies and notices take 240 places at most, so a file being sent still fits.
 
 ## Three modes, measured
 

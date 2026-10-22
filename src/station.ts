@@ -5,7 +5,7 @@ import { type FeedItem, Journal, type Meta } from './journal';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
 import { FILE_REQUEST_TTL, type FileRequest, FileTransfer, chunkFile } from './mesh/files';
 import { MeshNode, storeKey } from './mesh/node';
-import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, nodeHex, randomNodeId, randomU32 } from './mesh/packet';
+import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, nodeHex, peekType, randomNodeId, randomU32 } from './mesh/packet';
 import { type Body, type ContentBody, type Geo, type ReplyKind, decodeBody, encodeBody, isContent, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
 import { MAX_PAYLOAD } from './modem/framing';
@@ -426,25 +426,33 @@ export class Station {
     let plain: Uint8Array | null = p.body;
     if (p.encrypted) plain = this.circle ? await open(this.circle, p) : null;
     if (!plain) {
+      // A sealed file's chunks make no item each: they join their file when the circle is joined.
       if (p.type !== PacketType.FileChunk) this.journal.add(meta, 'locked');
       return this.changed();
     }
     const body = decodeBody(p.type, plain);
     if (!body) return;
-    if (body.kind === 'file') {
-      this.journal.file(meta, this.files.heard(p.src, body, p.msgId, frame?.airtimeSec ?? 0).key);
-    } else if (body.kind === 'filereq') {
+    if (body.kind === 'filereq') {
       // Anyone holding a requested chunk may answer; the mesh lets the holder nearest the asker go first.
       for (const msgId of this.files.asked(body)) this.mesh.answer(body.fileSrc, msgId, p.hops);
     } else if (body.kind === 'range') {
       void this.ranger.onPacket(p, body, frame);
+    } else {
+      this.keep(meta, p, body, frame?.airtimeSec);
+    }
+    this.changed();
+  }
+
+  /** What a packet says goes where it is kept: a file chunk with its file, what people say in the journal. */
+  private keep(meta: Meta, p: Packet, body: Body, airtimeSec = 0) {
+    if (body.kind === 'file') {
+      this.journal.file(meta, this.files.heard(p.src, body, p.msgId, airtimeSec).key);
     } else if (isContent(body) || body.kind === 'reply') {
       this.journal.add(meta, body);
       // Name a neighbour in People and the To menu now, not at its next hello minutes from now.
       const n = this.mesh.neighbors.get(p.src);
       if (n && body.kind !== 'contact' && body.nick) n.nick = body.nick;
     }
-    this.changed();
   }
 
   setPosition(geo: Geo) {
@@ -489,13 +497,15 @@ export class Station {
     this.circle = circle;
     this.changed();
     if (!circle) return;
-    // Sealed news heard before we joined opens where it lies.
-    for (const item of this.journal.feed.filter((i) => i.locked)) {
-      const stored = this.mesh.store.get(storeKey(item));
+    // Sealed news heard before we joined opens where it lies, and sealed file chunks join their file.
+    const sealed = new Map<string, Meta | null>(this.journal.feed.filter((i) => i.locked).map((i) => [i.id, i]));
+    for (const [k, s] of this.mesh.store) if (peekType(s.bytes) === PacketType.FileChunk) sealed.set(k, null);
+    for (const [k, item] of sealed) {
+      const stored = this.mesh.store.get(k);
       const p = stored && decodePacket(stored.bytes);
-      const plain = p && (await open(circle, p));
+      const plain = p?.encrypted && (await open(circle, p));
       const body = p && plain && decodeBody(p.type, plain);
-      if (body && (isContent(body) || body.kind === 'reply')) this.journal.add(item, body);
+      if (body) this.keep(item ?? { ...met(p), at: stored.firstHeard }, p, body);
     }
     this.changed();
   }
@@ -525,8 +535,8 @@ export class Station {
 
   private restore() {
     const saved = this.saved;
-    this.journal.restore({ safety: saved.load('safety'), feed: saved.load('feed') });
-    this.mesh.hydrate(loadStore(saved.load('store') ?? []));
+    const resent = this.mesh.hydrate(loadStore(saved.load('store') ?? []));
+    this.journal.restore({ safety: saved.load('safety'), feed: saved.load('feed'), resent });
     this.files.restore({ files: saved.load('files') ?? [], chunks: saved.load('chunks') ?? [] });
   }
 

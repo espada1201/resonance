@@ -17,8 +17,8 @@ export interface Saved extends SavedFiles {
   safety: SafetySnapshot;
   /** Newest first. */
   feed: FeedItem[];
-  /** The mesh store: each packet's bytes, and when it was first heard. */
-  store: Array<{ b: string; t: number }>;
+  /** The mesh store: each packet's bytes, when it was first heard, and `q` if it is ours and has not been on air. */
+  store: Array<{ b: string; t: number; q?: 1 }>;
 }
 
 /**
@@ -30,8 +30,8 @@ const PARTS = Object.keys({ identity: 1, settings: 1, safety: 1, feed: 1, store:
 export const toB64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
 export const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
-export const saveStore = (packets: Iterable<StoredPacket>): Saved['store'] => [...packets].map((p) => ({ b: toB64(p.bytes), t: p.firstHeard }));
-export const loadStore = (saved: Saved['store']) => saved.map((x): StoredPacket => ({ bytes: fromB64(x.b), firstHeard: x.t, lastPushed: -Infinity }));
+export const saveStore = (packets: Iterable<StoredPacket>): Saved['store'] => [...packets].map((p) => ({ b: toB64(p.bytes), t: p.firstHeard, ...(p.queued && { q: 1 as const }) }));
+export const loadStore = (saved: Saved['store']) => saved.map((x): StoredPacket => ({ bytes: fromB64(x.b), firstHeard: x.t, lastPushed: -Infinity, queued: x.q === 1 }));
 
 export class SavedState {
   private readonly prefix: string;

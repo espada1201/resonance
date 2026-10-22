@@ -12,6 +12,7 @@ import { airtimeSec } from './modem/modulator';
 import { PROFILES } from './modem/profiles';
 import type { DecodedFrame } from './modem/receiver';
 import { type Draft, Station } from './station';
+import { fromB64 } from './persist';
 import { MemoryStorage, StubWorker } from './testing';
 
 // Characterization tests: they pin what the station does today, so that its collaborators can
@@ -254,13 +255,15 @@ describe('saved state', () => {
   const FEED = 'resonance:v1:phone:feed';
   const SETTINGS = 'resonance:v1:phone:settings';
   const SAFETY = 'resonance:v1:phone:safety';
+  const STORE = 'resonance:v1:phone:store';
+  const IDENTITY = 'resonance:v1:phone:identity';
   /** Each part as a later version reads it back. */
   const parsed = (parts: Record<string, string>) => Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, JSON.parse(v)]));
   /** That afternoon's safety log: the two check-ins in its feed, as they arrived. */
   function safetyLog() {
     const feed = JSON.parse(fixture()[FEED]) as FeedItem[];
     const checkins = feed.filter((i) => i.body?.kind === 'checkin').reverse();
-    expect(checkins.map((i) => i.src)).toEqual([CAL, JSON.parse(fixture()['resonance:v1:phone:identity']).id]);
+    expect(checkins.map((i) => i.src)).toEqual([CAL, JSON.parse(fixture()[IDENTITY]).id]);
     return { checkins: checkins.map(({ src, msgId, at, hops, encrypted, body }) => ({ src, msgId, at, hops, encrypted, body })), replies: [], notices: [] };
   }
 
@@ -276,11 +279,33 @@ describe('saved state', () => {
     expect(storage.getItem(SETTINGS)).toContain('"nick":"Ana"');
   });
 
-  it('saves what the fixture records, plus two settings and the safety log', async () => {
+  it('what still waited to go on air when the page closed goes when it opens again', async () => {
+    // Locking the phone straight after "I need help" can close the page before the radio played it.
+    const storage = new MemoryStorage();
+    const first = new Station(air, 'phone', storage);
+    first.update({ nick: 'Ana' });
+    await first.say({ kind: 'checkin', status: 'help', note: 'Trapped, floor 4' });
+    await first.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
+    first.save();
+    const { s } = await listening({ storage });
+    // On its way, not "no receipt: the app was closed while waiting".
+    expect(s.journal.feed.map((i) => i.delivery)).toEqual(['sending', undefined]);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    const sent = s.air.filter((e) => e.dir === 'tx').map((e) => e.label);
+    // The check-in, and once more when nobody repeated it; the message, and its retries.
+    expect(sent.filter((l) => l === 'check-in')).toHaveLength(2);
+    expect(sent.filter((l) => l === 'message')).toHaveLength(3);
+  });
+
+  it('saves what the fixture records, plus two settings, the safety log, and which of its packets never went on air', async () => {
     const storage = new MemoryStorage();
     await afternoon(storage);
     const old = parsed(fixture());
-    expect(parsed(storage.dump())).toEqual({ ...old, [SETTINGS]: { ...old[SETTINGS], place: '', outside: '' }, [SAFETY]: safetyLog() });
+    // That afternoon never started listening, so nothing of its own played: two messages, a check-in and three file chunks.
+    const own = (e: { b: string }) => decodePacket(fromB64(e.b))!.src === old[IDENTITY].id;
+    const store = old[STORE].map((e: { b: string }) => (own(e) ? { ...e, q: 1 } : e));
+    expect(store.filter(own)).toHaveLength(6);
+    expect(parsed(storage.dump())).toEqual({ ...old, [SETTINGS]: { ...old[SETTINGS], place: '', outside: '' }, [SAFETY]: safetyLog(), [STORE]: store });
   });
 
   it('reads a save from before the safety log, whose check-ins seed the roster, and writes it back with only the new parts added', async () => {
@@ -485,6 +510,19 @@ describe('what people say', () => {
     const [entry] = s.journal.roster();
     expect(entry.latest).toMatchObject({ src: ben.m.id, at: T0, hops: 2, encrypted: true });
     expect([entry.open, entry.coming]).toEqual([true, true]);
+  });
+
+  it('a sealed file heard before joining comes whole once joined', async () => {
+    const ben = await member('Ben');
+    const data = new TextEncoder().encode('Open shelters tonight: St Thomas church hall, 40 beds. '.repeat(6));
+    const key = await ben.m.sendFile('shelters.txt', 'text/plain', data);
+    const s = new Station(air, 'phone', null);
+    ben.out.forEach((o) => s.onFrame(frame(o.bytes)));
+    // Its chunks make no item while sealed: one each would bury the feed.
+    expect(s.journal.feed).toEqual([]);
+    await s.setPassphrase(CIRCLE);
+    expect(s.journal.feed.map((i) => i.fileKey)).toEqual([key]);
+    expect(s.files.data(key)).toEqual(data);
   });
 
   it('joining while packets arrive ends as joining, then hearing them', async () => {

@@ -23,7 +23,7 @@ interface MeshConfig {
   suppressAfter: number;
   ackTimeoutMs: number;
   maxAttempts: number;
-  /** Packets kept; a full store drops chat and file chunks before lasting news. */
+  /** Packets kept. A full store drops chat and file chunks first, but lasting news fills four fifths of it at most. */
   storeLimit: number;
   storeTtlMs: number;
   /** How long lasting news (check-ins, replies, notices) is kept and carried: an outage runs for days. */
@@ -96,10 +96,11 @@ interface PendingAck {
   due: number;
 }
 
-/** What a neighbour that said hello still lacks, and what we pushed it since. */
+/** What a neighbour that said hello still lacks, what we pushed it that its hellos have yet to show, and whether they showed our pushes arrive. */
 interface Feed {
   queue: string[];
   pushed: number[];
+  reached?: boolean;
 }
 
 /** Neighbours missing the same file chunk tend to ask at once; answer the burst once. */
@@ -152,15 +153,20 @@ export class MeshNode {
     const packet: Packet = { ...p, src: this.id, hops: 0, attempt: 0 };
     this.seen.set(relayKey(packet), this.clock.now());
     this.delivered.set(storeKey(packet), this.clock.now());
+    this.pruneSeen(this.clock.now());
     if (this.isStorable(packet)) this.remember(packet, true);
-    // Retry timers start once the frame has actually been on air (see aired()).
+    this.awaitAnswer(packet);
+    this.events.transmit(encodePacket(packet), reason);
+    return packet;
+  }
+
+  /** A receipt for a direct message, a neighbour's repeat for a broadcast. Timers start once the frame has been on air (see aired()). */
+  private awaitAnswer(packet: Packet) {
     if (packet.ackRequested && packet.dst !== BROADCAST) {
       this.acks.set(packet.msgId, { packet, due: Infinity });
     } else if (packet.dst === BROADCAST && packet.ttl > 1 && this.isStorable(packet)) {
       this.echoes.set(packet.msgId, { packet, due: Infinity });
     }
-    this.events.transmit(encodePacket(packet), reason);
-    return packet;
   }
 
   /**
@@ -264,11 +270,11 @@ export class MeshNode {
 
   /**
    * A neighbour said hello: push it the stored packets its summary's slice lacks, newest first,
-   * three at once and the rest while the air is free (at most 15 until its next hello shows our
-   * pushes reach it, so a neighbour that cannot hear us costs little). Someone just arrived from
-   * elsewhere is also offered our newest news outside that slice: it most likely lacks it, and
-   * waiting for its summaries to cycle round could take an hour. Every holder in earshot offers;
-   * the first copy on air stands the others down.
+   * three at once and the rest while the air is free. The rest wait until its hellos show our
+   * pushes reach it (15 at first contact, then three a hello), so a neighbour that cannot hear us
+   * costs little. Someone just arrived from elsewhere is also offered our newest news outside that
+   * slice: it most likely lacks it, and waiting for its summaries to cycle round could take an hour.
+   * Every holder in earshot offers; the first copy on air stands the others down.
    */
   private onHello(p: Packet, newcomer: boolean) {
     const body = decodeBody(PacketType.Hello, p.body);
@@ -279,9 +285,12 @@ export class MeshNode {
     const theirs = new Bloom(body.hashes, body.bits, p.msgId);
     const covered = (id: number) => sliceOf(id, body.parts) === body.part;
     for (const id of this.echoes.keys()) if (covered(id) && theirs.has(id)) this.echoes.delete(id);
-    // Did what we pushed it since its last hello arrive? Unknown at first contact: give it the benefit of the doubt.
-    const checkable = this.feeds.get(src)?.pushed.filter(covered) ?? [];
-    const budget = checkable.some((id) => theirs.has(id)) ? Infinity : checkable.length ? CARRY_BATCH : UNPROVEN_FEED;
+    // Did what we pushed it arrive? Each push is checked once a summary covers its slice; at first
+    // contact, give it the benefit of the doubt.
+    const feed = this.feeds.get(src);
+    const checkable = feed?.pushed.filter(covered) ?? [];
+    const reached = checkable.length ? checkable.some((id) => theirs.has(id)) : feed?.reached;
+    const budget = reached ? Infinity : feed ? CARRY_BATCH : UNPROVEN_FEED;
     const lacking = [...this.store.values()]
       .map((s) => ({ s, p: decodePacket(s.bytes)! }))
       .filter(({ s, p }) => p.src !== src && !s.queued && !theirs.has(p.msgId) && now - s.lastPushed > this.config.carryCooldownMs)
@@ -293,7 +302,7 @@ export class MeshNode {
       .slice(CARRY_BATCH)
       .filter(({ p }) => covered(p.msgId))
       .slice(0, budget - CARRY_BATCH);
-    this.feeds.set(src, { queue: later.map(({ p }) => storeKey(p)), pushed: [] });
+    this.feeds.set(src, { queue: later.map(({ p }) => storeKey(p)), pushed: feed?.pushed.filter((id) => !covered(id)) ?? [], reached });
     for (const { s, p } of lacking.slice(0, CARRY_BATCH)) this.carry(src, s, p, now);
   }
 
@@ -389,15 +398,26 @@ export class MeshNode {
     return LASTING.has(peekType(bytes)) ? this.config.lastingTtlMs : this.config.storeTtlMs;
   }
 
-  /** Restores packets persisted from an earlier session. */
+  /**
+   * Restores packets persisted from an earlier session. Ours that had not been on air yet go now,
+   * unless they are past keeping; returns their keys.
+   */
   hydrate(saved: StoredPacket[]) {
+    const resent = new Set<string>();
     for (const s of saved) {
       const p = decodePacket(s.bytes);
       if (!p) continue;
-      this.store.set(storeKey(p), s);
+      const k = storeKey(p);
+      this.store.set(k, s);
       this.seen.set(relayKey(p), s.firstHeard);
-      this.delivered.set(storeKey(p), s.firstHeard);
+      this.delivered.set(k, s.firstHeard);
+      if (s.queued && p.src === this.id && this.clock.now() - s.firstHeard <= this.keepMs(s.bytes)) {
+        this.awaitAnswer(p);
+        this.events.transmit(s.bytes, 'origin');
+        resent.add(k);
+      }
     }
+    return resent;
   }
 
   private echoTimeout() {
@@ -449,9 +469,11 @@ export class MeshNode {
     if (this.store.has(k)) return;
     this.store.set(k, { bytes: encodePacket({ ...p, hops: 0, attempt: 0 }), firstHeard: this.clock.now(), lastPushed: -Infinity, queued });
     if (this.store.size > this.config.storeLimit) {
-      const lasting = (s: StoredPacket) => Number(LASTING.has(peekType(s.bytes)));
-      const [drop] = [...this.store].sort(([, a], [, b]) => lasting(a) - lasting(b) || a.firstHeard - b.firstHeard)[0];
-      this.store.delete(drop);
+      const oldestFirst = [...this.store].sort(([, a], [, b]) => a.firstHeard - b.firstHeard);
+      const lasting = ([, s]: [string, StoredPacket]) => LASTING.has(peekType(s.bytes));
+      // The rest stays for chat and file chunks: a file being sent now must be there to repair.
+      const dropLasting = oldestFirst.filter(lasting).length > (this.config.storeLimit * 4) / 5;
+      this.store.delete(oldestFirst.find((e) => lasting(e) === dropLasting)![0]);
     }
   }
 

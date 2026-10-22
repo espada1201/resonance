@@ -106,11 +106,12 @@ export class Journal {
   }
 
   /**
-   * Retry timers die with the page, so a receipt still awaited comes back unknown. A save from before
-   * the safety log has none, so the check-ins and notices in its feed seed it.
+   * Retry timers die with the page, so a receipt still awaited comes back unknown, unless its message
+   * had not been on air and goes now (`resent`). A save from before the safety log has none, so the
+   * check-ins and notices in its feed seed it.
    */
-  restore(saved: { safety: SafetySnapshot | null; feed: FeedItem[] | null }) {
-    this.feed = (saved.feed ?? []).map((i) => (i.delivery === 'sending' ? { ...i, delivery: 'unknown' } : i));
+  restore(saved: { safety: SafetySnapshot | null; feed: FeedItem[] | null; resent?: Set<string> }) {
+    this.feed = (saved.feed ?? []).map((i) => (i.delivery === 'sending' && !saved.resent?.has(i.id) ? { ...i, delivery: 'unknown' } : i));
     this.log = new SafetyLog();
     if (saved.safety) this.log.restore(saved.safety);
     else for (const { src, msgId, at, hops, encrypted, body } of [...this.feed].reverse()) if (body) this.log.add({ src, msgId, at, hops, encrypted, body });

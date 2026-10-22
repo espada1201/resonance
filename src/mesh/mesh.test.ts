@@ -492,6 +492,19 @@ describe('how long news lasts', () => {
     expect([...n.neighbors.keys()]).toEqual([0x200000]);
   });
 
+  it('a beacon alone in a room forgets its own hellos as it forgets everything else', () => {
+    let t = 0;
+    const n = new MeshNode(1, { now: () => t, random: rng(3) }, { transmit: () => undefined, deliver: () => undefined });
+    // A hello a minute for a week, and nobody answers.
+    for (let minute = 0; minute < 7 * 24 * 60; minute++) {
+      n.hello('roof', 'beacon');
+      t += 60_000;
+    }
+    const memory = n as unknown as { seen: Map<string, number>; delivered: Map<string, number> };
+    expect(memory.seen.size).toBeLessThanOrEqual(72 * 60 + 1);
+    expect(memory.delivered.size).toBeLessThanOrEqual(72 * 60 + 1);
+  });
+
   it('a packet a node forgot is carried back to it once, not at every hello', () => {
     // N kept a chat for its 12 hours; B heard it three hours later and keeps it longer. N drops the
     // copy B carries back, as already seen, so its hellos must list it or B carries it at every one.
@@ -513,10 +526,12 @@ describe('how long news lasts', () => {
     expect(w.inbox.get('N')).toHaveLength(1);
   });
 
-  it('a full store drops chat and file chunks before check-ins', () => {
-    // A few photos must not push out who asked for help.
+  it('a full store drops chat and file chunks before check-ins, but check-ins never fill all of it', () => {
+    // A few photos must not push out who asked for help; three days of check-ins must not leave
+    // the file being sent now nowhere to be repaired from.
     let t = 0;
-    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    const out: Uint8Array[] = [];
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: (b) => void out.push(b), deliver: () => undefined });
     n.config.storeLimit = 5;
     n.receive(farCheckIn(1));
     t += 1000;
@@ -526,12 +541,18 @@ describe('how long news lasts', () => {
       n.receive(farAway(msgId));
     }
     expect([...n.store.keys()].sort()).toEqual(['99:1', '99:13', '99:14', '99:15', '99:2']);
-    // Only lasting news left: the oldest goes.
+    // Lasting news takes four places of five at most: then its oldest goes.
     for (let msgId = 20; msgId < 25; msgId++) {
       t += 1000;
       n.receive(farCheckIn(msgId));
     }
-    expect([...n.store.keys()].sort()).toEqual(['99:20', '99:21', '99:22', '99:23', '99:24']);
+    expect([...n.store.keys()].sort()).toEqual(['99:15', '99:21', '99:22', '99:23', '99:24']);
+    // Our own message, the only copy there is, stays to hand to whoever lacks it.
+    t += 1000;
+    n.originate({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId: 77, dst: BROADCAST, ttl: 5, channel: 0, body: encodeBody(text('mine')) });
+    n.aired(out.at(-1)!);
+    expect([...n.store.keys()].sort()).toEqual(['1:77', '99:21', '99:22', '99:23', '99:24']);
+    expect(n.answer(1, 77)).toBe(true);
   });
 });
 
@@ -618,13 +639,17 @@ describe('HELLO summaries', () => {
     });
   }
 
-  /** A beacon holding `count` settled packets and a phone with nothing, both not relaying. */
-  function beaconAndNewcomer(count: number) {
+  /** A beacon holding `count` settled packets and a phone holding `own` others, both not relaying. */
+  function beaconAndNewcomer(count: number, own = 0) {
     const w = new World();
     const [b, p] = ['B', 'P'].map((n, i) => w.add(n, i + 1));
     for (const n of [b, p]) n.config.relay = false;
     for (let msgId = 1000; msgId < 1000 + count; msgId++) {
       b.receive(farAway(msgId));
+      w.t += 1000;
+    }
+    for (let msgId = 2000; msgId < 2000 + own; msgId++) {
+      p.receive(farAway(msgId));
       w.t += 1000;
     }
     w.t += 5 * 60_000;
@@ -663,15 +688,34 @@ describe('HELLO summaries', () => {
     expect(carries()).toBe(8);
   });
 
-  it('feeds a neighbour that cannot hear it no more than a newcomer, then three per hello', () => {
-    const { w, p, carries } = beaconAndNewcomer(60);
-    w.drop = (from) => from === 'B';
-    for (let k = 0; k < 7; k++) {
+  for (const own of [0, 50]) {
+    it(`feeds a neighbour that cannot hear it no more than a newcomer, then three per hello (it holds ${own} packets)`, () => {
+      // 50 packets take two hellos to summarise, so what we pushed is checked when its slice comes round.
+      const { w, p, carries } = beaconAndNewcomer(60, own);
+      w.drop = (from) => from === 'B';
+      const perHello: number[] = [];
+      for (let k = 0; k < 7; k++) {
+        const before = carries();
+        p.hello('p', 'phone');
+        w.run(5 * 60_000);
+        perHello.push(carries() - before);
+      }
+      expect(p.store.size).toBe(own);
+      expect(perHello[0]).toBeLessThanOrEqual(15);
+      expect(Math.max(...perHello.slice(1))).toBeLessThanOrEqual(3);
+    });
+  }
+
+  it('hands a neighbour with a big store of its own everything it lacks within a few hellos', () => {
+    const { w, p, carries } = beaconAndNewcomer(60, 50);
+    const sizes: number[] = [];
+    for (let k = 0; k < 5; k++) {
       p.hello('p', 'phone');
       w.run(5 * 60_000);
+      sizes.push(p.store.size);
     }
-    expect(p.store.size).toBe(0);
-    expect(carries()).toBeLessThanOrEqual(15 + 6 * 3);
+    expect(sizes, `its store after each hello: ${sizes.join(', ')}`).toEqual(expect.arrayContaining([110]));
+    expect(carries()).toBe(60);
   });
 
   it('two beacons holding the same 200 packets stay quiet for an hour', () => {
