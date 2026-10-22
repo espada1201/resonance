@@ -13,7 +13,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
     ['Delivered', s.delivered, 'new messages for you or everyone'],
     ['Relayed', s.relayed, 'packets this device repeated for others'],
     ['Held back', s.suppressed, 'relays skipped because enough neighbours already repeated them'],
-    ['Carried', s.carried, 'stored packets handed to a newcomer who had missed them'],
+    ['Carried', s.carried, 'stored packets sent again for newcomers who lacked them'],
     ['Stored', station.mesh.store.size, 'packets kept to pass on to people who arrive later'],
   ];
   return (

@@ -54,7 +54,7 @@ function Gate({ station }: { station: Station }) {
         {MODES.map(([id, name, range]) => (
           <div key={id}>
             <dt>{name}</dt>
-            <dd class="rate">{Math.round(rawBitrate(PROFILES[id])).toLocaleString('en')} bit/s</dd>
+            <dd class="rate">{Math.round(rawBitrate(PROFILES[id])).toLocaleString('en')} bit/s raw</dd>
             <dd>{range}</dd>
           </div>
         ))}
