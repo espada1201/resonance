@@ -30,7 +30,7 @@ interface MeshConfig {
   lastingTtlMs: number;
   /** A packet pushed to a neighbour is not pushed again this soon: it is still on its way. */
   carryCooldownMs: number;
-  /** A broadcast nobody repeats within this window is sent once more (passive acknowledgement). */
+  /** A broadcast nobody repeats within this window is sent again (passive acknowledgement). */
   echoTimeoutMs: number;
 }
 
@@ -183,7 +183,7 @@ export class MeshNode {
     const a = this.acks.get(p.msgId);
     if (a && a.packet.attempt === p.attempt) a.due = now + this.ackTimeout(p);
     const e = this.echoes.get(p.msgId);
-    if (e && p.attempt === 0) e.due = now + this.echoTimeout();
+    if (e && e.packet.attempt === p.attempt) e.due = now + this.echoTimeout();
   }
 
   /** Feeds bytes decoded off the air. Returns the parsed packet, or null for junk. */
@@ -384,11 +384,13 @@ export class MeshNode {
     }
     for (const [id, e] of this.echoes) {
       if (e.due > now) continue;
-      // One repeat only: a lone device should not keep shouting into an empty room.
-      this.echoes.delete(id);
-      const again = { ...e.packet, attempt: 1 };
-      this.seen.set(relayKey(again), now);
-      this.events.transmit(encodePacket(again), 'retry');
+      e.packet = { ...e.packet, attempt: e.packet.attempt + 1 };
+      e.due = Infinity;
+      // Alone, one repeat: a device should not keep shouting into an empty room. Among neighbours a
+      // repeat can collide too, so it gets as many tries as a direct message.
+      if (e.packet.attempt + 1 >= (this.alone(now) ? 2 : this.config.maxAttempts)) this.echoes.delete(id);
+      this.seen.set(relayKey(e.packet), now);
+      this.events.transmit(encodePacket(e.packet), 'retry');
     }
     for (const [k, s] of this.store) if (now - s.firstHeard > this.keepMs(s.bytes)) this.store.delete(k);
     this.feedNeighbors(now);
@@ -475,6 +477,11 @@ export class MeshNode {
       const dropLasting = oldestFirst.filter(lasting).length > (this.config.storeLimit * 4) / 5;
       this.store.delete(oldestFirst.find((e) => lasting(e) === dropLasting)![0]);
     }
+  }
+
+  /** Nobody heard lately: no neighbour is in earshot to repeat what we say. */
+  private alone(now: number) {
+    return ![...this.neighbors.values()].some((n) => now - n.lastHeard < MET_AFTER_MS);
   }
 
   private touchNeighbor(id: number, now: number, nick?: string, role?: 'phone' | 'beacon') {

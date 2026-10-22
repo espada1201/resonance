@@ -26,6 +26,6 @@ Preconditions: none beyond the baseline.
 
 ## Gotchas
 
-- A broadcast nobody echoes is sent again after 20 to 28 s, so the first copy can collide with a hello and still arrive.
+- A broadcast nobody echoes is sent again after 20 to 28 s, and once more if a neighbour is in earshot, so a copy that collides with a hello or a relay still arrives.
 - A bystander waits one backoff window before repeating a direct message, so the addressee's receipt goes first and stands the repeat down. A `delivered` that takes about a minute means the first receipt was lost and the sender retried: look for `LOST` or a missing `IN ack` in the sender's air log.
 - The `To` menu is disabled for check-ins, notices and files: those always go to everyone.

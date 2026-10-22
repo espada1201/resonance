@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Bloom } from './bloom';
 import { type Monitor, type Scenario, explore, selfCheck, story } from './explorer';
 import { storeKey } from './node';
 import { BROADCAST, PacketType, encodePacket } from './packet';
@@ -9,7 +10,7 @@ import { type Body, encodeBody, typeOf } from './payloads';
 // 1 to 20 s, a packet sent without bound jams the room for everyone.
 //
 // The bound, per node and packet: as its author, at most maxAttempts frames (the first send,
-// then retries or the one repeat); as a relay, one frame per attempt it hears; as a carrier, one
+// then retries or repeats); as a relay, one frame per attempt it hears; as a carrier, one
 // frame per HELLO it heard from a neighbour that had not heard the packet when it said hello.
 // What this covers, and how to rerun or extend it: .claude/skills/verify-mesh-property/SKILL.md.
 
@@ -28,6 +29,13 @@ const chat: Body = { kind: 'text', ts: 1_700_000_000, nick: 'bo', text: 'water a
 /** A broadcast from node 99, out of earshot, as a neighbour relayed it. */
 const far = (msgId: number, body: Body) =>
   encodePacket({ type: typeOf[body.kind], encrypted: false, ackRequested: false, msgId, src: 99, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(body) });
+
+/** A HELLO from node `src`, holding nothing, as its neighbour hears it. */
+function helloFrom(src: number) {
+  const { hashes, bits } = Bloom.of([], 0x4e110);
+  const body = encodeBody({ kind: 'hello', role: 'phone', nick: '', hashes, bits, part: 0, parts: 1 });
+  return encodePacket({ type: PacketType.Hello, encrypted: false, ackRequested: false, msgId: 0x4e110, src, dst: BROADCAST, ttl: 1, hops: 0, attempt: 0, channel: 0, body });
+}
 
 const own = (msgId: number, body: Body, dst = BROADCAST) => ({ type: typeOf[body.kind], encrypted: false, ackRequested: dst !== BROADCAST, msgId, dst, ttl: 5, channel: 0, body: encodeBody(body) });
 
@@ -121,6 +129,19 @@ const holding: Scenario[] = [
     links: 'AB',
     setup: (w) => w.send('A', own(M, chat, 2)),
     losses: 1,
+    names,
+    maxDepth: 400,
+  },
+  {
+    name: 'a check-in from a node that knows a neighbour, whose echoes are all lost',
+    nodes: 'AB',
+    links: 'AB',
+    // Not alone, A repeats a broadcast nobody echoes as often as it retries a direct message.
+    setup(w) {
+      w.hear('A', helloFrom(2));
+      w.send('A', own(X, checkIn));
+    },
+    losses: 3,
     names,
     maxDepth: 400,
   },

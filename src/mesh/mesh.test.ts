@@ -175,12 +175,25 @@ describe('mesh flooding', () => {
     expect(w.inbox.get('D')![0].hops).toBe(2);
   });
 
-  it('repeats a broadcast once when no neighbour echoes it, and not when one does', () => {
+  it('repeats a broadcast nobody echoed: once when alone, twice more at most among neighbours, and not when one echoes', () => {
     const alone = new World();
     const a = alone.add('A', 1);
     const p = send(a, text('anyone out there?'));
     alone.run(120_000);
     expect(alone.tx.filter((t) => t.packet.msgId === p.msgId).map((t) => t.reason)).toEqual(['origin', 'retry']);
+
+    // C is in earshot, but its first two repeats of B's message collide with what B sends next.
+    const crowded = new World();
+    const [b0] = ['B', 'C'].map((n, i) => crowded.add(n, i + 1));
+    crowded.link('BC');
+    crowded.nodes.get('C')!.hello('c', 'phone');
+    crowded.run(10_000);
+    let collisions = 2;
+    crowded.drop = (from, _to, packet) => from === 'C' && packet.type === PacketType.Text && collisions-- > 0;
+    const r = send(b0, text('are you there, C?'));
+    crowded.run(180_000);
+    expect(crowded.tx.filter((t) => t.from === 'B' && t.packet.msgId === r.msgId).map((t) => t.packet.attempt)).toEqual([0, 1, 2]);
+    expect(crowded.inbox.get('C')!.filter((x) => x.msgId === r.msgId)).toHaveLength(1);
 
     const pair = new World();
     const [b] = ['B', 'C'].map((n, i) => pair.add(n, i + 1));
