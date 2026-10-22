@@ -1,3 +1,5 @@
+import type { FromWorker, ToWorker } from './audio/protocol';
+
 // Test doubles shared by the unit tests. Nothing in the app imports this file.
 
 /** localStorage in a Map. */
@@ -31,5 +33,30 @@ export class MemoryStorage implements Storage {
   /** Every key and its string, in the order first written. */
   dump() {
     return Object.fromEntries(this.m);
+  }
+}
+
+/** A decoder worker that records what it is sent, and speaks or fails when the test says. */
+export class StubWorker {
+  readonly posted: Array<{ m: ToWorker; transfer: Transferable[] }> = [];
+  onmessage: ((e: MessageEvent<FromWorker>) => void) | null = null;
+  onerror: ((e: ErrorEvent) => void) | null = null;
+  terminated = false;
+
+  /** `onPost` sees each message as it is posted. */
+  constructor(private readonly onPost: (m: ToWorker) => void = () => undefined) {}
+
+  postMessage(m: ToWorker, transfer: Transferable[] = []) {
+    this.posted.push({ m, transfer });
+    this.onPost(m);
+  }
+  terminate() {
+    this.terminated = true;
+  }
+  say(m: FromWorker) {
+    this.onmessage!({ data: m } as MessageEvent<FromWorker>);
+  }
+  fail() {
+    this.onerror!({ preventDefault() {} } as ErrorEvent);
   }
 }
