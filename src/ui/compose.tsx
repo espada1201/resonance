@@ -1,24 +1,27 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { locate } from '../geo';
-import { CHUNK_BYTES, MAX_FILE_BYTES } from '../mesh/files';
+import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
-import { type Body, type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, STATUSES, type Status, nowSec } from '../mesh/payloads';
-import { airtimeSec } from '../modem/modulator';
-import { PROFILES } from '../modem/profiles';
+import { type Body, type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill, nowSec } from '../mesh/payloads';
 import type { Station } from '../station';
+import { CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
 import { who } from './feed';
-import { STATUS_TEXT, bytes, fitInput, seconds } from './format';
+import { SKILL_TEXT, bytes, fitInput, seconds } from './format';
 import { rovingKeys } from './hooks';
-import { FileIcon, Lock, Pin, Send } from './icons';
+import { FileIcon, Lock, Send } from './icons';
+import { NoticeFields, type NoticeDraft, newNotice } from './notices';
 
-type Mode = 'text' | 'checkin' | 'contact' | 'file';
+type Mode = 'text' | 'checkin' | 'notice' | 'contact' | 'file';
 const MODES: Array<[Mode, string]> = [
   ['text', 'Message'],
   ['checkin', 'Check in'],
+  ['notice', 'Notice'],
   ['contact', 'Contact'],
   ['file', 'Tiny file'],
 ];
 const MODE_IDS = MODES.map(([m]) => m);
+/** Stands in for a GPS fix when measuring how much room a check-in leaves: every fix is the same size. */
+const ANY_FIX: Geo = { lat: 0, lon: 0, accuracyM: 0 };
 
 /** Shrinks a photo to a JPEG small enough to cross the air in a few minutes. */
 async function shrinkImage(file: File, maxBytes: number): Promise<Blob> {
@@ -44,36 +47,44 @@ interface Picked {
   preview?: string;
 }
 
+interface ContactDraft {
+  name: string;
+  phone: string;
+  note: string;
+  skills: Skill[];
+}
+
 export function Compose({ station, dst, setDst }: { station: Station; dst: number; setDst: (d: number) => void }) {
   const [mode, setMode] = useState<Mode>('text');
   const [text, setText] = useState('');
-  const [status, setStatus] = useState<Status>('safe');
-  const [note, setNote] = useState('');
-  const [withGeo, setWithGeo] = useState(false);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [checkin, setCheckin] = useState<CheckInDraft>(() => newDraft(station.settings));
+  const [notice, setNotice] = useState<NoticeDraft>(newNotice);
+  const [contact, setContact] = useState<ContactDraft>({ name: '', phone: '', note: '', skills: [] });
   const [picked, setPicked] = useState<Picked | null>(null);
   const [error, setError] = useState('');
   const [working, setWorking] = useState(false);
+  // A picked photo's preview lives until another is picked or it is sent.
+  useEffect(() => () => void (picked?.preview && URL.revokeObjectURL(picked.preview)), [picked?.preview]);
 
   const sealed = station.circleChannel !== null;
-  // Check-ins feed everyone's safety map, and files go to everyone; only messages and contacts go to one person.
-  const toEveryone = mode === 'checkin' || mode === 'file';
-  const profile = PROFILES[station.settings.profile];
-  const budget = station.textBudget();
-  const used = new TextEncoder().encode(text).length;
+  // Check-ins feed everyone's safety list, notices everyone's board, and files go to everyone; only messages and contacts go to one person.
+  const toEveryone = mode === 'checkin' || mode === 'notice' || mode === 'file';
+  const nick = station.settings.nick;
 
-  let preview: Body | null = null;
-  if (mode === 'text') preview = { kind: 'text', ts: nowSec(), nick: station.settings.nick, text };
-  if (mode === 'checkin') preview = { kind: 'checkin', ts: nowSec(), nick: station.settings.nick, status, note, geo: withGeo ? { lat: 0, lon: 0, accuracyM: 0 } : undefined };
-  if (mode === 'contact') preview = { kind: 'contact', ts: nowSec(), name, phone, note };
-  const fileSeconds = picked ? (Math.ceil(picked.data.length / CHUNK_BYTES) + 1) * airtimeSec(profile, Math.min(255, CHUNK_BYTES + 30)) : 0;
-  const eta = mode === 'file' ? fileSeconds : preview ? station.estimateAirtime(preview) : 0;
-
-  const canSend =
-    station.status === 'listening' &&
-    !working &&
-    ((mode === 'text' && text.trim() && used <= budget) || mode === 'checkin' || (mode === 'contact' && name.trim()) || (mode === 'file' && picked));
+  let body: Body | null = null;
+  if (mode === 'text') body = { kind: 'text', ts: nowSec(), nick, text };
+  if (mode === 'checkin') body = { kind: 'checkin', ts: nowSec(), nick, ...draftFields(checkin, checkin.withGeo ? ANY_FIX : undefined) };
+  if (mode === 'notice') body = { kind: 'notice', ts: nowSec(), nick, ...notice };
+  if (mode === 'contact') body = { kind: 'contact', ts: nowSec(), ...contact };
+  const room = body ? station.room(body) : 0;
+  const eta = mode === 'file' ? (picked ? station.estimateFileSeconds(picked.data.length) : 0) : body ? station.estimateAirtime(body) : 0;
+  const filled =
+    (mode === 'text' && text.trim()) ||
+    mode === 'checkin' ||
+    (mode === 'notice' && notice.text.trim()) ||
+    (mode === 'contact' && contact.name.trim()) ||
+    (mode === 'file' && picked);
+  const canSend = station.status === 'listening' && !working && !!filled && (mode === 'file' || room >= 0);
 
   async function pick(file: File | undefined) {
     setError('');
@@ -95,6 +106,8 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   async function submit(e: Event) {
     e.preventDefault();
     if (!canSend) return;
+    const problem = mode === 'checkin' ? draftProblem(checkin) : null;
+    if (problem) return setError(problem);
     setWorking(true);
     setError('');
     try {
@@ -104,17 +117,19 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         setText('');
       } else if (mode === 'checkin') {
         let geo: Geo | undefined;
-        if (withGeo) {
+        if (checkin.withGeo) {
           geo = await locate();
           station.setPosition(geo);
         }
-        await station.sendCheckIn(status, note.trim(), geo);
-        setNote('');
+        await station.sendCheckIn(draftFields(checkin, geo));
+        if (!checkin.forSomeone) station.update({ place: checkin.place.trim(), outside: checkin.outside.trim() });
+        setCheckin(newDraft(station.settings));
+      } else if (mode === 'notice') {
+        await station.sendNotice({ ...notice, place: notice.place.trim(), text: notice.text.trim() });
+        setNotice(newNotice());
       } else if (mode === 'contact') {
-        await station.sendContact(name.trim(), phone.trim(), note.trim(), target);
-        setName('');
-        setPhone('');
-        setNote('');
+        await station.sendContact({ name: contact.name.trim(), phone: contact.phone.trim(), note: contact.note.trim(), skills: contact.skills }, target);
+        setContact({ name: '', phone: '', note: '', skills: [] });
       } else if (picked) {
         await station.sendFile(picked.name, picked.mime, picked.data);
         setPicked(null);
@@ -127,6 +142,8 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   }
 
   const neighbors = [...station.mesh.neighbors.values()];
+  const noteMax = room + new TextEncoder().encode(contact.note).length;
+  const toggleSkill = (s: Skill) => setContact((c) => ({ ...c, skills: c.skills.includes(s) ? c.skills.filter((x) => x !== s) : [...c.skills, s] }));
 
   return (
     <form class="compose" onSubmit={submit} aria-label="Compose">
@@ -156,28 +173,28 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         </label>
       )}
 
-      {mode === 'checkin' && (
-        <div class="checkin-fields">
-          <div class="pills" role="radiogroup" aria-label="Status" onKeyDown={rovingKeys(STATUSES, status, setStatus)}>
-            {STATUSES.map((s) => (
-              <button key={s} type="button" role="radio" aria-checked={status === s} tabIndex={status === s ? 0 : -1} class={`pill s-${s}`} onClick={() => setStatus(s)}>
-                {STATUS_TEXT[s]}
-              </button>
-            ))}
-          </div>
-          <input value={note} maxLength={80} placeholder="Short note (optional): where you are, what you need" aria-label="Note" onInput={(e) => setNote((e.target as HTMLInputElement).value)} />
-          <label class="toggle">
-            <input type="checkbox" checked={withGeo} onChange={(e) => setWithGeo((e.target as HTMLInputElement).checked)} />
-            <Pin size={14} /> Attach my GPS position
-          </label>
-        </div>
-      )}
+      {mode === 'checkin' && <CheckInFields draft={checkin} set={(p) => setCheckin((d) => ({ ...d, ...p }))} room={room} />}
+
+      {mode === 'notice' && <NoticeFields draft={notice} set={(p) => setNotice((d) => ({ ...d, ...p }))} room={room} />}
 
       {mode === 'contact' && (
         <div class="grid2">
-          <input value={name} placeholder="Name" aria-label="Name" maxLength={MAX_CONTACT_NAME} onInput={(e) => setName(fitInput(e, MAX_CONTACT_NAME))} />
-          <input value={phone} placeholder="Phone" aria-label="Phone" inputMode="tel" maxLength={MAX_CONTACT_PHONE} onInput={(e) => setPhone(fitInput(e, MAX_CONTACT_PHONE))} />
-          <input class="span2" value={note} placeholder="Note: role, skills, where to find you" aria-label="Contact note" maxLength={120} onInput={(e) => setNote((e.target as HTMLInputElement).value)} />
+          <input value={contact.name} placeholder="Name" aria-label="Name" onInput={(e) => setContact((c) => ({ ...c, name: fitInput(e, MAX_CONTACT_NAME) }))} />
+          <input value={contact.phone} placeholder="Phone" aria-label="Phone" inputMode="tel" onInput={(e) => setContact((c) => ({ ...c, phone: fitInput(e, MAX_CONTACT_PHONE) }))} />
+          <div class="pills span2" role="group" aria-label="I can help with">
+            {SKILLS.map((s) => (
+              <button key={s} type="button" class="pill need" aria-pressed={contact.skills.includes(s)} onClick={() => toggleSkill(s)}>
+                {SKILL_TEXT[s]}
+              </button>
+            ))}
+          </div>
+          <input
+            class="span2"
+            value={contact.note}
+            placeholder="Note: role, where to find you"
+            aria-label="Contact note"
+            onInput={(e) => setContact((c) => ({ ...c, note: fitInput(e, Math.max(0, noteMax)) }))}
+          />
         </div>
       )}
 
@@ -212,8 +229,8 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           </select>
         </label>
         <span class="budget small">
-          {mode === 'text' && <span class={used > budget ? 'over' : ''}>{budget - used} bytes left · </span>}
-          {eta > 0 && <>≈ {seconds(eta)} on air</>}
+          {mode === 'text' && <span class={room < 0 ? 'over' : ''}>{room} bytes left · </span>}
+          {eta > 0 && (mode === 'file' ? <>about {seconds(eta)} to send</> : <>≈ {seconds(eta)} on air</>)}
           {sealed && (
             <span class="sealed-note">
               {' '}
@@ -225,9 +242,9 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           <Send size={16} /> {working ? 'Sending…' : 'Send'}
         </button>
       </div>
-      {mode === 'text' && used > budget && (
+      {mode === 'text' && room < 0 && (
         <p class="error small">
-          <span role="alert">Too long for one sound packet.</span> It holds {budget} bytes; trim {used - budget}.
+          <span role="alert">Too long for one sound packet.</span> Trim {-room} bytes.
         </p>
       )}
       {error && (
@@ -235,7 +252,6 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           {error}
         </p>
       )}
-      {station.status !== 'listening' && <p class="muted small">Start listening first: Resonance needs the speaker and microphone.</p>}
     </form>
   );
 }

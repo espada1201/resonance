@@ -64,7 +64,8 @@ export function RosterList({ entries, me, self, name, by, reply, find }: RosterP
             </p>
             {e.replies.map((r) => (
               <p key={`${r.src}:${r.msgId}`} class="small reply">
-                {r.src === self ? 'You' : by(r.src, r.body.nick)} {REPLY_TEXT[r.body.what]} · {ago(writtenAt(r))}
+                {r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${by(r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`} ·{' '}
+                {ago(writtenAt(r))}
               </p>
             ))}
             {(e.open || e.stale) && (

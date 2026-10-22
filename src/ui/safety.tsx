@@ -1,30 +1,21 @@
 import { useEffect, useState } from 'preact/hooks';
-import { bearingDeg, compassPoint, distanceM, formatDistance, locate } from '../geo';
+import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, Status } from '../mesh/payloads';
-import { type FeedItem, type Station, nodeHex } from '../station';
-import { who, writtenAt } from './feed';
-import { STATUS_TEXT, ago } from './format';
-import { Compass, Pin } from './icons';
-
-type CheckIn = FeedItem & { body: Extract<NonNullable<FeedItem['body']>, { kind: 'checkin' }> };
-const URGENCY: Record<Status, number> = { help: 0, medical: 1, sheltering: 2, safe: 3 };
-
-/**
- * Each person's latest check-in by their own clock, most urgent first. Arrival order is not enough:
- * an old "I need help" carried in from another room must not hide a newer "I'm safe".
- */
-export function latestCheckIns(feed: FeedItem[]): CheckIn[] {
-  const by = new Map<number, CheckIn>();
-  for (const i of feed) {
-    if (i.body?.kind !== 'checkin') continue;
-    const prev = by.get(i.src);
-    if (!prev || i.body.ts > prev.body.ts) by.set(i.src, i as CheckIn);
-  }
-  return [...by.values()].sort((a, b) => URGENCY[a.body.status] - URGENCY[b.body.status] || b.body.ts - a.body.ts);
-}
+import { type RosterEntry, rosterCsv, search } from '../roster';
+import type { Station } from '../station';
+import { CheckInFields, type CheckInDraft, draftFields, draftProblem, newDraft } from './checkin-form';
+import { CourierList } from './courier';
+import { download, named, who } from './feed';
+import { FindPanel } from './find';
+import { NEED_TEXT, STATUS_TEXT } from './format';
+import { Compass, Download, Pin } from './icons';
+import { type Helper, HelperList, RosterList } from './roster';
 
 const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
+/** Find needs the person's own device in earshot: heard directly this recently. */
+const FINDABLE_MS = 10 * 60_000;
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 type OrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 
@@ -49,13 +40,13 @@ function useHeading(): [number | null, () => void] {
   return [heading, enable];
 }
 
-function Radar({ me, people, heading }: { me: Geo; people: CheckIn[]; heading: number | null }) {
-  const pts = people.filter((p) => p.body.geo).map((p) => ({ p, d: distanceM(me, p.body.geo!), b: bearingDeg(me, p.body.geo!) }));
+function Radar({ me, people, heading, name }: { me: Geo; people: RosterEntry[]; heading: number | null; name: (e: RosterEntry) => string }) {
+  const pts = people.flatMap((e) => (e.latest.body.geo ? [{ e, d: distanceM(me, e.latest.body.geo), b: bearingDeg(me, e.latest.body.geo) }] : []));
   const far = Math.max(20, ...pts.map((x) => x.d)) * 1.1;
   const max = NICE.find((n) => n >= far) ?? far;
   const R = 130;
   const rot = heading ?? 0;
-  const scale = (d: number) => (Math.sqrt(d / max) * R);
+  const scale = (d: number) => Math.sqrt(d / max) * R;
   return (
     <svg class="radar" viewBox="-150 -150 300 300" role="img" aria-label={`Map of ${pts.length} check-ins around you`}>
       {[0.25, 0.5, 1].map((f) => (
@@ -71,14 +62,14 @@ function Radar({ me, people, heading }: { me: Geo; people: CheckIn[]; heading: n
           N
         </text>
         <line y1={-R} y2={-R + 10} class="tick" />
-        {pts.map(({ p, d, b }) => {
+        {pts.map(({ e, d, b }) => {
           const a = (b * Math.PI) / 180;
           const r = scale(d);
           return (
-            <g key={p.id} transform={`translate(${Math.sin(a) * r} ${-Math.cos(a) * r})`} class={`blip s-${p.body.status}`}>
+            <g key={e.key} transform={`translate(${Math.sin(a) * r} ${-Math.cos(a) * r})`} class={`blip s-${e.latest.body.status}`}>
               <circle r={6} />
               <text x={9} y={4} transform={`rotate(${rot})`}>
-                {p.body.nick || `#${nodeHex(p.src).slice(0, 4)}`}
+                {name(e)}
               </text>
             </g>
           );
@@ -89,58 +80,198 @@ function Radar({ me, people, heading }: { me: Geo; people: CheckIn[]; heading: n
   );
 }
 
-export function Safety({ station }: { station: Station }) {
-  const people = latestCheckIns(station.feed);
-  const [heading, enableCompass] = useHeading();
+/** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
+function CheckInCard({ station }: { station: Station }) {
+  const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
+  const [sending, setSending] = useState<Status | 'detail' | null>(null);
   const [err, setErr] = useState('');
-  const [sending, setSending] = useState<Status | null>(null);
-  const me = station.position;
+  const listening = station.status === 'listening';
+  const set = (patch: Partial<CheckInDraft>) => setDraft((d) => ({ ...d, ...patch }));
+  const room = station.room({ kind: 'checkin', ts: 0, nick: station.settings.nick, ...draftFields(draft, draft.withGeo ? { lat: 0, lon: 0, accuracyM: 0 } : undefined) });
 
-  const quick = async (status: Status) => {
-    setSending(status);
+  async function send(d: CheckInDraft, label: Status | 'detail') {
+    const problem = draftProblem(d);
+    if (problem) return setErr(problem);
+    setSending(label);
     setErr('');
     let geo: Geo | undefined;
-    try {
-      geo = await locate(8000);
-      station.setPosition(geo);
-    } catch (e) {
-      setErr(`${e instanceof Error ? e.message : e} Sent without a position.`);
+    if (d.withGeo) {
+      try {
+        geo = await locate(8000);
+        station.setPosition(geo);
+      } catch (e) {
+        setErr(`${message(e)} Sent without a position.`);
+      }
     }
     try {
-      await station.sendCheckIn(status, '', geo);
+      await station.sendCheckIn(draftFields(d, geo));
+      // Where you are and whom to tell outside ride along with your next check-ins too.
+      if (!d.forSomeone) station.update({ place: d.place.trim(), outside: d.outside.trim() });
+      if (label === 'detail') setDraft(newDraft(station.settings));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(message(e));
     }
     setSending(null);
-  };
+  }
+
+  const { place, outside } = station.settings;
+  return (
+    <section class="checkin-card" aria-label="Check in">
+      <div class="quick">
+        <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => void send({ ...newDraft(station.settings, 'safe'), withGeo: true }, 'safe')}>
+          {sending === 'safe' ? 'Sending…' : "I'm safe"}
+        </button>
+        <button type="button" class="big s-help" disabled={!listening || !!sending} onClick={() => void send({ ...newDraft(station.settings, 'help'), withGeo: true }, 'help')}>
+          {sending === 'help' ? 'Sending…' : 'I need help'}
+        </button>
+      </div>
+      <p class="muted small">
+        One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
+        {place && ` It says you are at “${place}”.`}
+        {outside && ` Whoever gets signal first can tell ${outside}.`}
+      </p>
+      <details class="more">
+        <summary>More detail: what you need, where, someone without a phone, family outside</summary>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send(draft, 'detail');
+          }}
+        >
+          <CheckInFields draft={draft} set={set} room={room} />
+          <button type="submit" class="primary" disabled={!listening || !!sending || room < 0}>
+            {sending === 'detail' ? 'Sending…' : 'Send check-in'}
+          </button>
+        </form>
+      </details>
+      {err && (
+        <p class="error small" role="alert">
+          {err}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** Contact cards that say what their owner can help with, newest card per person. */
+function helpers(station: Station): Helper[] {
+  const latest = new Map<string, Helper>();
+  for (const i of station.feed) {
+    if (i.body?.kind !== 'contact' || !i.body.skills?.length) continue;
+    const key = `${i.src}:${i.body.name.toLowerCase()}`;
+    if (!latest.has(key)) latest.set(key, { key, name: i.body.name, phone: i.body.phone, note: i.body.note, skills: i.body.skills, at: i.at });
+  }
+  return [...latest.values()];
+}
+
+export function Safety({ station }: { station: Station }) {
+  const entries = station.roster();
+  const parcels = station.parcels();
+  const helping = helpers(station);
+  const [query, setQuery] = useState('');
+  const [heading, enableCompass] = useHeading();
+  const [err, setErr] = useState('');
+  const me = station.position;
+  const listening = station.status === 'listening';
+  const name = (e: RosterEntry) => e.latest.body.about ?? who(station, e.latest.src, e.latest.body.nick);
+  const by = (src: number, nick: string) => who(station, src, nick);
+  const shown = search(entries, query, name, NEED_TEXT);
+  const open = entries.filter((e) => e.open).length;
 
   const findMe = async () => {
     try {
       station.setPosition(await locate());
       setErr('');
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(message(e));
     }
   };
 
-  const listening = station.status === 'listening';
+  const spreadsheet = () => {
+    const csv = rosterCsv(entries, {
+      name: (e) => e.latest.body.about ?? named(station, e.latest.src, e.latest.body.nick),
+      by: (src, nick) => named(station, src, nick),
+      status: STATUS_TEXT,
+      need: NEED_TEXT,
+    });
+    download(new Blob([csv], { type: 'text/csv' }), `resonance-check-ins-${new Date().toISOString().slice(0, 16).replace(':', '')}.csv`);
+  };
+
   return (
     <div class="safety">
-      <div class="quick">
-        <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => void quick('safe')}>
-          {sending === 'safe' ? 'Sending…' : "I'm safe"}
-        </button>
-        <button type="button" class="big s-help" disabled={!listening || !!sending} onClick={() => void quick('help')}>
-          {sending === 'help' ? 'Sending…' : 'I need help'}
-        </button>
-      </div>
-      <p class="muted small">One tap broadcasts your status (with GPS if allowed) to everyone in earshot. Other devices relay it onward.</p>
-      {err && <p class="error small" role="alert">{err}</p>}
+      <FindPanel station={station} />
+      <CheckInCard station={station} />
+
+      {parcels.length > 0 && (
+        <section aria-labelledby="courier-title">
+          <h2 class="label" id="courier-title">
+            Pass on to family outside
+          </h2>
+          <p class="muted small">Got signal? Your own text or mail app opens with the message filled in; nothing goes until you tap Send there.</p>
+          <CourierList
+            parcels={parcels}
+            self={station.id}
+            name={(src, nick) => named(station, src, nick)}
+            passed={listening ? (p) => void station.sendReply(p.checkin, 'passed') : null}
+          />
+        </section>
+      )}
+
+      <section class="roster-section" aria-labelledby="roster-title">
+        <div class="section-head">
+          <h2 class="label" id="roster-title">
+            Check-ins{entries.length > 0 && ` · ${entries.length} ${entries.length === 1 ? 'person' : 'people'} · ${open} open ${open === 1 ? 'request' : 'requests'}`}
+          </h2>
+          {entries.length > 0 && (
+            <div class="row">
+              <input type="search" value={query} placeholder="Find a name, place or need" aria-label="Search check-ins" onInput={(e) => setQuery((e.target as HTMLInputElement).value)} />
+              <button type="button" class="ghost small" onClick={spreadsheet}>
+                <Download size={14} /> Spreadsheet
+              </button>
+              <button type="button" class="ghost small" onClick={() => window.print()}>
+                Print
+              </button>
+            </div>
+          )}
+        </div>
+        {entries.length === 0 ? (
+          <p class="empty small">No check-ins heard yet.</p>
+        ) : shown.length === 0 ? (
+          <p class="empty small">Nobody matches “{query}”.</p>
+        ) : (
+          <RosterList
+            entries={shown}
+            me={me}
+            self={station.id}
+            name={name}
+            by={by}
+            reply={listening ? (e, what) => void station.sendReply(e.latest, what) : null}
+            find={(e) => {
+              const n = e.latest.body.about ? undefined : station.mesh.neighbors.get(e.latest.src);
+              return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;
+            }}
+          />
+        )}
+      </section>
+
+      {helping.length > 0 && (
+        <section aria-labelledby="helpers-title">
+          <h2 class="label" id="helpers-title">
+            Who can help
+          </h2>
+          <HelperList helpers={helping} />
+        </section>
+      )}
 
       <section class="radar-wrap" aria-label="Who is where">
+        {err && (
+          <p class="error small" role="alert">
+            {err}
+          </p>
+        )}
         {me ? (
           <>
-            <Radar me={me} people={people} heading={heading} />
+            <Radar me={me} people={entries} heading={heading} name={name} />
             <div class="radar-actions">
               <button type="button" class="ghost small" onClick={() => void enableCompass()}>
                 <Compass size={14} /> {heading === null ? 'Turn with my compass' : `Heading ${Math.round(heading)}°`}
@@ -159,25 +290,6 @@ export function Safety({ station }: { station: Station }) {
           </div>
         )}
       </section>
-
-      <ul class="people">
-        {people.length === 0 && <li class="empty small">No check-ins heard yet.</li>}
-        {people.map((p) => {
-          const g = p.body.geo;
-          const d = g && me ? distanceM(me, g) : null;
-          const rel = g && me && d !== null ? (d < 10 ? 'right next to you' : `${formatDistance(d)} ${compassPoint(bearingDeg(me, g))}`) : g ? 'position attached' : 'no position';
-          return (
-            <li key={p.id} class={`s-${p.body.status}`}>
-              <span class="status-word">{STATUS_TEXT[p.body.status]}</span>
-              <span class="who">{who(station, p.src, p.body.nick)}</span>
-              <span class="muted small">
-                {rel} · sent {ago(writtenAt(p))}
-                {p.body.note && ` · ${p.body.note}`}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
