@@ -531,6 +531,29 @@ describe('what people say', () => {
     expect([entry.open, entry.coming]).toEqual([true, true]);
   });
 
+  it('opens sealed safety news the feed has let go of into the safety list, and leaves the feed as it was', async () => {
+    const { ben, frames } = await sealedNews();
+    await ben.m.say({ kind: 'notice', topic: 'water', hours: 24, place: 'Gym', text: 'Drinking water' });
+    const storage = new MemoryStorage();
+    const busy = new Station(air, 'phone', storage);
+    [...frames, frame(ben.out[1].bytes)].forEach((f) => busy.onFrame(f));
+    // A busy shelter: the feed keeps its newest 400 items, and saves 200 of them for a reload.
+    for (let i = 0; i < 400; i++) busy.onFrame(text(BEN, 100 + i, `chat ${i}`));
+    busy.save();
+    const reloaded = new Station(air, 'phone', storage);
+    vi.setSystemTime(T0 + 60_000);
+    for (const s of [busy, reloaded]) {
+      expect(s.journal.feed.some((i) => i.locked)).toBe(false);
+      const feed = s.journal.feed.map((i) => i.id);
+      await s.setPassphrase(CIRCLE);
+      const [entry] = s.journal.roster();
+      expect(entry?.latest).toMatchObject({ src: ben.m.id, at: T0, encrypted: true, body: { status: 'help' } });
+      expect([entry.open, entry.coming]).toEqual([true, true]);
+      expect(s.journal.notices().map((n) => n.body.text)).toEqual(['Drinking water']);
+      expect(s.journal.feed.map((i) => i.id)).toEqual(feed);
+    }
+  });
+
   it('a sealed file heard before joining comes whole once joined', async () => {
     const ben = await member('Ben');
     const data = new TextEncoder().encode('Open shelters tonight: St Thomas church hall, 40 beds. '.repeat(6));

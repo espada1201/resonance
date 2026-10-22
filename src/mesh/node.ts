@@ -1,3 +1,4 @@
+import { type CheckInBody, type Heard, superseded } from '../roster';
 import { Bloom, sliceOf } from './bloom';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket, peekType } from './packet';
 import { decodeBody, encodeBody } from './payloads';
@@ -124,10 +125,30 @@ const NOT_AIRED = Infinity;
 
 /** Check-ins, the replies to them and notices: someone who turns up on day two still learns who checked in on day one. */
 const LASTING = new Set<PacketType | null>([PacketType.CheckIn, PacketType.Reply, PacketType.Notice]);
+export const isLasting = (bytes: Uint8Array) => LASTING.has(peekType(bytes));
 
 export const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
 const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
 const wantsReceipt = (p: Packet) => p.ackRequested && p.dst !== BROADCAST;
+
+/**
+ * The oldest check-in in `lasting` (oldest first) that a newer one from the same device about the same
+ * person supersedes. A sealed one cannot be read, so it never counts as superseded; one a reply answers
+ * stays, or newcomers would get the reply answering nothing.
+ */
+function supersededCheckIn(lasting: Array<[string, StoredPacket]>) {
+  const news = lasting.map(([, s]) => readable(s)).filter((h) => h !== null);
+  const answered = new Set(news.map((h) => h.body).filter((b) => b.kind === 'reply').map(storeKey));
+  const checkIns = news.filter((h): h is Heard<CheckInBody> => h.body.kind === 'checkin');
+  return superseded(checkIns).map(storeKey).find((k) => !answered.has(k));
+}
+
+/** What a stored packet says, as the roster would hold it; null if it is sealed or garbled. */
+function readable(s: StoredPacket): Heard | null {
+  const p = decodePacket(s.bytes)!;
+  const body = p.encrypted ? null : decodeBody(p.type, p.body);
+  return body && { src: p.src, msgId: p.msgId, at: s.firstHeard, hops: 0, encrypted: false, body };
+}
 
 export class MeshNode {
   readonly store = new Map<string, StoredPacket>();
@@ -393,7 +414,7 @@ export class MeshNode {
   }
 
   private keepMs(bytes: Uint8Array) {
-    return LASTING.has(peekType(bytes)) ? this.config.lastingTtlMs : this.config.storeTtlMs;
+    return isLasting(bytes) ? this.config.lastingTtlMs : this.config.storeTtlMs;
   }
 
   /**
@@ -463,12 +484,19 @@ export class MeshNode {
     const k = storeKey(p);
     if (this.store.has(k)) return;
     this.store.set(k, { bytes: encodePacket({ ...p, hops: 0, attempt: 0 }), firstHeard: this.clock.now(), lastPushed: -Infinity, queued });
-    if (this.store.size > this.config.storeLimit) {
-      const oldestFirst = [...this.store].sort(([, a], [, b]) => a.firstHeard - b.firstHeard);
-      const lasting = ([, s]: [string, StoredPacket]) => LASTING.has(peekType(s.bytes));
-      const dropLasting = oldestFirst.filter(lasting).length > this.config.storeLimit * LASTING_SHARE;
-      this.store.delete(oldestFirst.find((e) => lasting(e) === dropLasting)![0]);
-    }
+    if (this.store.size > this.config.storeLimit) this.store.delete(this.leastNeeded());
+  }
+
+  /**
+   * What a full store forgets: the oldest chat or file chunk while lasting news fits its share. Past
+   * that, a superseded check-in goes before the oldest lasting news, so one person's only check-in is
+   * not lost to everyone else checking in again.
+   */
+  private leastNeeded() {
+    const oldestFirst = [...this.store].sort(([, a], [, b]) => a.firstHeard - b.firstHeard);
+    const lasting = oldestFirst.filter(([, s]) => isLasting(s.bytes));
+    if (lasting.length <= this.config.storeLimit * LASTING_SHARE) return oldestFirst.find(([, s]) => !isLasting(s.bytes))![0];
+    return supersededCheckIn(lasting) ?? lasting[0][0];
   }
 
   private alone(now: number) {

@@ -44,7 +44,7 @@ Any output means rerun the check and follow "Keeping it in step".
 
 | File | What the check covers | How |
 | --- | --- | --- |
-| `src/mesh/node.ts` | `MeshNode`: `originate`, `awaitAnswer`, `aired`, `receive`, `hello`, `onAck`, `onHello`, `lackedBy`, `carry`, `feedNeighbors`, `tick`, `alone`, `schedule`, `remember`, `sendAck`, `touchNeighbor`, `keepMs`, `ackTimeout`, `echoTimeout`, `pruneSeen` (below its 4000 entries only) | runs the real code |
+| `src/mesh/node.ts` | `MeshNode`: `originate`, `awaitAnswer`, `aired`, `receive`, `hello`, `onAck`, `onHello`, `lackedBy`, `carry`, `feedNeighbors`, `tick`, `alone`, `schedule`, `remember`, `leastNeeded` (a store full of chat only), `sendAck`, `touchNeighbor`, `keepMs`, `ackTimeout`, `echoTimeout`, `pruneSeen` (below its 4000 entries only) | runs the real code |
 | `src/mesh/packet.ts` | `encodePacket`, `decodePacket`, `peekType` | runs the real code |
 | `src/mesh/payloads.ts` | `encodeBody`, `decodeBody` | runs the real code |
 | `src/mesh/bloom.ts` | `Bloom`, `sliceOf` (the HELLO summary) | runs the real code |
@@ -132,6 +132,7 @@ A new scenario should stay under about 5 s and 40,000 states. To size one, log `
 - Three nodes meeting: 201,048 states and 49 s with relays off; out of memory with relays on.
 - A newcomer saying hello again after the 90 s cooldown: out of memory under Vitest (over 70,000 states).
 - Relays during a meeting; `feedNeighbors` batches after the first three; stores bigger than one HELLO slice (40 ids); the `UNPROVEN_FEED` budget.
+- A store over its share of lasting news, where `leastNeeded` drops a superseded check-in (`supersededCheckIn`, with `superseded` from src/roster.ts) or else the oldest lasting news. Only the known finding fills a store, and with chat.
 - Busy air long enough for `MAX_DEFER_MS` to release a held relay; more than one busy tick.
 - `answer()`, `hydrate()`, `Station.wipe()`, `pruneSeen` past 4000 entries, and times past 12 h or 72 h outside the known-finding scenarios.
 - More than four nodes, more than two losses (three in the two-node echo scenario), other random draws.

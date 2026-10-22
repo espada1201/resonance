@@ -46,7 +46,7 @@ export class Journal {
   add(meta: Meta, body: Said | 'locked') {
     // Picked, not spread: a feed item passed in as its own arrival record would bring its feed state along.
     const { src, msgId, at, hops, encrypted, dst } = meta;
-    if (body !== 'locked' && this.log.add({ src, msgId, at, hops, encrypted, body })) this.log.prune(this.clock.now());
+    if (body !== 'locked') this.addToLog(meta, body);
     const id = `${src}:${msgId}`;
     const i = this.feed.findIndex((x) => x.id === id);
     if (i >= 0 && !(this.feed[i].locked && body !== 'locked')) return;
@@ -60,6 +60,12 @@ export class Journal {
       if (item) this.feed[i] = item;
       else this.feed.splice(i, 1);
     } else if (item) this.feed = [item, ...this.feed].slice(0, FEED_KEPT);
+  }
+
+  /** Safety news for the log alone: opened after the feed let its locked item go, it must not come back at the top of the feed. */
+  addToLog(meta: Meta, body: Said) {
+    const { src, msgId, at, hops, encrypted } = meta;
+    if (this.log.add({ src, msgId, at, hops, encrypted, body })) this.log.prune(this.clock.now());
   }
 
   /** A file's item, the first time we meet any chunk of it (or send it). */

@@ -4,7 +4,7 @@ import type { AirTransport } from './audio/transport';
 import { type FeedItem, Journal, type Meta } from './journal';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
 import { FILE_REQUEST_TTL, type FileRequest, FileTransfer, chunkFile } from './mesh/files';
-import { MeshNode, storeKey } from './mesh/node';
+import { MeshNode, isLasting, storeKey } from './mesh/node';
 import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, nodeHex, peekType, randomNodeId, randomU32 } from './mesh/packet';
 import { type Body, type ContentBody, type Geo, type ReplyKind, decodeBody, encodeBody, isContent, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
@@ -503,17 +503,24 @@ export class Station {
     this.changed();
     if (!circle) return;
     for (const item of this.journal.feed.filter((i) => i.locked)) await this.openHeld(circle, item.id, item);
-    for (const [k, s] of this.mesh.store) if (!showsLocked(peekType(s.bytes))) await this.openHeld(circle, k);
+    // File chunks make no locked item, and safety news outlives its own: the store keeps it for days.
+    for (const [k, s] of this.mesh.store) if (!showsLocked(peekType(s.bytes)) || isLasting(s.bytes)) await this.openHeld(circle, k);
     this.changed();
   }
 
-  /** Opens a sealed packet in the store with a circle just joined; `meta` is its locked item's, if it has one. */
+  /**
+   * Opens a sealed packet in the store with a circle just joined; `meta` is its locked item's, if the
+   * feed still has one. Safety news the feed no longer shows goes to the safety log alone.
+   */
   private async openHeld(circle: Circle, key: string, meta?: Meta) {
     const stored = this.mesh.store.get(key);
     const p = stored && decodePacket(stored.bytes);
     const plain = p?.encrypted && (await open(circle, p));
     const body = p && plain && decodeBody(p.type, plain);
-    if (body) this.record(meta ?? { ...met(p), at: stored.firstHeard }, p, body);
+    if (!body) return;
+    const arrived = meta ?? { ...met(p), at: stored.firstHeard };
+    if (meta || body.kind === 'file') this.record(arrived, p, body);
+    else if (isContent(body) || body.kind === 'reply') this.journal.addToLog(arrived, body);
   }
 
   private scheduleSave() {

@@ -23,3 +23,4 @@ Preconditions: none beyond the baseline.
 
 - The beacon page sends only notices. Send messages and check-ins from a phone tab.
 - Its list is for reading across a room: answer requests from a phone.
+- It holds 300 packets. Once check-ins, replies and notices fill their share, it first lets go of a check-in that a later one from the same phone about the same person replaced, unless a reply answers it, so someone who checked in once is still handed on while others check in again and again. A sealed check-in is never taken as replaced. Proved by the unit tests `a full store forgets check-ins that later ones replaced`, `a full store never counts as replaced` and `an older check-in carried in late` in src/mesh/mesh.test.ts.

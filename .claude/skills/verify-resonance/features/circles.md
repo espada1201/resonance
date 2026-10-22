@@ -23,4 +23,5 @@ Preconditions: none beyond the baseline.
 
 - Deriving the key takes a moment (PBKDF2, 600,000 rounds). Wait for the settings line `are sealed with AES-256-GCM` before sending. After a reload, anything sent waits for the key to be made again, and where it cannot be made (a plain http page) sending is refused with `Your circle could not be joined in this browser`, never done in the open. Proved by the unit tests `after a reload, says nothing until the circle key` and `refuses to say anything in the open` in src/station.test.ts.
 - A sealed file's chunks make no feed item until the circle is joined: look for `file chunk from` in the air log.
+- The feed keeps its newest 400 items (200 across a reload), but a device carries check-ins, replies and notices for three days. Joining opens those too: a sealed check-in whose sealed item has left the feed still reaches the Safety list, and a sealed notice is pinned, without either coming back into the feed. Proved by the unit test `opens sealed safety news the feed has let go of` in src/station.test.ts.
 - Encryption needs a secure page. `localhost` counts; a LAN address over plain http does not.

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { rng } from '../modem/channel-sim';
+import type { CheckInBody } from '../roster';
 import { Bloom, MAX_BLOOM_IDS } from './bloom';
 import { deriveCircle, open, seal } from './crypto';
 import { MAX_FILE_BYTES, chunkFile } from './files';
@@ -478,6 +479,12 @@ describe('how long news lasts', () => {
     encodePacket({ type: typeOf[body.kind], encrypted: false, ackRequested: false, msgId, src: 99, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(body) });
   const farCheckIn = (msgId: number) => far(msgId, { kind: 'checkin', ts: 1, nick: 'ana', status: 'help', note: '' });
   const HOUR = 3600_000;
+  const DAY_ONE = Date.parse('2026-10-20T08:00:00Z');
+  /** A packet from `src` as a neighbour relayed it, sealed for a circle if `sealed`. */
+  const relayedFrom = (src: number, msgId: number, body: Body, sealed = false) =>
+    encodePacket({ type: typeOf[body.kind], encrypted: sealed, ackRequested: false, msgId, src, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: sealed ? 9 : 0, body: encodeBody(body) });
+  /** A check-in written at `ms` by its sender's clock. */
+  const checkIn = (ms: number, more: Partial<CheckInBody> = {}): Body => ({ kind: 'checkin', ts: ms / 1000, nick: 'ana', status: 'safe', note: '', ...more });
 
   it('keeps check-ins, replies to them and notices for three days, and chat for twelve hours', () => {
     // An outage runs for days: someone who arrives on day two still learns who checked in on day one.
@@ -596,6 +603,68 @@ describe('how long news lasts', () => {
     n.aired(out.at(-1)!);
     expect([...n.store.keys()].sort()).toEqual(['1:77', '99:21', '99:22', '99:23', '99:24']);
     expect(n.answer(1, 77)).toBe(true);
+  });
+
+  it("a full store forgets check-ins that later ones replaced before anyone's only one", () => {
+    // At a shelter people check in again and again, and a beacon's room for lasting news fills within
+    // a day. Whoever asked for help once, early on, must still reach a responder who comes on day two.
+    let t = DAY_ONE;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    n.config.storeLimit = 10;
+    n.receive(relayedFrom(40, 1, checkIn(t, { status: 'help' })));
+    let msgId = 2;
+    for (let round = 0; round < 4; round++) {
+      for (const src of [41, 42, 43]) {
+        t += 10 * 60_000;
+        n.receive(relayedFrom(src, msgId++, checkIn(t)));
+      }
+    }
+    expect([...n.store.keys()]).toEqual(['40:1', '41:5', '42:6', '43:7', '41:8', '42:9', '43:10', '41:11', '42:12', '43:13']);
+  });
+
+  it('a full store never counts as replaced a sealed check-in, one about someone else, or one a reply answers', () => {
+    let t = DAY_ONE;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    n.config.storeLimit = 10;
+    const hear = (src: number, msgId: number, body: Body, sealed = false) => {
+      t += 60_000;
+      n.receive(relayedFrom(src, msgId, body, sealed));
+    };
+    // Eve's two are sealed for a circle: whatever their bytes would say, only the circle can read them.
+    hear(50, 1, checkIn(t), true);
+    // Fay checks in two people without phones, and one of them again under the name typed another way.
+    hear(51, 2, checkIn(t, { about: 'María  López', status: 'help' }));
+    hear(51, 3, checkIn(t, { about: 'Mr Ito' }));
+    // Gus asks for help, Hal is on his way to that ask, and Gus asks again.
+    hear(52, 4, checkIn(t, { status: 'help' }));
+    hear(53, 5, { kind: 'reply', ts: t / 1000, nick: 'hal', what: 'coming', src: 52, msgId: 4 });
+    hear(50, 6, checkIn(t), true);
+    hear(52, 7, checkIn(t, { status: 'help' }));
+    hear(51, 8, checkIn(t, { about: 'Mrs Ito' }));
+    hear(51, 9, checkIn(t, { about: 'maria lopez' }));
+    hear(54, 10, checkIn(t));
+    hear(54, 11, checkIn(t));
+    expect(n.store.has('51:2')).toBe(false);
+    hear(55, 12, checkIn(t));
+    expect(n.store.has('54:10')).toBe(false);
+    // Nothing left that a later check-in replaced and no reply answers: the oldest lasting news goes.
+    hear(56, 13, checkIn(t));
+    expect([...n.store.keys()]).toEqual(['51:3', '52:4', '53:5', '50:6', '52:7', '51:8', '51:9', '54:11', '55:12', '56:13']);
+  });
+
+  it('an older check-in carried in late does not take the place of the newer one heard before it', () => {
+    // A beacon hands a newcomer its newest news first, so someone's older check-in can follow their newer one.
+    let t = DAY_ONE + 2 * HOUR;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    n.config.storeLimit = 3;
+    n.receive(relayedFrom(41, 1, checkIn(t)));
+    t += 60_000;
+    n.receive(relayedFrom(41, 2, checkIn(DAY_ONE, { status: 'help' })));
+    t += 60_000;
+    n.receive(relayedFrom(42, 3, checkIn(t)));
+    t += 60_000;
+    n.receive(relayedFrom(43, 4, checkIn(t)));
+    expect([...n.store.keys()]).toEqual(['41:1', '42:3', '43:4']);
   });
 });
 

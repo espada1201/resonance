@@ -111,6 +111,16 @@ export const rosterKey = (c: Heard<CheckInBody>) => (c.body.about ? `name:${c.sr
 /** Newest by the sender's own clock: an old "I need help" carried in from another room must not hide a newer "I'm safe". */
 const newer = (a: Heard<CheckInBody>, b: Heard<CheckInBody>) => sentAt(a) > sentAt(b) || (sentAt(a) === sentAt(b) && a.at > b.at);
 
+/** Check-ins whose place in the roster a newer one from the same device about the same person has taken. */
+export function superseded(checkins: Heard<CheckInBody>[]): Heard<CheckInBody>[] {
+  const latest = new Map<string, Heard<CheckInBody>>();
+  for (const c of checkins) {
+    const prev = latest.get(rosterKey(c));
+    if (!prev || newer(c, prev)) latest.set(rosterKey(c), c);
+  }
+  return checkins.filter((c) => newer(latest.get(rosterKey(c))!, c));
+}
+
 /**
  * One entry per person (and per reporter, for someone checked in by others), in the order a
  * responder works through them: open requests nobody is coming to (longest waiting first), then
