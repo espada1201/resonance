@@ -45,6 +45,14 @@ button.small {
   padding: 0 10px;
   font-size: 13px;
 }
+/* A finger, maybe gloved or shaking, needs the 44 px that phone makers ask for. */
+@media (pointer: coarse) {
+  .small.ghost,
+  button.small {
+    min-height: 44px;
+    padding: 0 14px;
+  }
+}
 .ghost {
   border-color: var(--line-strong);
 }
