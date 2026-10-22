@@ -1,10 +1,15 @@
 import { render } from 'preact';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { MicTransport, SimulatedAir } from './audio/transport';
+import { MAX_NICK } from './mesh/payloads';
 import { Station, nodeHex } from './station';
 import { AirLog, AirStatus, Waterfall } from './ui/air';
+import { named } from './ui/feed';
+import { fitInput } from './ui/format';
 import { useMedia, useStation, useTicker } from './ui/hooks';
 import { Logo, Mic } from './ui/icons';
+import { NoticeBoard, type NoticeDraft, NoticeFields, newNotice } from './ui/notices';
+import { RosterList, headcount } from './ui/roster';
 import './ui/styles.css';
 
 // A laptop left in a hallway: listens forever, relays everything, and hands stored messages
@@ -14,10 +19,54 @@ const params = new URLSearchParams(location.search);
 const sim = params.get('air') === 'sim';
 const [x = 0, y = 0] = (params.get('at') ?? '').split(',').map(Number).filter(Number.isFinite);
 const station = new Station(sim ? new SimulatedAir({ x, y }) : new MicTransport(), 'beacon', sim ? null : undefined);
+// Its notices are signed with this, as a person's are with their nickname.
+if (!station.settings.nick) station.update({ nick: 'Beacon' });
 
 function uptime(ms: number) {
   const m = Math.floor(ms / 60_000);
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+/** A notice from the desk the beacon sits on: water, food, danger, for everyone in earshot. */
+function NoticeForm() {
+  const [notice, setNotice] = useState<NoticeDraft>(newNotice);
+  const [err, setErr] = useState('');
+  const [working, setWorking] = useState(false);
+  const room = station.budget({ kind: 'notice', ...notice }).left;
+
+  async function submit(e: Event) {
+    e.preventDefault();
+    setWorking(true);
+    setErr('');
+    try {
+      await station.say({ kind: 'notice', ...notice, place: notice.place.trim(), text: notice.text.trim() });
+      setNotice(newNotice());
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : String(x));
+    }
+    setWorking(false);
+  }
+
+  return (
+    <form class="beacon-notice" aria-labelledby="notice-title" onSubmit={submit}>
+      <h2 class="label" id="notice-title">
+        Post a notice
+      </h2>
+      <label class="field">
+        <span class="label">Sign as</span>
+        <input value={station.settings.nick} maxLength={MAX_NICK} onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })} />
+      </label>
+      <NoticeFields draft={notice} set={(patch) => setNotice((d) => ({ ...d, ...patch }))} room={room} />
+      <button type="submit" class="primary" disabled={working || !notice.text.trim() || room < 0}>
+        {working ? 'Posting…' : 'Post notice'}
+      </button>
+      {err && (
+        <p class="error small" role="alert">
+          {err}
+        </p>
+      )}
+    </form>
+  );
 }
 
 function Beacon() {
@@ -29,6 +78,8 @@ function Beacon() {
   }, []);
   const m = station.mesh.stats;
   const live = station.status === 'listening';
+  const entries = station.journal.roster();
+  const by = (src: number, nick: string) => named(station, src, nick);
   const cells: Array<[string, string | number]> = [
     ['Heard', m.heard],
     ['Relayed', m.relayed],
@@ -66,6 +117,7 @@ function Beacon() {
             </button>
           </section>
         )}
+        <NoticeBoard large notices={station.journal.notices()} by={by} />
         <dl class="stats huge">
           {cells.map(([k, v]) => (
             <div key={k}>
@@ -74,6 +126,25 @@ function Beacon() {
             </div>
           ))}
         </dl>
+        <section aria-labelledby="roster-title">
+          <h2 class="label" id="roster-title">
+            Check-ins{entries.length > 0 && ` · ${headcount(entries)}`}
+          </h2>
+          {entries.length === 0 ? (
+            <p class="empty small">No check-ins heard yet.</p>
+          ) : (
+            <RosterList
+              entries={entries}
+              me={null}
+              self={station.id}
+              name={(e) => e.latest.body.about ?? by(e.latest.src, e.latest.body.nick)}
+              by={by}
+              reply={null}
+              find={() => null}
+            />
+          )}
+        </section>
+        {live && <NoticeForm />}
         <Waterfall station={station} height={260} />
         <AirLog events={station.air} limit={40} />
       </main>

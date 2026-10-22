@@ -684,6 +684,11 @@ input[type='radio'] {
   gap: 8px;
   padding: 12px 16px;
 }
+.link-doctor {
+  margin: 0;
+  padding: 0 16px 12px;
+  overflow-wrap: anywhere;
+}
 .air-status {
   display: flex;
   align-items: center;
@@ -1219,6 +1224,11 @@ input[aria-invalid='true'] {
 }
 .beacon-page .waterfall {
   padding: 0;
+}
+.beacon-notice {
+  display: grid;
+  gap: 10px;
+  max-width: 640px;
 }
 .stats.huge {
   margin: 0;

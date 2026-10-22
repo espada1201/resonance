@@ -9,7 +9,7 @@ import { download, named, who } from './feed';
 import { FindPanel } from './find';
 import { NEED_TEXT, STATUS_TEXT } from './format';
 import { Compass, Download, Pin } from './icons';
-import { type Helper, HelperList, RosterList } from './roster';
+import { type Helper, HelperList, RosterList, headcount } from './roster';
 
 const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
@@ -176,7 +176,6 @@ export function Safety({ station }: { station: Station }) {
   const name = (e: RosterEntry) => e.latest.body.about ?? who(station, e.latest.src, e.latest.body.nick);
   const by = (src: number, nick: string) => who(station, src, nick);
   const shown = search(entries, query, name, NEED_TEXT);
-  const open = entries.filter((e) => e.open).length;
 
   const answer = (to: RosterEntry['latest'], what: ReplyKind) =>
     station.reply(to, what).then(
@@ -226,7 +225,7 @@ export function Safety({ station }: { station: Station }) {
       <section class="roster-section" aria-labelledby="roster-title">
         <div class="section-head">
           <h2 class="label" id="roster-title">
-            Check-ins{entries.length > 0 && ` · ${entries.length} ${entries.length === 1 ? 'person' : 'people'} · ${open} open ${open === 1 ? 'request' : 'requests'}`}
+            Check-ins{entries.length > 0 && ` · ${headcount(entries)}`}
           </h2>
           {entries.length > 0 && (
             <div class="row">

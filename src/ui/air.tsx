@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { PROFILES, type ProfileId, bandHz } from '../modem/profiles';
 import type { AirEvent, Station } from '../station';
 import { clock, seconds } from './format';
+import { LinkDoctor } from './links';
 
 // The waterfall shows the two slices of the spectrum Resonance actually uses, side by side,
 // newest sound at the top. It is the app's way of making the invisible visible.
@@ -228,6 +229,7 @@ export function AirPanel({ station, announce = false }: { station: Station; anno
         <span class="label">The air</span>
         <AirStatus station={station} announce={announce} />
       </div>
+      {station.status === 'listening' && <LinkDoctor station={station} />}
       <Waterfall station={station} />
       <AirStats station={station} />
       <div class="air-log-wrap">

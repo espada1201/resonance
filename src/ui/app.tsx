@@ -71,7 +71,7 @@ export function App({ station }: { station: Station }) {
   const tabs: Tab[] = wide ? ['feed', 'safety', 'people', 'settings'] : ['feed', 'safety', 'air', 'people', 'settings'];
   const current: Tab = !wide || tab !== 'air' ? tab : 'feed';
   const live = station.status === 'listening';
-  const urgent = station.journal.roster().filter((e) => e.open).length;
+  const open = station.journal.roster().filter((e) => e.open).length;
 
   const messageNode = (id: number) => {
     setDst(id);
@@ -103,10 +103,11 @@ export function App({ station }: { station: Station }) {
             aria-selected={current === t}
             aria-controls="section"
             tabIndex={current === t ? 0 : -1}
+            aria-label={t === 'safety' && open > 0 ? `Safety, ${open} open request${open > 1 ? 's' : ''}` : undefined}
             onClick={() => setTab(t)}
           >
             {TAB_TEXT[t]}
-            {t === 'safety' && urgent > 0 && <span class="badge" aria-label={`${urgent} need help`}>{urgent}</span>}
+            {t === 'safety' && open > 0 && <span class="badge">{open}</span>}
           </button>
         ))}
       </nav>

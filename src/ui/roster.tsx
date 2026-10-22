@@ -31,6 +31,12 @@ interface RosterProps {
   find: (e: RosterEntry) => (() => void) | null;
 }
 
+/** "3 people · 1 open request" */
+export function headcount(entries: RosterEntry[]) {
+  const open = entries.filter((e) => e.open).length;
+  return `${entries.length} ${entries.length === 1 ? 'person' : 'people'} · ${open} open ${open === 1 ? 'request' : 'requests'}`;
+}
+
 /** Everyone's latest check-in, in the order a responder works through them. */
 export function RosterList({ entries, me, self, name, by, reply, find }: RosterProps) {
   return (
