@@ -74,6 +74,12 @@ export function Settings({ station }: { station: Station }) {
               <span class="muted small">
                 {PROFILE_TEXT[id]} Raw rate {Math.round(rawBitrate(PROFILES[id]))} bit/s before error correction.
               </span>
+              {!station.playable(id) && (
+                <span class="hint-warn small">
+                  Not available right now: this device's audio runs too slow for these tones, as it does with a Bluetooth headset. Everything goes
+                  out in Audible instead; disconnect the headset and reload to use this mode.
+                </span>
+              )}
             </span>
           </label>
         ))}

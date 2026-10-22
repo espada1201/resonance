@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { magnitudeSpectrum } from '../modem/dsp';
 import { PingDetector } from '../modem/ping';
-import { PROFILES } from '../modem/profiles';
+import { PROFILES, playableAt } from '../modem/profiles';
 import { Receiver } from '../modem/receiver';
 import type { FromWorker, ToWorker } from './protocol';
 
@@ -23,7 +23,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   const m = e.data;
   if (m.type === 'init') {
     const fs = m.sampleRate;
-    rx = new Receiver(fs, Object.values(PROFILES), {
+    // Tones above half the sample rate fold down onto the others: listen only for those this rate can carry.
+    rx = new Receiver(fs, Object.values(PROFILES).filter((p) => playableAt(p, fs)), {
       frame: (f) => post({ type: 'frame', frame: f }),
       sync: (profile) => post({ type: 'sync', profile }),
       lost: (profile, stage) => post({ type: 'lost', profile, stage }),

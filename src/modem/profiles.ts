@@ -114,3 +114,6 @@ export const bandHz = (p: Profile): [number, number] =>
   p.kind === 'mfsk'
     ? [p.baseHz, p.baseHz + p.binHz * (p.hopSets * p.groups * TONES_PER_GROUP - 1)]
     : [p.firstHz, p.firstHz + (p.carriers - 1) / p.fftSec];
+
+/** Whether audio running at `fs` samples a second can carry every tone of `p`, chirps included: each must sit below half the rate. */
+export const playableAt = (p: Profile, fs: number) => Math.max(bandHz(p)[1], p.chirpHighHz) < fs / 2;

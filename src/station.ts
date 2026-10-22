@@ -10,7 +10,7 @@ import { type Body, type ContentBody, type Geo, type ReplyKind, decodeBody, enco
 import { TxQueue } from './mesh/radio';
 import { MAX_PAYLOAD } from './modem/framing';
 import { airtimeSec, modulate } from './modem/modulator';
-import { PROFILES, type ProfileId } from './modem/profiles';
+import { PROFILES, type ProfileId, playableAt } from './modem/profiles';
 import type { DecodedFrame } from './modem/receiver';
 import { SavedState, loadStore, safeStorage, saveStore } from './persist';
 import { Ranger } from './ranger';
@@ -286,8 +286,18 @@ export class Station {
     this.changed();
   }
 
+  /** Whether this device's audio can carry a mode. A Bluetooth headset can hold it to 16 or 24 kHz, too slow for near-ultrasonic. */
+  playable(id: ProfileId) {
+    return !this.link.sampleRate || playableAt(PROFILES[id], this.link.sampleRate);
+  }
+
+  /** The mode frames go out in: the one chosen, or Audible while the audio cannot carry it. */
+  private get sendProfile(): ProfileId {
+    return this.playable(this.settings.profile) ? this.settings.profile : 'audible';
+  }
+
   private async sendFrame(bytes: Uint8Array) {
-    const profile = this.settings.profile;
+    const profile = this.sendProfile;
     const fs = this.link.sampleRate || 48000;
     const p = decodePacket(bytes);
     const label = p ? `${PACKET_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
@@ -348,12 +358,12 @@ export class Station {
   /** Bytes left in the packet (below 0: over by that many) and seconds on air, for the draft as it would go now. */
   budget(draft: Draft) {
     const n = this.packetBytes(this.stamp(draft));
-    return { left: MAX_PAYLOAD - n, seconds: airtimeSec(PROFILES[this.settings.profile], Math.min(MAX_PAYLOAD, n)) };
+    return { left: MAX_PAYLOAD - n, seconds: airtimeSec(PROFILES[this.sendProfile], Math.min(MAX_PAYLOAD, n)) };
   }
 
   /** About how long a file takes to reach a room. Measured with three devices: each chunk costs about 3 × its airtime + 3.9 s. */
   fileSeconds(size: number) {
-    const profile = PROFILES[this.settings.profile];
+    const profile = PROFILES[this.sendProfile];
     return chunkFile(0, { name: '', mime: '' }, new Uint8Array(size)).reduce((s, c) => s + 3 * airtimeSec(profile, this.packetBytes(c)) + 3.9, 0);
   }
 

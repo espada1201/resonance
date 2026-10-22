@@ -64,7 +64,7 @@ class LoggedWorker extends StubWorker {
 const INIT = { type: 'init', sampleRate: 48000 };
 
 /** A station listening to a room whose speaker takes as long as the sound; the mute tail is 150 + 250 ms. */
-async function listening(opts: { failStart?: Error; storage?: Storage } = {}) {
+async function listening(opts: { failStart?: Error; storage?: Storage; rate?: number } = {}) {
   vi.spyOn(Math, 'random').mockReturnValue(0.5);
   vi.stubGlobal('Worker', LoggedWorker);
   workers = [];
@@ -80,7 +80,7 @@ async function listening(opts: { failStart?: Error; storage?: Storage } = {}) {
       workersAtStart = workers.length;
       if (opts.failStart) throw opts.failStart;
       mic = onSamples;
-      return 48000;
+      return opts.rate ?? 48000;
     },
     play(wave, fs) {
       const p = { at: ms(), ms: Math.round((wave.length / fs) * 1000) };
@@ -716,5 +716,19 @@ describe('decoder worker and mute', () => {
     const onPing = vi.spyOn(s.ranger, 'onPing');
     worker().say({ type: 'ping', pos: 1234, rho: 0.5 });
     expect(onPing).toHaveBeenCalledWith(1234, 0.5);
+  });
+});
+
+describe('transmit mode', () => {
+  it('sends in Audible while the audio runs too slow for the chosen mode, as a Bluetooth headset makes it', async () => {
+    const { s } = await listening({ rate: 16_000 });
+    s.update({ profile: 'ultrasonic' });
+    expect((['audible', 'fast', 'ultrasonic'] as const).map((id) => s.playable(id))).toEqual([true, true, false]);
+    await s.say({ kind: 'text', text: 'Anyone on floor 3?' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    const tx = s.air.filter((e) => e.dir === 'tx');
+    expect(tx.map((e) => e.label)).toContain('message');
+    expect(tx.every((e) => e.profile === 'audible')).toBe(true);
+    expect(s.budget({ kind: 'text', text: 'Anyone on floor 3?' }).seconds).toBeLessThan(5);
   });
 });
