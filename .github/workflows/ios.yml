@@ -2,7 +2,7 @@ name: iPhone app
 
 # Builds the native iPhone app with xtool, with no Mac of our own. GitHub's Mac machine lends the
 # parts of its Xcode that make up the iOS SDK, a Linux machine turns them into xtool's SDK and
-# builds the .ipa, and a simulated iPhone opens the app.
+# builds the .ipa and a simulator build, and a simulated iPhone opens the app.
 on:
   push:
     paths: [ios/**, src/**, public/**, '*.html', package.json, package-lock.json, vite.config.ts, .github/workflows/ios.yml]
@@ -89,22 +89,19 @@ jobs:
         working-directory: ios
         run: |
           xtool dev build --ipa --configuration release
-          xtool dev generate-xcode-project
-          find xtool -maxdepth 2
+          unzip -l xtool/Resonance.ipa | grep -E 'Info.plist|Resonance$|index.html|AppIcon'
+          # The same app for the simulated iPhone check: Apple-silicon simulators run arm64 builds.
+          xtool dev build --triple arm64-apple-ios17.0-simulator
+          tar -czf Resonance-simulator.tar.gz -C xtool Resonance.app
       - uses: actions/upload-artifact@v4
         with:
           name: Resonance-ipa-unsigned
           path: ios/xtool/*.ipa
           retention-days: 14
-      # The simulator check builds from the project xtool writes, with the web app already inside.
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-project
-          path: |
-            ios
-            !ios/.build
-            !ios/xtool/*.ipa
-            !ios/xtool/*.app
+          name: simulator-app
+          path: ios/Resonance-simulator.tar.gz
           retention-days: 3
 
   simulator:
@@ -114,17 +111,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: ios-project
-          path: ios
-      - name: Build for the simulator from xtool's project
-        run: |
-          project=$(find ios/xtool -maxdepth 1 -name '*.xcodeproj' | head -1)
-          scheme=$(xcodebuild -list -json -project "$project" | python3 -c "import json,sys; p=json.load(sys.stdin)['project']; print(p['schemes'][0])")
-          echo "Project $project, scheme $scheme"
-          xcodebuild -project "$project" -scheme "$scheme" -sdk iphonesimulator -configuration Debug -derivedDataPath dd CODE_SIGNING_ALLOWED=NO build -quiet
-          app=$(find dd/Build/Products -maxdepth 2 -name '*.app' | head -1)
-          codesign --force --deep --sign - "$app"
-          echo "APP=$PWD/$app" >> "$GITHUB_ENV"
+          name: simulator-app
+      - run: |
+          tar -xzf Resonance-simulator.tar.gz
+          codesign --force --deep --sign - Resonance.app
+          echo "APP=$PWD/Resonance.app" >> "$GITHUB_ENV"
       - name: Open it on a simulated iPhone
         run: |
           udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print([x['udid'] for r in sorted(d, reverse=True) if 'iOS' in r for x in d[r] if x['name'].startswith('iPhone')][0])")
