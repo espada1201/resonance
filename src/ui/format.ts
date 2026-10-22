@@ -1,4 +1,5 @@
-import { type Status, fitUtf8 } from '../mesh/payloads';
+import { type Need, type ReplyKind, type Skill, type Status, type Topic, fitUtf8 } from '../mesh/payloads';
+import type { Strength } from '../signal';
 
 /** Keeps a text input within `max` UTF-8 bytes (an emoji is 4), the room its field has on air. */
 export function fitInput(e: Event, max: number): string {
@@ -19,6 +20,12 @@ export function ago(ms: number): string {
   return `${Math.round(h / 24)} d ago`;
 }
 
+/**
+ * When the author wrote something. Heard from the author itself, just now. Passed along, it may
+ * have travelled for hours, so go by the author's clock, but never later than when we heard it.
+ */
+export const writtenAt = (h: { at: number; hops: number; body?: { ts: number } }) => (h.body && h.hops > 0 ? Math.min(h.at, h.body.ts * 1000) : h.at);
+
 export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 export function seconds(s: number): string {
@@ -35,3 +42,40 @@ export const STATUS_TEXT: Record<Status, string> = {
   medical: 'Medical',
   sheltering: 'Sheltering',
 };
+
+export const NEED_TEXT: Record<Need, string> = {
+  trapped: 'Trapped',
+  injured: 'Injured',
+  medicine: 'Medicine',
+  water: 'Water',
+  food: 'Food',
+  power: 'Power',
+  transport: 'Transport',
+  shelter: 'Shelter',
+};
+
+export const SKILL_TEXT: Record<Skill, string> = {
+  firstaid: 'First aid',
+  medical: 'Doctor or nurse',
+  power: 'Power to share',
+  water: 'Drinking water',
+  vehicle: 'Vehicle',
+  satphone: 'Satellite texting',
+  language: 'Interpreter',
+  space: 'Room for people',
+};
+
+export const TOPIC_TEXT: Record<Topic, string> = {
+  water: 'Water',
+  food: 'Food',
+  power: 'Charging',
+  medical: 'Medical',
+  shelter: 'Shelter',
+  danger: 'Danger',
+  info: 'Info',
+};
+
+/** "Ben is on the way", "Ben marked it resolved", "Ben passed it on". */
+export const REPLY_TEXT: Record<ReplyKind, string> = { coming: 'is on the way', resolved: 'marked it resolved', passed: 'passed it on' };
+
+export const STRENGTH_TEXT: Record<Strength, string> = { strong: 'Strong signal', fair: 'Fair signal', weak: 'Weak signal' };
