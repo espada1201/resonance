@@ -7,7 +7,7 @@ import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, draftFields, draf
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
-import { NEED_TEXT, STATUS_TEXT } from './format';
+import { NEED_TEXT, STATUS_TEXT, errorText } from './format';
 import { Compass, Download, Pin } from './icons';
 import { type Helper, HelperList, RosterList, headcount } from './roster';
 
@@ -15,7 +15,6 @@ const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
 /** Find needs the person's own device in earshot: heard directly this recently. */
 const FINDABLE_MS = 10 * 60_000;
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 type OrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 
@@ -100,7 +99,7 @@ function CheckInCard({ station }: { station: Station }) {
         geo = await locate(8000);
         station.setPosition(geo);
       } catch (e) {
-        setErr(`${message(e)} Sent without a position.`);
+        setErr(`${errorText(e)} Sent without a position.`);
       }
     }
     try {
@@ -108,7 +107,7 @@ function CheckInCard({ station }: { station: Station }) {
       await station.say({ kind: 'checkin', ...draftFields(d, geo) });
       if (label === 'detail') setDraft(newDraft(station.settings));
     } catch (e) {
-      setErr(message(e));
+      setErr(errorText(e));
     }
     setSending(null);
   }
@@ -181,7 +180,7 @@ export function Safety({ station }: { station: Station }) {
   const answer = (to: RosterEntry['latest'], what: ReplyKind) =>
     station.reply(to, what).then(
       () => setReplyErr(''),
-      (e) => setReplyErr(message(e)),
+      (e) => setReplyErr(errorText(e)),
     );
 
   const findMe = async () => {
@@ -189,7 +188,7 @@ export function Safety({ station }: { station: Station }) {
       station.setPosition(await locate());
       setErr('');
     } catch (e) {
-      setErr(message(e));
+      setErr(errorText(e));
     }
   };
 

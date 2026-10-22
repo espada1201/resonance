@@ -22,10 +22,15 @@ const POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 export const compassPoint = (deg: number) => POINTS[Math.round(deg / 45) % 8];
 
 export function formatDistance(m: number): string {
-  if (m < 10) return 'within 10 m';
   if (m < 1000) return `${Math.round(m / 10) * 10} m`;
   if (m < 10_000) return `${(m / 1000).toFixed(1)} km`;
   return `${Math.round(m / 1000)} km`;
+}
+
+/** Where `there` is from `me` in words, like "300 m N"; null within 10 m, closer than a fix can tell. */
+export function offset(me: Geo, there: Geo): string | null {
+  const d = distanceM(me, there);
+  return d < 10 ? null : `${formatDistance(d)} ${compassPoint(bearingDeg(me, there))}`;
 }
 
 /** One-shot GPS fix; works offline on phones with a GPS receiver. */

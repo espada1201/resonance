@@ -98,7 +98,8 @@ export const immutableHeader = (p: Packet) =>
 
 export const randomU32 = () => crypto.getRandomValues(new Uint32Array(1))[0];
 export const randomNodeId = () => (randomU32() & 0xfffffe) | 1; // never 0 or BROADCAST
-export const nodeLabel = (id: number) => id.toString(16).padStart(6, '0').toUpperCase();
+/** A node id as people see it: six hex digits. */
+export const nodeHex = (id: number) => id.toString(16).padStart(6, '0').toUpperCase();
 
 function writeU24(b: Uint8Array, o: number, v: number) {
   b[o] = (v >> 16) & 255;

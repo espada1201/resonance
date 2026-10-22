@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BROADCAST, HEADER_LEN, PacketType, encodePacket, nodeLabel, randomNodeId, randomU32 } from '../src/mesh/packet';
+import { BROADCAST, HEADER_LEN, PacketType, encodePacket, nodeHex, randomNodeId, randomU32 } from '../src/mesh/packet';
 import { encodeBody, nowSec } from '../src/mesh/payloads';
 import { addNoise, mix, rng, wav } from '../src/modem/channel-sim';
 import { modulate } from '../src/modem/modulator';
@@ -52,5 +52,5 @@ export function writeFakeMic(fs = 48000): string {
   const take = addNoise(mix(at, parts, 0.002, r), 20, r);
   mkdirSync(fileURLToPath(new URL('.out/', import.meta.url)), { recursive: true });
   writeFileSync(FAKE_MIC_WAV, wav(take, fs));
-  return nodeLabel(src);
+  return nodeHex(src);
 }

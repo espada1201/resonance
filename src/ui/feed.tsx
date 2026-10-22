@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { bearingDeg, compassPoint, distanceM, formatDistance, locate } from '../geo';
+import { locate, offset } from '../geo';
 import { missing, received } from '../mesh/files';
-import { BROADCAST } from '../mesh/packet';
+import { BROADCAST, nodeHex } from '../mesh/packet';
 import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
-import { type Station, nodeHex } from '../station';
+import type { Station } from '../station';
 import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, writtenAt } from './format';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -152,11 +152,11 @@ function FileView({ station, item }: { station: Station; item: FeedItem }) {
 /** Where a pin is from here; until we know where we are, its coordinates and a way to find out. */
 function PinLine({ station, geo, me }: { station: Station; geo: Geo; me: Geo | null }) {
   const [err, setErr] = useState('');
-  const d = me && distanceM(me, geo);
+  const off = me && offset(me, geo);
   return (
     <p class="geo small">
       <Pin size={14} />
-      {me && d !== null ? (d < 10 ? 'Right next to you' : `${formatDistance(d)} ${compassPoint(bearingDeg(me, geo))} of you`) : `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`}
+      {me ? (off ? `${off} of you` : 'Right next to you') : `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`}
       {` · ±${geo.accuracyM} m`}
       {!me && (
         <button

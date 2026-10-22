@@ -1,4 +1,5 @@
-import { type Station, nodeHex } from '../station';
+import { nodeHex } from '../mesh/packet';
+import type { Station } from '../station';
 import { who } from './feed';
 import { ago } from './format';
 import { FindPanel } from './find';

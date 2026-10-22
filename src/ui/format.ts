@@ -10,6 +10,9 @@ export function fitInput(e: Event, max: number): string {
   return v;
 }
 
+/** What went wrong, as a sentence to show. */
+export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 export function ago(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 10) return 'just now';

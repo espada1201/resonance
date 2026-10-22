@@ -5,7 +5,7 @@ import { type FeedItem, Journal, type Meta } from './journal';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
 import { FILE_REQUEST_TTL, type FileRequest, FileTransfer, chunkFile } from './mesh/files';
 import { MeshNode, storeKey } from './mesh/node';
-import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, randomNodeId, randomU32 } from './mesh/packet';
+import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, nodeHex, randomNodeId, randomU32 } from './mesh/packet';
 import { type Body, type ContentBody, type Geo, type ReplyKind, decodeBody, encodeBody, isContent, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
 import { MAX_PAYLOAD } from './modem/framing';
@@ -540,7 +540,6 @@ export class Station {
   }
 }
 
-export const nodeHex = (id: number) => id.toString(16).padStart(6, '0').toUpperCase();
 
 /** How a packet met this device, just now. */
 const met = (p: Packet): Meta => ({ src: p.src, msgId: p.msgId, at: Date.now(), hops: p.hops, encrypted: p.encrypted, dst: p.dst });

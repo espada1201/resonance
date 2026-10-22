@@ -1,8 +1,8 @@
 import { useState } from 'preact/hooks';
 import { useAutoStart } from '../boot';
-import { BROADCAST } from '../mesh/packet';
+import { BROADCAST, nodeHex } from '../mesh/packet';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
-import { type Station, nodeHex } from '../station';
+import type { Station } from '../station';
 import { AirPanel, AirStatus } from './air';
 import { Compose } from './compose';
 import { Feed } from './feed';

@@ -6,7 +6,7 @@ import { type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } fro
 import type { Draft, Station } from '../station';
 import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, draftFields, draftProblem, newDraft } from './checkin-form';
 import { who } from './feed';
-import { SKILL_TEXT, bytes, fitInput, seconds } from './format';
+import { SKILL_TEXT, bytes, errorText, fitInput, seconds } from './format';
 import { rovingKeys } from './hooks';
 import { FileIcon, Lock, Send } from './icons';
 import { NoticeFields, type NoticeDraft, newNotice } from './notices';
@@ -98,7 +98,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
       const base = file.name.replace(/\.[^.]+$/, '');
       setPicked({ name: blob === file ? file.name : `${base}.jpg`, mime, data, preview: mime.startsWith('image/') ? URL.createObjectURL(blob) : undefined });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 
@@ -134,7 +134,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         setPicked(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally {
       setWorking(false);
     }

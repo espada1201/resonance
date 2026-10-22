@@ -2,10 +2,10 @@ import { render } from 'preact';
 import { useState } from 'preact/hooks';
 import { boot, useAutoStart } from './boot';
 import { MAX_NICK } from './mesh/payloads';
-import { nodeHex } from './station';
+import { nodeHex } from './mesh/packet';
 import { AirLog, AirStatus, Waterfall } from './ui/air';
 import { named } from './ui/feed';
-import { fitInput } from './ui/format';
+import { errorText, fitInput } from './ui/format';
 import { useMedia, useStation, useTicker } from './ui/hooks';
 import { Mic } from './ui/icons';
 import { NoticeBoard, type NoticeDraft, NoticeFields, newNotice } from './ui/notices';
@@ -40,7 +40,7 @@ function NoticeForm() {
       await station.say({ kind: 'notice', ...notice, place: notice.place.trim(), text: notice.text.trim() });
       setNotice(newNotice());
     } catch (x) {
-      setErr(x instanceof Error ? x.message : String(x));
+      setErr(errorText(x));
     }
     setWorking(false);
   }

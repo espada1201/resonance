@@ -4,14 +4,14 @@ import type { AirTransport } from './audio/transport';
 import type { FeedItem } from './journal';
 import { SEAL_OVERHEAD } from './mesh/crypto';
 import { chunkFile, fileKey, missing } from './mesh/files';
-import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './mesh/packet';
+import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket, nodeHex } from './mesh/packet';
 import { type Body, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
 import { rng } from './modem/channel-sim';
 import { MAX_PAYLOAD } from './modem/framing';
 import { airtimeSec } from './modem/modulator';
 import { PROFILES } from './modem/profiles';
 import type { DecodedFrame } from './modem/receiver';
-import { type Draft, Station, nodeHex } from './station';
+import { type Draft, Station } from './station';
 import { MemoryStorage, StubWorker } from './testing';
 
 // Characterization tests: they pin what the station does today, so that its collaborators can

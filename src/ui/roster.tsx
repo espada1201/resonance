@@ -1,4 +1,4 @@
-import { bearingDeg, compassPoint, distanceM, formatDistance } from '../geo';
+import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
 import type { RosterEntry } from '../roster';
 import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, writtenAt } from './format';
@@ -8,8 +8,7 @@ import { Compass } from './icons';
 export function relative(me: Geo | null, there: Geo | undefined): string {
   if (!there) return '';
   if (!me) return 'position attached';
-  const d = distanceM(me, there);
-  return d < 10 ? 'right next to you' : `${formatDistance(d)} ${compassPoint(bearingDeg(me, there))}`;
+  return offset(me, there) ?? 'right next to you';
 }
 
 function state(e: RosterEntry): string {
