@@ -19,4 +19,4 @@ Preconditions: none beyond the baseline.
 
 ## Gotchas
 
-- The check covers the page's own width. A card that overflows inside a scrolling panel needs its own assertion.
+- The journey also fails when any visible box in the main area is narrower than its content, so a card or control spilling out inside a scrolling panel is caught too. Text cut off on purpose with an ellipsis is allowed.
