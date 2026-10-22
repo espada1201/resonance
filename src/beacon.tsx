@@ -11,7 +11,7 @@ import { Mic } from './ui/icons';
 import { NoticeBoard, type NoticeDraft, NoticeFields, newNotice } from './ui/notices';
 import { RosterList, headcount } from './ui/roster';
 import { StatGrid, TopBar } from './ui/shell';
-import './ui/styles.css';
+import './ui/styles/index.css';
 
 // A laptop left in a hallway: listens forever, relays everything, and hands stored messages
 // to phones that come within earshot (they trade hellos, then each sends what the other lacks).

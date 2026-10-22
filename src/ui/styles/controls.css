@@ -1,0 +1,107 @@
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 550;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+button:hover:not(:disabled),
+.button:hover {
+  background: var(--surface-2);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.primary {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--amber-ink);
+}
+.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--amber) 88%, white);
+}
+.large {
+  min-height: 50px;
+  padding: 0 20px;
+  font-size: 16px;
+}
+.small.ghost,
+button.small {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.ghost {
+  border-color: var(--line-strong);
+}
+.danger {
+  color: var(--coral);
+  border-color: color-mix(in srgb, var(--coral) 50%, transparent);
+}
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+select,
+textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+}
+textarea {
+  resize: none;
+  line-height: 1.4;
+}
+input[type='range'] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--amber);
+}
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--amber);
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+::placeholder {
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font: 500 11px/18px var(--mono);
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.chip.sealed {
+  color: var(--violet);
+  border-color: color-mix(in srgb, var(--violet) 45%, transparent);
+}
+.chip.sim {
+  color: var(--teal);
+  border-color: color-mix(in srgb, var(--teal) 45%, transparent);
+}
+.chip.beacon {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+}

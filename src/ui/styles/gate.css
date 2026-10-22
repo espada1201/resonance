@@ -1,0 +1,52 @@
+.gate {
+  max-width: 640px;
+  padding: clamp(8px, 6vh, 64px) 0 24px;
+  display: grid;
+  gap: 18px;
+}
+.gate h2 {
+  font-size: clamp(28px, 4.4vw, 44px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  text-wrap: balance;
+}
+.lede {
+  font-size: 17px;
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  max-width: 56ch;
+}
+.gate-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.gate-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px 12px;
+  margin: 8px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+/* Subgrid keeps the rates on one line even when a long mode name wraps. */
+.gate-modes > div {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+}
+.gate-modes dt {
+  font: 600 11px/1.3 var(--mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.gate-modes dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.gate-modes .rate {
+  font: 500 16px var(--mono);
+  color: var(--text);
+}

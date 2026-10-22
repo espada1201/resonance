@@ -1,0 +1,111 @@
+.compose {
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 12px clamp(12px, 3vw, 24px);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  display: grid;
+  gap: 10px;
+}
+/* Kinds that do not fit wrap onto a second line: scrolled off the edge, one could not be found. */
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.seg button {
+  min-height: 32px;
+  font-size: 13px;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 0 8px;
+}
+.seg button[aria-checked='true'] {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+.compose-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.to {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.to select {
+  width: auto;
+  min-width: 130px;
+  min-height: 36px;
+  padding: 4px 8px;
+}
+.budget {
+  color: var(--muted);
+  font-family: var(--mono);
+  margin-left: auto;
+}
+.budget .over {
+  color: var(--coral);
+}
+.sealed-note {
+  color: var(--violet);
+}
+.checkin-fields {
+  display: grid;
+  gap: 8px;
+}
+.pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pill {
+  min-height: 34px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+.pill[aria-pressed='true'] {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+.pill[aria-checked='true'] {
+  border-color: var(--status);
+  color: var(--status);
+  background: color-mix(in srgb, var(--status) 12%, transparent);
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.span2 {
+  grid-column: span 2;
+}
+.file-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.picked {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 13px var(--mono);
+}
+.picked img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}

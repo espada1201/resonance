@@ -1,0 +1,173 @@
+.feed {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  max-width: 760px;
+}
+.item {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  animation: arrive 0.35s ease-out;
+}
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+.item.mine {
+  border-color: color-mix(in srgb, var(--amber) 35%, var(--line));
+}
+.item.locked {
+  background: transparent;
+  border-style: dashed;
+}
+.item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.item-meta time {
+  margin-left: auto;
+  font: 12px var(--mono);
+  color: var(--muted);
+}
+.who {
+  font-weight: 650;
+}
+.who.mine {
+  color: var(--amber);
+}
+.text-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.actions:empty {
+  display: none;
+}
+.actions .ghost {
+  color: var(--muted);
+  border-color: var(--line);
+}
+.delivery {
+  font: 12px var(--mono);
+  color: var(--muted);
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-right: auto;
+}
+.delivery.ok {
+  color: var(--green);
+}
+.delivery.bad {
+  color: var(--coral);
+}
+.checkin {
+  border-left: 4px solid var(--status, var(--green));
+}
+.s-safe {
+  --status: var(--green);
+}
+.s-help {
+  --status: var(--coral);
+}
+.s-medical {
+  --status: var(--coral);
+}
+.s-sheltering {
+  --status: var(--blue);
+}
+.status-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.status-line > span,
+.card,
+.people li,
+.nodes li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.status-word {
+  font: 700 13px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--status);
+}
+.geo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.card {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.file-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.file-name {
+  display: grid;
+  min-width: 0;
+}
+.file-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--teal);
+  transition: width 0.4s;
+}
+.file-preview {
+  max-width: 240px;
+  border-radius: 8px;
+  image-rendering: auto;
+}
+.empty {
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+  padding: 8px 0;
+}
+.empty-title {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 650;
+}

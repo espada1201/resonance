@@ -1,0 +1,22 @@
+@media (max-width: 720px) {
+  .stats.huge {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+  .span2 {
+    grid-column: auto;
+  }
+  .node-chip b {
+    display: none;
+  }
+  .budget {
+    margin-left: 0;
+    order: 3;
+    width: 100%;
+  }
+  .compose-foot button[type='submit'] {
+    margin-left: auto;
+  }
+}

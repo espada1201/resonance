@@ -1,0 +1,110 @@
+.shell {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100dvh;
+}
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 16px;
+  padding-top: max(10px, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--amber);
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.brand span {
+  color: var(--text);
+}
+.top h1 {
+  font-size: inherit;
+}
+.node-chip {
+  font: 500 12px var(--mono);
+  color: var(--muted);
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.node-chip b {
+  color: var(--text);
+  font-weight: 600;
+}
+.top-right {
+  margin-left: auto;
+  min-width: 0;
+}
+/* The tab bar scrolls sideways inside its landmark rather than widening the page. */
+.shell > nav {
+  min-width: 0;
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs button {
+  border: 0;
+  border-radius: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-weight: 600;
+  background: none;
+}
+.tabs button[aria-selected='true'] {
+  color: var(--text);
+  box-shadow: inset 0 -2px var(--amber);
+}
+.badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--coral);
+  color: #fff;
+  font: 700 11px var(--mono);
+}
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+.shell.wide .main {
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 34vw);
+}
+.left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.shell.wide .left {
+  border-right: 1px solid var(--line);
+}
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  /* Contains absolutely positioned children (.sr-only inputs) so they scroll with it instead of stretching the page. */
+  position: relative;
+  padding: 20px clamp(16px, 3vw, 32px) 32px;
+}
+.shell:not(.wide) .scroll {
+  padding: 16px;
+}

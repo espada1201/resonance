@@ -1,0 +1,95 @@
+.safety {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+}
+.quick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.big {
+  min-height: 64px;
+  font-size: 18px;
+  font-weight: 700;
+  border: 2px solid var(--status);
+  color: var(--status);
+  background: color-mix(in srgb, var(--status) 9%, transparent);
+}
+.big:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status) 18%, transparent) !important;
+}
+.radar-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.radar {
+  width: min(100%, 340px);
+  height: auto;
+  overflow: visible;
+}
+.radar .ring {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-dasharray: 2 4;
+}
+.radar .ring-label {
+  font: 10px var(--mono);
+  fill: var(--muted);
+}
+.radar .north {
+  font: 700 12px var(--mono);
+  fill: var(--amber);
+}
+.radar .tick {
+  stroke: var(--amber);
+  stroke-width: 2;
+}
+.radar .me {
+  fill: var(--amber);
+}
+.radar .blip circle {
+  fill: var(--status);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.radar .blip text {
+  font: 600 11px var(--sans);
+  fill: var(--text);
+}
+.radar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.people li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-left: 4px solid var(--status, var(--line));
+  background: var(--surface);
+  border-radius: 6px;
+}
+.people li .muted {
+  grid-column: 1 / -1;
+}
+.people li.empty {
+  border: 0;
+  background: none;
+  padding: 0;
+}

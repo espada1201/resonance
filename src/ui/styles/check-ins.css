@@ -1,0 +1,121 @@
+.checkin-card {
+  display: grid;
+  gap: 10px;
+}
+.more summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.more form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.more form > button {
+  justify-self: start;
+}
+.chip.need {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--status, var(--amber)) 55%, transparent);
+}
+.field-with-count {
+  display: grid;
+  gap: 2px;
+}
+.count {
+  justify-self: end;
+  font: 11px var(--mono);
+  color: var(--muted);
+}
+.count.over {
+  color: var(--coral);
+}
+input[aria-invalid='true'] {
+  border-color: var(--coral);
+}
+.section-head {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.section-head input[type='search'] {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.people.roster li,
+.people.courier li {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.people.roster li.open {
+  background: color-mix(in srgb, var(--status) 7%, var(--surface));
+}
+.reply {
+  color: var(--teal);
+}
+.helpers {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.helpers dt {
+  font: 700 12px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.helpers dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.notices {
+  display: grid;
+  gap: 8px;
+}
+.notice {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--topic) 50%, var(--line));
+  background: color-mix(in srgb, var(--topic) 8%, var(--surface));
+}
+.notice .topic {
+  font: 700 12px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--topic);
+}
+.notice-text {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.notices.huge .notice-text {
+  font-size: clamp(20px, 3vw, 32px);
+  line-height: 1.2;
+}
+.t-water {
+  --topic: var(--blue);
+  --status: var(--blue);
+}
+.t-food,
+.t-shelter {
+  --topic: var(--green);
+  --status: var(--green);
+}
+.t-power,
+.t-info {
+  --topic: var(--amber);
+  --status: var(--amber);
+}
+.t-medical,
+.t-danger {
+  --topic: var(--coral);
+  --status: var(--coral);
+}

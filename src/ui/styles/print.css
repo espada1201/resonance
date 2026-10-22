@@ -1,0 +1,26 @@
+/* The safety list on paper, for a shelter desk or a sheriff's list. */
+@media print {
+  .top,
+  .tabs,
+  .compose,
+  .airpanel,
+  .checkin-card,
+  .radar-wrap,
+  .find,
+  .section-head .row,
+  .actions {
+    display: none !important;
+  }
+  html,
+  body,
+  .shell,
+  .main,
+  .left,
+  .scroll {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .people li {
+    break-inside: avoid;
+  }
+}
