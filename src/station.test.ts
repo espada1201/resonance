@@ -554,6 +554,19 @@ describe('what people say', () => {
     }
   });
 
+  it('dates safety news opened from the store by its author: the store keeps no hop count', async () => {
+    const { ben, frames } = await sealedNews();
+    // A newcomer is handed Ben's day-old request, and the chat after it scrolls its locked item away.
+    vi.setSystemTime(T0 + 30 * 3600_000);
+    const late = new Station(air, 'phone', null);
+    frames.forEach((f) => late.onFrame(f));
+    for (let i = 0; i < 400; i++) late.onFrame(text(BEN, 100 + i, `chat ${i}`));
+    await late.setPassphrase(CIRCLE);
+    const [entry] = late.journal.roster();
+    expect(entry.latest.src).toBe(ben.m.id);
+    expect([entry.open, entry.stale]).toEqual([false, true]);
+  });
+
   it('a sealed file heard before joining comes whole once joined', async () => {
     const ben = await member('Ben');
     const data = new TextEncoder().encode('Open shelters tonight: St Thomas church hall, 40 beds. '.repeat(6));
