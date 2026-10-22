@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks';
+import { useAutoStart } from '../boot';
 import { BROADCAST } from '../mesh/packet';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
 import { type Station, nodeHex } from '../station';
@@ -66,6 +67,7 @@ function Gate({ station }: { station: Station }) {
 
 export function App({ station }: { station: Station }) {
   useStation(station);
+  useAutoStart(station);
   useTicker(15_000);
   const wide = useMedia('(min-width: 960px)');
   const [tab, setTab] = useState<Tab>('feed');
