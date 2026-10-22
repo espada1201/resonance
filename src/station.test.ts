@@ -8,39 +8,10 @@ import { type Body, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloa
 import { rng } from './modem/channel-sim';
 import type { DecodedFrame } from './modem/receiver';
 import { Station } from './station';
+import { MemoryStorage } from './testing';
 
 // Characterization tests: they pin what the station does today, so that its collaborators can
 // be moved out of it without changing a packet on air, a byte in storage or a line in the log.
-
-class MemoryStorage implements Storage {
-  private m = new Map<string, string>();
-  static of(items: Record<string, string>) {
-    const s = new MemoryStorage();
-    for (const [k, v] of Object.entries(items)) s.setItem(k, v);
-    return s;
-  }
-  get length() {
-    return this.m.size;
-  }
-  clear() {
-    this.m.clear();
-  }
-  getItem(k: string) {
-    return this.m.get(k) ?? null;
-  }
-  key(i: number) {
-    return [...this.m.keys()][i] ?? null;
-  }
-  removeItem(k: string) {
-    this.m.delete(k);
-  }
-  setItem(k: string, v: string) {
-    this.m.set(k, v);
-  }
-  dump() {
-    return Object.fromEntries(this.m);
-  }
-}
 
 const air: AirTransport = { kind: 'simulated', start: async () => 48000, play: async () => undefined, setVolume() {} };
 
@@ -104,7 +75,7 @@ const MUTE = { type: 'mute', on: true };
 const UNMUTE = { type: 'mute', on: false };
 
 /** A station listening to a room whose speaker takes as long as the sound; the mute tail is 150 + 250 ms. */
-async function listening(failStart?: Error) {
+async function listening(opts: { failStart?: Error; storage?: Storage } = {}) {
   vi.spyOn(Math, 'random').mockReturnValue(0.5);
   vi.stubGlobal('Worker', StubWorker);
   StubWorker.made = [];
@@ -118,7 +89,7 @@ async function listening(failStart?: Error) {
     captureDelayMs: 250,
     async start(onSamples) {
       workersAtStart = StubWorker.made.length;
-      if (failStart) throw failStart;
+      if (opts.failStart) throw opts.failStart;
       mic = onSamples;
       return 48000;
     },
@@ -130,7 +101,7 @@ async function listening(failStart?: Error) {
     },
     setVolume: (v) => void volume.push(v),
   };
-  const s = new Station(transport, 'phone', null);
+  const s = new Station(transport, 'phone', opts.storage ?? null);
   await s.start();
   const worker = () => StubWorker.made.at(-1)!;
   const sent = (w = worker()) => w.posted.map((p) => p.m);
@@ -325,6 +296,44 @@ describe('saved state', () => {
       [BEN, 502, 0],
     ]);
   });
+
+  it('a change that saves nothing writes nothing; a message heard writes only the feed and the store', async () => {
+    const storage = new MemoryStorage();
+    const { s, worker } = await listening({ storage });
+    await vi.advanceTimersByTimeAsync(1000);
+    const setItem = vi.spyOn(storage, 'setItem');
+    worker().say({ type: 'busy', busy: true });
+    worker().say({ type: 'sync', profile: 'audible' });
+    worker().say({ type: 'busy', busy: false });
+    s.setPosition({ lat: 51.5, lon: -0.12, accuracyM: 10 });
+    await vi.advanceTimersByTimeAsync(900);
+    expect(setItem).not.toHaveBeenCalled();
+    s.onFrame(heard(BEN, 101, { kind: 'text', ts: nowSec(), nick: 'Ben', text: 'Hi' }));
+    await vi.advanceTimersByTimeAsync(900);
+    expect(setItem.mock.calls.map(([key]) => key)).toEqual(['resonance:v1:phone:feed', 'resonance:v1:phone:store']);
+  });
+});
+
+describe('settings', () => {
+  it('take effect when loaded and when changed; a beacon relays whatever its settings say', () => {
+    const s = new Station(air, 'phone', MemoryStorage.of({ 'resonance:v1:phone:settings': '{"relay":false,"answerFind":false}' }));
+    expect([s.settings.relay, s.mesh.config.relay, s.ranger.answering]).toEqual([false, false, false]);
+    s.update({ relay: true, answerFind: true });
+    expect([s.settings.relay, s.mesh.config.relay, s.ranger.answering]).toEqual([true, true, true]);
+
+    const b = new Station(air, 'beacon', MemoryStorage.of({ 'resonance:v1:beacon:settings': '{"relay":false}' }));
+    expect([b.settings.relay, b.mesh.config.relay, b.mesh.config.backoffMs]).toEqual([true, true, [400, 2500]]);
+    b.update({ relay: false });
+    expect([b.settings.relay, b.mesh.config.relay]).toEqual([false, true]);
+  });
+
+  it('a new volume goes to the speaker at once', () => {
+    const volume: number[] = [];
+    const s = new Station({ ...air, setVolume: (v) => void volume.push(v) }, 'phone', null);
+    s.update({ nick: 'Ana' });
+    s.update({ volume: 0.4 });
+    expect(volume).toEqual([0.4]);
+  });
 });
 
 describe('decoder worker and mute', () => {
@@ -342,7 +351,7 @@ describe('decoder worker and mute', () => {
   });
 
   it('a microphone that will not start leaves an error and no decoder', async () => {
-    const { s, worker } = await listening(new Error('Permission denied.'));
+    const { s, worker } = await listening({ failStart: new Error('Permission denied.') });
     expect(s.status).toBe('error');
     expect(s.error).toBe('Permission denied. Check that this page may use the microphone, then try again.');
     expect(worker().terminated).toBe(true);

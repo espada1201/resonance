@@ -1,8 +1,8 @@
 import type { FromWorker, ToWorker } from './audio/protocol';
 import type { AirTransport } from './audio/transport';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
-import { FILE_REQUEST_TTL, type FileRequest, FileTransfer, type SavedFiles } from './mesh/files';
-import { MeshNode, type StoredPacket } from './mesh/node';
+import { FILE_REQUEST_TTL, type FileRequest, FileTransfer } from './mesh/files';
+import { MeshNode, storeKey } from './mesh/node';
 import { BROADCAST, HEADER_LEN, type Packet, PacketType, decodePacket, randomNodeId, randomU32 } from './mesh/packet';
 import { type Body, type Geo, type Status, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
@@ -11,7 +11,7 @@ import { MAX_PAYLOAD } from './modem/framing';
 import { airtimeSec, modulate } from './modem/modulator';
 import { PROFILES, type ProfileId } from './modem/profiles';
 import { type DecodedFrame, Receiver } from './modem/receiver';
-import { fromB64, toB64 } from './persist';
+import { SavedState, loadStore, safeStorage, saveStore } from './persist';
 import { Ranger } from './ranger';
 
 // The station is the whole app minus pixels: it owns the audio transport, the demodulator
@@ -50,7 +50,7 @@ export interface AirEvent {
   clockRatio?: number;
 }
 
-interface Settings {
+export interface Settings {
   nick: string;
   profile: ProfileId;
   relay: boolean;
@@ -71,17 +71,7 @@ const LISTEN_AFTER_SEND_MS = 400;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
 /** Hellos are at least this far apart; a neighbour who just turned up gets one back within seconds. */
 const GREET_GAP_MS = 30_000;
-const KEY = 'resonance:v1:';
 const TYPE_LABEL: Record<number, string> = { 1: 'message', 2: 'check-in', 3: 'contact', 4: 'file chunk', 5: 'ack', 6: 'hello', 7: 'file request', 8: 'ranging' };
-
-function load<T>(storage: Storage | null, key: string): T | null {
-  try {
-    const raw = storage?.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
-}
 
 export class Station {
   readonly id: number;
@@ -113,16 +103,15 @@ export class Station {
   private lastHello = 0;
   private greeting: ReturnType<typeof setTimeout> | null = null;
   private frameInFlight: DecodedFrame | null = null;
-  private readonly prefix: string;
+  private readonly saved: SavedState;
 
   constructor(
     readonly transport: AirTransport,
     readonly role: Role,
-    private readonly storage: Storage | null = safeStorage(),
+    storage: Storage | null = safeStorage(),
   ) {
-    this.prefix = `${KEY}${role}:`;
-    const ident = load<{ id: number }>(storage, this.prefix + 'identity');
-    this.id = ident?.id ?? randomNodeId();
+    this.saved = new SavedState(storage, role);
+    this.id = this.saved.load('identity')?.id ?? randomNodeId();
     this.settings = {
       nick: '',
       profile: 'audible',
@@ -130,7 +119,7 @@ export class Station {
       volume: 1,
       passphrase: '',
       answerFind: true,
-      ...load<Partial<Settings>>(storage, this.prefix + 'settings'),
+      ...this.saved.load('settings'),
     };
     if (role === 'beacon') this.settings.relay = true;
     const clock = { now: () => Date.now(), random: Math.random };
@@ -144,7 +133,6 @@ export class Station {
       readable: (p) => !p.encrypted || p.channel === this.circle?.channel,
       heardHello: (newcomer) => this.onHello(newcomer),
     });
-    this.mesh.config.relay = this.settings.relay;
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];
     this.radio = new TxQueue(
       {
@@ -165,7 +153,7 @@ export class Station {
       sendUrgent: (bytes) => this.radio.enqueue(bytes, true),
       changed: () => this.changed(),
     });
-    this.ranger.answering = this.settings.answerFind;
+    this.applySettings();
     this.restore();
     if (this.settings.passphrase) this.setPassphrase(this.settings.passphrase).catch(() => undefined);
     // The browser drops the wake lock whenever the page is hidden; take it back on return.
@@ -413,19 +401,20 @@ export class Station {
 
   async send(body: Body, opts: { dst?: number; sealed?: boolean; ttl?: number } = {}) {
     const dst = opts.dst ?? BROADCAST;
-    const sealed = (opts.sealed ?? !!this.circle) && !!this.circle;
+    // Sealed for our circle, if we are in one, unless asked not to be.
+    const circle = (opts.sealed ?? true) ? this.circle : null;
     const plain = encodeBody(body);
     const base: Omit<Packet, 'src' | 'hops' | 'attempt'> = {
       type: typeOf[body.kind],
-      encrypted: sealed,
+      encrypted: circle !== null,
       ackRequested: dst !== BROADCAST,
       msgId: randomU32(),
       dst,
       ttl: opts.ttl ?? DEFAULT_TTL,
-      channel: sealed ? this.circle!.channel : 0,
+      channel: circle?.channel ?? 0,
       body: plain,
     };
-    if (sealed) base.body = await seal(this.circle!, { ...base, src: this.id, hops: 0, attempt: 0 }, plain as Uint8Array<ArrayBuffer>);
+    if (circle) base.body = await seal(circle, { ...base, src: this.id, hops: 0, attempt: 0 }, plain as Uint8Array<ArrayBuffer>);
     if (HEADER_LEN + base.body.length > MAX_PAYLOAD) throw new Error('That is too long for one sound packet.');
     const p = this.mesh.originate(base);
     if (body.kind === 'file') this.files.sent(body, p.msgId);
@@ -519,7 +508,7 @@ export class Station {
 
   /** Renders a feed item's packet as a WAV file that any device can play to the mesh. */
   exportWav(item: FeedItem): Blob | null {
-    const s = this.mesh.store.get(`${item.src}:${item.msgId}`);
+    const s = this.mesh.store.get(storeKey(item));
     if (!s) return null;
     const fs = 48000;
     const wave = modulate(s.bytes, PROFILES[this.settings.profile], fs);
@@ -549,10 +538,15 @@ export class Station {
 
   update(patch: Partial<Settings>) {
     this.settings = { ...this.settings, ...patch };
-    if (patch.relay !== undefined) this.mesh.config.relay = this.role === 'beacon' || patch.relay;
+    this.applySettings();
     if (patch.volume !== undefined) this.transport.setVolume(patch.volume);
-    if (patch.answerFind !== undefined) this.ranger.answering = patch.answerFind;
     this.changed();
+  }
+
+  /** Puts the settings in force. The volume has its own path: the speaker exists only once started. */
+  private applySettings() {
+    this.mesh.config.relay = this.role === 'beacon' || this.settings.relay;
+    this.ranger.answering = this.settings.answerFind;
   }
 
   /** Joins (or with "" leaves) a circle. Throws where the browser offers no crypto (plain http). */
@@ -564,7 +558,7 @@ export class Station {
   }
 
   private scheduleSave() {
-    if (this.saveTimer || !this.storage) return;
+    if (this.saveTimer || !this.saved.available) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       this.save();
@@ -572,32 +566,21 @@ export class Station {
   }
 
   save() {
-    const s = this.storage;
-    if (!s) return;
-    try {
-      s.setItem(this.prefix + 'identity', JSON.stringify({ id: this.id }));
-      s.setItem(this.prefix + 'settings', JSON.stringify(this.settings));
-      s.setItem(this.prefix + 'feed', JSON.stringify(this.feed.slice(0, 200)));
-      s.setItem(
-        this.prefix + 'store',
-        JSON.stringify([...this.mesh.store.values()].map((p) => ({ b: toB64(p.bytes), t: p.firstHeard }))),
-      );
-      const files = this.files.snapshot();
-      s.setItem(this.prefix + 'files', JSON.stringify(files.files));
-      s.setItem(this.prefix + 'chunks', JSON.stringify(files.chunks));
-    } catch {
-      // Storage full or blocked: the app keeps working in memory.
-    }
+    this.saved.save({
+      identity: { id: this.id },
+      settings: this.settings,
+      feed: this.feed.slice(0, 200),
+      store: saveStore(this.mesh.store.values()),
+      ...this.files.snapshot(),
+    });
   }
 
   private restore() {
-    const s = this.storage;
-    const k = this.prefix;
+    const saved = this.saved;
     // Retry timers do not survive a reload; a late receipt can still turn these into "delivered".
-    this.feed = (load<FeedItem[]>(s, k + 'feed') ?? []).map((i) => (i.delivery === 'sending' ? { ...i, delivery: 'unknown' } : i));
-    const store = load<Array<{ b: string; t: number }>>(s, k + 'store') ?? [];
-    this.mesh.hydrate(store.map((x): StoredPacket => ({ bytes: fromB64(x.b), firstHeard: x.t, lastPushed: -Infinity })));
-    this.files.restore({ files: load<SavedFiles['files']>(s, k + 'files') ?? [], chunks: load<SavedFiles['chunks']>(s, k + 'chunks') ?? [] });
+    this.feed = (saved.load('feed') ?? []).map((i) => (i.delivery === 'sending' ? { ...i, delivery: 'unknown' } : i));
+    this.mesh.hydrate(loadStore(saved.load('store') ?? []));
+    this.files.restore({ files: saved.load('files') ?? [], chunks: saved.load('chunks') ?? [] });
   }
 
   /** Forgets everything heard (keeps identity and settings). */
@@ -611,15 +594,4 @@ export class Station {
 }
 
 export const nodeHex = (id: number) => id.toString(16).padStart(6, '0').toUpperCase();
-
-function safeStorage(): Storage | null {
-  try {
-    const s = globalThis.localStorage;
-    s.setItem(KEY + 'probe', '1');
-    s.removeItem(KEY + 'probe');
-    return s;
-  } catch {
-    return null;
-  }
-}
 

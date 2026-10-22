@@ -96,7 +96,7 @@ const MET_AFTER_MS = 10 * 60_000;
 /** Packets heard more recently than this are probably still spreading through the room the newcomer just walked into. */
 const SETTLED_MS = 60_000;
 
-const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
+export const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
 const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
 
 export class MeshNode {
