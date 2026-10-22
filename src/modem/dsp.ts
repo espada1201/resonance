@@ -51,12 +51,19 @@ export function goertzel(x: Float32Array, start: number, n: number, hz: number, 
   return s1 * s1 + s2 * s2 - coeff * s1 * s2;
 }
 
+/** The Hann window and FFT buffers of the last size magnitudeSpectrum ran at (it runs 25 times a second). */
+let spectrumScratch = { hann: new Float64Array(0), re: new Float64Array(0), im: new Float64Array(0) };
+
 /** Magnitude spectrum (dBFS-ish) of the last `n` samples, Hann windowed. n must be a power of two. */
 export function magnitudeSpectrum(x: Float32Array, n: number): Float32Array {
-  const re = new Float64Array(n);
-  const im = new Float64Array(n);
+  if (spectrumScratch.hann.length !== n) {
+    const hann = Float64Array.from({ length: n }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
+    spectrumScratch = { hann, re: new Float64Array(n), im: new Float64Array(n) };
+  }
+  const { hann, re, im } = spectrumScratch;
   const off = x.length - n;
-  for (let i = 0; i < n; i++) re[i] = (x[off + i] ?? 0) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
+  for (let i = 0; i < n; i++) re[i] = (x[off + i] ?? 0) * hann[i];
+  im.fill(0);
   fft(re, im);
   const out = new Float32Array(n / 2);
   for (let i = 0; i < n / 2; i++) out[i] = 10 * Math.log10((re[i] * re[i] + im[i] * im[i]) / (n * n) + 1e-14) + 6;
