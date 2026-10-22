@@ -14,7 +14,10 @@ function offline(): Plugin {
       const source = `const CACHE = 'resonance-${version}';
 const FILES = ${JSON.stringify(['./', ...files])};
 // cache: 'reload' skips the browser's HTTP cache: a page it still held from before a deploy would point at assets the deploy removed.
-self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())));
+// No skipWaiting: a page opened before a deploy fetches its decoder only when Start is pressed, and only its own version's cache
+// still holds it. A new version waits until every page of the app has closed.
+self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' }))))));
+// clients.claim puts the first visit under this worker without a reload, so it can already lose the network.
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
