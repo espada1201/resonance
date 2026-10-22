@@ -19,3 +19,4 @@ Preconditions: Chromium's fake capture device plays `e2e/.out/fake-mic.wav`, whi
 ## Gotchas
 
 - The recording loops. The journey turns relaying off first so the station is not deaf while repeating what it heard.
+- The audio runs at the output device's rate. Below about 38.4 kHz (a Bluetooth headset in call mode: 16 or 24 kHz) Near-ultrasonic cannot be carried: the station sends in Audible, Settings says so under the mode, and the decoder stops listening for it. Proved by the unit test `transmit mode` in src/station.test.ts; Chromium's fake device always runs at 48 kHz, so no journey covers it.
