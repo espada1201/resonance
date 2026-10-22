@@ -36,7 +36,7 @@ export const STALE_AFTER_SEC = 24 * 3600;
 export const URGENT: Status[] = ['help', 'medical'];
 
 const ref = (h: Pick<Heard, 'src' | 'msgId'>) => `${h.src}:${h.msgId}`;
-const fold = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+export const fold = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 export const rosterKey = (c: Heard<CheckInBody>) => (c.body.about ? `name:${fold(c.body.about)}` : `node:${c.src}`);
 
 /** Newest by the sender's own clock: an old "I need help" carried in from another room must not hide a newer "I'm safe". */
