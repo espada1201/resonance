@@ -114,6 +114,12 @@ describe('explaining a start that failed', () => {
   it('a browser that cannot listen names the browsers that can', () => {
     expect(AirLink.explain(new CannotListen('unsupported'))).toMatch(/^This browser cannot listen.*Chrome, Edge, Firefox, Samsung Internet or Safari/);
   });
+
+  it('a second page says where the first one is listening', () => {
+    expect(AirLink.explain(new CannotListen('elsewhere'))).toBe(
+      'Resonance is already listening in another tab or window of this browser. Use that one, or close it, then try again.',
+    );
+  });
 });
 
 describe('playing', () => {

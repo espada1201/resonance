@@ -40,6 +40,20 @@ for (const profile of FAKE_MIC_PROFILES) {
   });
 }
 
+test('a second tab of the same browser is sent to the first, and listens once that one closes', async ({ context }) => {
+  const first = await context.newPage();
+  await first.goto('/');
+  await first.getByRole('button', { name: 'Start listening' }).click();
+  await expect(first.getByRole('tab', { name: 'Feed' })).toBeVisible();
+  const second = await context.newPage();
+  await second.goto('/');
+  await second.getByRole('button', { name: 'Start listening' }).click();
+  await expect(second.getByRole('alert')).toHaveText('Resonance is already listening in another tab or window of this browser. Use that one, or close it, then try again.');
+  await first.close();
+  await second.getByRole('button', { name: 'Start listening' }).click();
+  await expect(second.getByRole('tab', { name: 'Feed' })).toBeVisible();
+});
+
 test('a refused microphone says where to allow it again, and can be tried again', async ({ page }) => {
   // The browser's answer when someone has blocked the microphone for the site.
   await page.addInitScript(() => {

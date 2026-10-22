@@ -27,12 +27,32 @@ class Capture extends AudioWorkletProcessor {
 }
 registerProcessor('resonance-capture', Capture);`;
 
-/** MicTransport.start's refusal, before it asks for anything, on a page that cannot listen at all. */
+const CANNOT = {
+  insecure: 'The microphone needs an https:// page.',
+  unsupported: 'This browser lacks microphone capture or audio worklets.',
+  elsewhere: 'Another page of this browser is listening.',
+};
+
+/** MicTransport.start's refusal: on a page that cannot listen at all (before it asks for anything), or while another page of this browser listens. */
 export class CannotListen extends Error {
-  constructor(readonly lack: 'insecure' | 'unsupported') {
-    super(lack === 'insecure' ? 'The microphone needs an https:// page.' : 'This browser lacks microphone capture or audio worklets.');
+  constructor(readonly lack: keyof typeof CANNOT) {
+    super(CANNOT[lack]);
     this.name = 'CannotListen';
   }
+}
+
+/** Holds this browser's one listening page for as long as the page lives; false while another page holds it. */
+function claimListening(): Promise<boolean> {
+  const locks = navigator.locks;
+  if (!locks) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    locks
+      .request('resonance:listening', { ifAvailable: true }, (lock) => {
+        resolve(lock !== null);
+        return lock && new Promise<never>(() => undefined);
+      })
+      .catch(() => resolve(true));
+  });
 }
 
 export class MicTransport implements AirTransport {
@@ -40,6 +60,7 @@ export class MicTransport implements AirTransport {
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
   private volume = 1;
+  private listening: Promise<boolean> | null = null;
 
   async start(onSamples: (chunk: Float32Array) => void): Promise<number> {
     // Capture and audio worklets exist only on secure (https) pages, in browsers new enough to have them.
@@ -51,12 +72,17 @@ export class MicTransport implements AirTransport {
     // take any time: the context is made and woken before the first await.
     const ctx = new AudioContext({ latencyHint: 'interactive' });
     void ctx.resume().catch(() => undefined);
+    const claim = (this.listening ??= claimListening());
     let stream: MediaStream | undefined;
     try {
       // Voice processing would treat our tones as noise and erase them.
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
       });
+      if (!(await claim)) {
+        this.listening = null;
+        throw new CannotListen('elsewhere');
+      }
       await ctx.resume();
       const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: 'application/javascript' }));
       await ctx.audioWorklet.addModule(url).finally(() => URL.revokeObjectURL(url));

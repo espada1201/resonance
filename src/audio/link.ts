@@ -58,10 +58,13 @@ export class AirLink {
   /** What to tell someone whose start() failed: what went wrong, and what to do about it. */
   static explain(err: unknown): string {
     if (err instanceof CannotListen) {
-      return err.lack === 'insecure'
-        ? 'Resonance can use the microphone only on a secure page. Open it from its https:// address, then try again.'
-        : 'This browser cannot listen for Resonance. Open the page in an up-to-date Chrome, Edge, Firefox, Samsung Internet or Safari ' +
-            '(on iPhone and iPad, iOS 15.4 or later). If it opened inside another app, open it in your browser instead.';
+      return {
+        insecure: 'Resonance can use the microphone only on a secure page. Open it from its https:// address, then try again.',
+        unsupported:
+          'This browser cannot listen for Resonance. Open the page in an up-to-date Chrome, Edge, Firefox, Samsung Internet or Safari ' +
+          '(on iPhone and iPad, iOS 15.4 or later). If it opened inside another app, open it in your browser instead.',
+        elsewhere: 'Resonance is already listening in another tab or window of this browser. Use that one, or close it, then try again.',
+      }[err.lack];
     }
     switch (err instanceof Error ? err.name : '') {
       case 'NotAllowedError':

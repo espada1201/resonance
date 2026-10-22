@@ -9,8 +9,17 @@ afterEach(() => {
  * A secure page in a browser whose audio and microphone log what is asked of them, in order.
  * `fail` makes the microphone prompt or the worklet's loading throw.
  */
-function browser(opts: { fail?: 'microphone' | 'worklet' } = {}) {
+function browser(opts: { fail?: 'microphone' | 'worklet'; otherPageListens?: boolean } = {}) {
   const log: string[] = [];
+  // The browser's lock manager: one holder per name, kept until its callback's promise settles.
+  let held = opts.otherPageListens ?? false;
+  const locks = {
+    request: async (name: string, _opts: unknown, take: (lock: { name: string } | null) => unknown) => {
+      const lock = held ? null : { name };
+      if (lock) held = true;
+      return take(lock);
+    },
+  };
   const page = Object.assign(new EventTarget(), { visibilityState: 'visible' });
   let ctx: FakeContext | null = null;
   class FakeContext extends EventTarget {
@@ -46,6 +55,7 @@ function browser(opts: { fail?: 'microphone' | 'worklet' } = {}) {
   vi.stubGlobal('AudioWorkletNode', class { port = {}; connect = (n: unknown) => n; });
   vi.stubGlobal('document', page);
   vi.stubGlobal('navigator', {
+    locks,
     mediaDevices: {
       getUserMedia: async () => {
         log.push('ask for the microphone');
@@ -71,6 +81,23 @@ describe('starting the microphone', () => {
     const { log } = browser({ fail });
     await expect(new MicTransport().start(() => undefined)).rejects.toThrow();
     expect(log.slice(-2)).toEqual(fail === 'worklet' ? ['microphone off', 'close'] : ['ask for the microphone', 'close']);
+  });
+
+  it('will not listen while another page of this browser listens, and lets go of what it took', async () => {
+    // Both would be the same device on the mesh, saving over each other and talking over each other.
+    const { log } = browser({ otherPageListens: true });
+    await expect(new MicTransport().start(() => undefined)).rejects.toMatchObject({ name: 'CannotListen', lack: 'elsewhere' });
+    expect(log).toEqual(['new AudioContext', 'resume', 'ask for the microphone', 'microphone off', 'close']);
+  });
+
+  it('a page that tries again after a refused microphone is not taken for another page', async () => {
+    const opts: { fail?: 'microphone' } = { fail: 'microphone' };
+    const { log } = browser(opts);
+    const mic = new MicTransport();
+    await expect(mic.start(() => undefined)).rejects.toThrow('Permission denied');
+    opts.fail = undefined;
+    await expect(mic.start(() => undefined)).resolves.toBe(44100);
+    expect(log.at(-1)).toBe('load worklet');
   });
 
   it.each([
