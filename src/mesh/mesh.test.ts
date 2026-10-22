@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { rng } from '../modem/channel-sim';
 import { Bloom, MAX_BLOOM_IDS } from './bloom';
 import { deriveCircle, open, seal } from './crypto';
@@ -161,6 +161,13 @@ describe('circle encryption', () => {
     const flipped = relayed.body.slice();
     flipped[0] ^= 1;
     expect(await open(circle, { ...relayed, body: flipped })).toBeNull();
+  });
+
+  it('stretches the passphrase no more than a guesser must: one PBKDF2 block, all of it the key', async () => {
+    const deriveBits = vi.spyOn(crypto.subtle, 'deriveBits');
+    await deriveCircle('blue heron at dawn');
+    expect(deriveBits.mock.calls.map(([params, , bits]) => [(params as Pbkdf2Params).iterations, bits])).toEqual([[600_000, 256]]);
+    deriveBits.mockRestore();
   });
 });
 

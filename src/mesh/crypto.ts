@@ -5,7 +5,7 @@ import { type Packet, immutableHeader } from './packet';
 // The nonce is built from the packet's random message id and sender id, so it costs no airtime,
 // and the immutable header is authenticated so relays cannot re-address a sealed message.
 
-const SALT = new TextEncoder().encode('resonance/circle/v1');
+const SALT = new TextEncoder().encode('resonance/circle/v2');
 // OWASP's 2023 figure for PBKDF2-HMAC-SHA256. Anyone who records one sealed message can test
 // guesses offline, so this (and the passphrase) is all that stands between them and the circle.
 const ITERATIONS = 600_000;
@@ -17,13 +17,13 @@ export interface Circle {
   key: CryptoKey;
 }
 
+/** One PBKDF2 block, all of it the key: a guesser needs only the key, so a second block would slow only us. */
 export async function deriveCircle(passphrase: string): Promise<Circle> {
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase.normalize('NFKC')), 'PBKDF2', false, ['deriveBits']);
-  const bits = new Uint8Array(
-    await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: SALT, iterations: ITERATIONS }, base, 264),
-  );
-  const key = await crypto.subtle.importKey('raw', bits.slice(0, 32), 'AES-GCM', false, ['encrypt', 'decrypt']);
-  return { key, channel: bits[32] || 1 };
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: SALT, iterations: ITERATIONS }, base, 256);
+  const key = await crypto.subtle.importKey('raw', bits, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  const tag = new Uint8Array(await crypto.subtle.digest('SHA-256', bits));
+  return { key, channel: tag[0] || 1 };
 }
 
 function nonce(p: Packet): Uint8Array<ArrayBuffer> {
