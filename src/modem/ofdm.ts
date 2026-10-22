@@ -1,4 +1,4 @@
-import { fft } from './dsp';
+import { fadeEdges, fft } from './dsp';
 import { HEADER_BYTES, bodyBytes, encodeBody, encodeHeader } from './framing';
 import { type OfdmProfile, bytesPerSymbol, preambleSec, symbolSec } from './profiles';
 
@@ -94,10 +94,7 @@ export function writeOfdm(out: Float32Array, payload: Uint8Array, p: OfdmProfile
         c = t;
       }
     }
-    for (let i = 0; i < n && a + i < out.length; i++) {
-      const fade = i < taper ? 0.5 - 0.5 * Math.cos((Math.PI * i) / taper) : i >= n - taper ? 0.5 - 0.5 * Math.cos((Math.PI * (n - 1 - i)) / taper) : 1;
-      out[a + i] += amp * fade * acc[i];
-    }
+    for (let i = 0; i < n && a + i < out.length; i++) out[a + i] += amp * fadeEdges(i, n, taper) * acc[i];
   });
   for (let i = Math.round(t0 * fs); i < out.length; i++) {
     const v = Math.abs(out[i]);

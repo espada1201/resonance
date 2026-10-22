@@ -37,6 +37,15 @@ export function fft(re: Float64Array, im: Float64Array, inverse = false): void {
 
 export const nextPow2 = (n: number) => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
 
+/** Phase (radians) at time t of a linear chirp sweeping from f0 to f1 Hz over `sec` seconds. */
+export const chirpPhase = (f0: number, f1: number, sec: number, t: number) => 2 * Math.PI * (f0 * t + ((f1 - f0) * t * t) / (2 * sec));
+
+/** Raised-cosine rise over the first `w` of `x`: 0 at x = 0, 1 from x = w on. */
+export const raisedEdge = (x: number, w: number) => (x < w ? 0.5 - 0.5 * Math.cos((Math.PI * x) / w) : 1);
+
+/** Gain of sample i of an n-sample burst that rises over its first w samples and falls over its last w. */
+export const fadeEdges = (i: number, n: number, w: number) => (i < w ? raisedEdge(i, w) : raisedEdge(n - 1 - i, w));
+
 /** Signal energy at frequency `hz` over x[start, start+n). Works for non-integer bins. */
 export function goertzel(x: Float32Array, start: number, n: number, hz: number, fs: number): number {
   const coeff = 2 * Math.cos((2 * Math.PI * hz) / fs);

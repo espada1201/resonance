@@ -1,4 +1,4 @@
-import { fft, nextPow2 } from './dsp';
+import { chirpPhase, fft, nextPow2 } from './dsp';
 
 // Streaming normalised matched filtering, shared by frame sync and acoustic ranging.
 
@@ -13,8 +13,7 @@ export function chirpTemplate(f0: number, f1: number, sec: number, fs: number): 
   const re = new Float64Array(n);
   const im = new Float64Array(n);
   for (let i = 0; i < n; i++) {
-    const t = i / fs;
-    const ph = 2 * Math.PI * (f0 * t + ((f1 - f0) * t * t) / (2 * sec));
+    const ph = chirpPhase(f0, f1, sec, i / fs);
     re[i] = Math.cos(ph);
     im[i] = Math.sin(ph);
   }

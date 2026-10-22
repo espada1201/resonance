@@ -114,14 +114,3 @@ export const bandHz = (p: Profile): [number, number] =>
   p.kind === 'mfsk'
     ? [p.baseHz, p.baseHz + p.binHz * (p.hopSets * p.groups * TONES_PER_GROUP - 1)]
     : [p.firstHz, p.firstHz + (p.carriers - 1) / p.fftSec];
-
-/** Frequencies of all 16 tones of group `g` for symbol index `k`. */
-export function groupTones(p: MfskProfile, k: number, g: number): number[] {
-  const set = k % p.hopSets;
-  const first = (set * p.groups + g) * TONES_PER_GROUP;
-  return Array.from({ length: TONES_PER_GROUP }, (_, v) => p.baseHz + p.binHz * (first + v));
-}
-
-/** The tone frequency carrying nibble `v` in group `g` of symbol `k`. */
-export const toneHz = (p: MfskProfile, k: number, g: number, v: number) =>
-  p.baseHz + p.binHz * (((k % p.hopSets) * p.groups + g) * TONES_PER_GROUP + v);

@@ -1,8 +1,8 @@
-import { goertzel } from './dsp';
 import { HEADER_BYTES, bodyBytes, decodeBody, decodeHeader } from './framing';
 import { BlockSpectra, MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
+import { demodSymbol, mfskSymbols } from './mfsk';
 import { OFDM_RATE, type Spectrum, bodyOffset, cpSize, derotate, fftSize, headerSteps, ofdmSymbols, readBytes, spectrum, stepSlope, stepSlopes, steps } from './ofdm';
-import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bytesPerSymbol, groupTones, preambleSec, symbolSec, windowSec } from './profiles';
+import { type MfskProfile, type OfdmProfile, type Profile, type ProfileId, bytesPerSymbol, preambleSec, symbolSec } from './profiles';
 import { SampleStore } from './sample-store';
 
 export interface DecodedFrame {
@@ -36,49 +36,6 @@ const RHO_CFAR = 4;
 const HUM_BUSY = 0.03;
 const MAX_CLOCK_SKEW = 0.012;
 const TRACK_STEP_SEC = 0.0005;
-
-interface SymbolDecision {
-  byte: number;
-  /** 1 - (runner-up energy / winner energy), worst group. Low values become RS erasures. */
-  conf: number;
-  /** Winner energy / all energy in its group, averaged over groups. Drives timing. */
-  purity: number;
-  /** Winner energy / mean of the other tones (linear). */
-  snr: number;
-}
-
-/**
- * Non-coherent square-law detection of one symbol: for every group, measure the energy of all
- * 16 candidate tones over exactly one tone period (so they are orthogonal) and keep the largest.
- * `start` is the sample index (in x) where symbol k begins, guard interval included; `r` is the
- * transmitter/receiver clock ratio, which scales every frequency and duration.
- */
-export function demodSymbol(x: Float32Array, start: number, p: MfskProfile, k: number, r: number, fs: number): SymbolDecision {
-  const from = Math.round(start + (p.guardSec * fs) / r);
-  const n = Math.round((windowSec(p) * fs) / r);
-  let byte = 0;
-  let conf = 1;
-  let purity = 0;
-  let snr = 0;
-  for (let g = 0; g < p.groups; g++) {
-    const tones = groupTones(p, k, g);
-    let best = 0, e1 = 0, e2 = 0, sum = 0;
-    for (let v = 0; v < tones.length; v++) {
-      const e = goertzel(x, from, n, tones[v] * r, fs);
-      sum += e;
-      if (e > e1) {
-        e2 = e1;
-        e1 = e;
-        best = v;
-      } else if (e > e2) e2 = e;
-    }
-    byte = (byte << 4) | best;
-    conf = Math.min(conf, e1 > 0 ? 1 - e2 / e1 : 0);
-    purity += sum > 0 ? e1 / sum : 0;
-    snr += e1 / Math.max(1e-12, (sum - e1) / (tones.length - 1));
-  }
-  return { byte, conf, purity: purity / p.groups, snr: snr / p.groups };
-}
 
 interface Pending {
   /** Absolute sample where the first symbol after the preamble begins. */
@@ -215,7 +172,7 @@ class MfskDecoder extends FrameDecoder<MfskProfile> {
       if (len === null) return this.finish(pd, 'header', pd.s0);
       pd.len = len;
     }
-    const total = HEADER_BYTES + bodyBytes(pd.len);
+    const total = mfskSymbols(pd.len);
     const end = this.needed(pd, total);
     if (this.store.end < end + maxTau) return;
     const nb = total - HEADER_BYTES;

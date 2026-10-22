@@ -1,3 +1,4 @@
+import { chirpPhase, raisedEdge } from './dsp';
 import { BlockSpectra, MatchedFilter, type Peak, PeakPicker, chirpTemplate } from './matched';
 import { SampleStore } from './sample-store';
 
@@ -11,10 +12,7 @@ const RAMP_SEC = 0.002;
 /** The ping waveform at time t seconds after it starts (0 outside the ping). */
 export function pingAt(t: number): number {
   if (t < 0 || t >= PING.sec) return 0;
-  const edge = Math.min(t, PING.sec - t);
-  const ramp = edge < RAMP_SEC ? 0.5 - 0.5 * Math.cos((Math.PI * edge) / RAMP_SEC) : 1;
-  const ph = 2 * Math.PI * (PING.startHz * t + ((PING.endHz - PING.startHz) * t * t) / (2 * PING.sec));
-  return PING.amplitude * ramp * Math.cos(ph);
+  return PING.amplitude * raisedEdge(Math.min(t, PING.sec - t), RAMP_SEC) * Math.cos(chirpPhase(PING.startHz, PING.endHz, PING.sec, t));
 }
 
 export function renderPing(fs: number): Float32Array {
