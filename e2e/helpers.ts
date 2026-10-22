@@ -77,7 +77,8 @@ export async function joinAir(page: Page, path = '/?air=sim', nick?: string) {
 }
 
 export async function openTab(page: Page, name: 'Feed' | 'Safety' | 'People' | 'Settings' | 'Air') {
-  await page.getByRole('tab', { name, exact: true }).click();
+  // Safety's name grows a count of open requests ("Safety, 1 open request").
+  await page.getByRole('tab', { name: new RegExp(`^${name}($|,)`) }).click();
 }
 
 export async function sendText(page: Page, text: string) {

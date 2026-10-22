@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { MAX_NICK } from '../mesh/payloads';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
 import type { Station } from '../station';
@@ -7,12 +7,21 @@ import { Compass, Lock, Relay, Upload } from './icons';
 
 const PROFILE_TEXT: Record<ProfileId, string> = {
   audible: 'Chirps you can hear. Carries across a room or down a corridor, through walls with the volume up.',
-  fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s, so a 4 KB photo crosses a small room in about a minute and a half instead of ten.',
+  fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s; in our tests a 4 KB photo crossed a room in about 3 minutes instead of 14.',
   ultrasonic: 'Near the top of human hearing: quiet for most adults, short range, best for devices on the same table. Some speakers cannot play it.',
 };
 
 /** Rough, but the threat is real: anyone who records a sealed message can try guesses offline, at leisure. */
 const guessable = (p: string) => p.length > 0 && p.length < 16 && p.split(/\s+/).length < 4;
+
+/** Whether the browser promised to keep this site's data, or null if it cannot say. */
+function usePersisted(): [boolean | null, () => void] {
+  const [kept, setKept] = useState<boolean | null>(null);
+  const check = () => void navigator.storage?.persisted?.().then(setKept, () => setKept(null));
+  useEffect(check, []);
+  const ask = () => void navigator.storage?.persist?.().then(setKept, () => undefined);
+  return [kept, ask];
+}
 
 export function Settings({ station }: { station: Station }) {
   const s = station.settings;
@@ -22,6 +31,7 @@ export function Settings({ station }: { station: Station }) {
   const [passError, setPassError] = useState('');
   const [importMsg, setImportMsg] = useState('');
   const sealed = station.circleChannel !== null;
+  const [kept, keep] = usePersisted();
 
   const applyPass = async (e: Event) => {
     e.preventDefault();
@@ -118,8 +128,9 @@ export function Settings({ station }: { station: Station }) {
         )}
         <span class="muted small">
           {sealed ? 'Your messages, check-ins, contacts and files are sealed with AES-256-GCM. ' : 'Messages are open. '}
-          Everyone who types the same passphrase can read sealed messages; others relay them but see only “sealed”. Not hidden: which device sent what
-          kind of packet, how big, when and to whom, and your nickname in hellos. Stored on this device only.
+          Everyone who types the same passphrase can read sealed messages, including ones this device heard before you typed it; others relay them but
+          see only “sealed”. Not hidden: which device sent what kind of packet, how big, when and to whom, and your nickname in hellos. Stored on this
+          device only.
         </span>
       </form>
 
@@ -129,7 +140,9 @@ export function Settings({ station }: { station: Station }) {
           <Upload size={16} /> Open an audio file
           <input type="file" accept="audio/*,.wav,.m4a,.mp3,.ogg,.webm" class="sr-only" onChange={(e) => void importFile((e.target as HTMLInputElement).files?.[0])} />
         </label>
-        <span class="muted small">A voice memo, a voicemail or a radio recording that caught Resonance chirps. {importMsg}</span>
+        <span class="muted small">
+          A voice memo or any full-range recording that caught Resonance chirps. Phone calls, voicemail and walkie-talkies cut the tones it needs. {importMsg}
+        </span>
       </div>
 
       <div class="field">
@@ -137,7 +150,24 @@ export function Settings({ station }: { station: Station }) {
         <a class="button ghost" href="beacon.html">
           <Relay size={16} /> Open beacon mode
         </a>
-        <span class="muted small">A full-screen relay that keeps listening, repeats everything and hands stored messages to newcomers.</span>
+        <span class="muted small">
+          A full-screen relay that keeps listening, repeats everything, keeps check-ins and notices for three days and hands what it holds to every
+          phone that comes within earshot.
+        </span>
+      </div>
+
+      <div class="field">
+        <span class="label">Ready before an outage</span>
+        <span class="muted small">
+          Open Resonance once while you still have internet, then add it to your home screen: it opens with no network, and the browser keeps its data
+          (Safari deletes the data of sites you have not opened for seven days).{' '}
+          {kept === true ? 'This browser has promised to keep it.' : kept === false ? 'This browser may clear it when space runs low.' : ''}
+        </span>
+        {kept === false && (
+          <button type="button" class="ghost small" onClick={keep}>
+            Ask the browser to keep it
+          </button>
+        )}
       </div>
 
       <div class="field">

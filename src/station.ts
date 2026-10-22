@@ -1,11 +1,12 @@
 import { AirLink, type Spectrum } from './audio/link';
 import { decodeRecording, renderWav } from './audio/recording';
 import type { AirTransport } from './audio/transport';
+import { type FeedItem, Journal, type Meta } from './journal';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
-import { FILE_REQUEST_TTL, type FileRequest, FileTransfer } from './mesh/files';
+import { FILE_REQUEST_TTL, type FileRequest, FileTransfer, chunkFile } from './mesh/files';
 import { MeshNode, storeKey } from './mesh/node';
-import { BROADCAST, HEADER_LEN, type Packet, PacketType, decodePacket, randomNodeId, randomU32 } from './mesh/packet';
-import { type Body, type Geo, type Status, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
+import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, randomNodeId, randomU32 } from './mesh/packet';
+import { type Body, type ContentBody, type Geo, type ReplyKind, decodeBody, encodeBody, isContent, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
 import { MAX_PAYLOAD } from './modem/framing';
 import { airtimeSec, modulate } from './modem/modulator';
@@ -13,29 +14,16 @@ import { PROFILES, type ProfileId } from './modem/profiles';
 import type { DecodedFrame } from './modem/receiver';
 import { SavedState, loadStore, safeStorage, saveStore } from './persist';
 import { Ranger } from './ranger';
+import type { CheckInBody, Heard } from './roster';
+import { Links } from './signal';
 
 // The station is the whole app minus pixels: it owns the link to the air (speaker, microphone
 // and demodulator worker), the mesh node, the transmit queue, encryption and persistence.
 
-type Role = 'phone' | 'beacon';
-type ContentBody = Extract<Body, { kind: 'text' | 'checkin' | 'contact' }>;
-
-export interface FeedItem {
-  id: string;
-  src: number;
-  msgId: number;
-  at: number;
-  hops: number;
-  mine: boolean;
-  encrypted: boolean;
-  /** Sealed for a circle whose passphrase we do not have. */
-  locked: boolean;
-  dst: number;
-  body?: ContentBody;
-  fileKey?: string;
-  /** For direct messages. 'unknown': the app was closed while waiting for the receipt. */
-  delivery?: 'sending' | 'acked' | 'failed' | 'unknown';
-}
+export type Role = 'phone' | 'beacon';
+type Unstamped<B> = B extends unknown ? Omit<B, 'ts' | 'nick'> : never;
+/** What a person writes. The station adds their name and the time as it sends. */
+export type Draft = Unstamped<ContentBody>;
 
 export interface AirEvent {
   id: number;
@@ -58,6 +46,9 @@ export interface Settings {
   passphrase: string;
   /** Answer other devices' Find (distance) requests. */
   answerFind: boolean;
+  /** From your last check-in about yourself: the next one starts from them, and a one-tap check-in carries them. */
+  place: string;
+  outside: string;
 }
 
 const DEFAULT_TTL = 5;
@@ -66,12 +57,10 @@ const LISTEN_AFTER_SEND_MS = 400;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
 /** Hellos are at least this far apart; a neighbour who just turned up gets one back within seconds. */
 const GREET_GAP_MS = 30_000;
-const TYPE_LABEL: Record<number, string> = { 1: 'message', 2: 'check-in', 3: 'contact', 4: 'file chunk', 5: 'ack', 6: 'hello', 7: 'file request', 8: 'ranging' };
 
 export class Station {
   readonly id: number;
   settings: Settings;
-  feed: FeedItem[] = [];
   air: AirEvent[] = [];
   status: 'idle' | 'starting' | 'listening' | 'error' = 'idle';
   error = '';
@@ -81,6 +70,10 @@ export class Station {
   readonly radio: TxQueue;
   readonly ranger: Ranger;
   readonly files: FileTransfer;
+  /** Everything said on the mesh that this device knows: the feed and the safety log. */
+  readonly journal: Journal;
+  /** How well each neighbour comes across. Kept in memory only. */
+  readonly links = new Links();
   readonly startedAt = Date.now();
 
   private readonly link: AirLink;
@@ -107,6 +100,8 @@ export class Station {
       volume: 1,
       passphrase: '',
       answerFind: true,
+      place: '',
+      outside: '',
       ...this.saved.load('settings'),
     };
     if (role === 'beacon') this.settings.relay = true;
@@ -127,10 +122,14 @@ export class Station {
     });
     const clock = { now: () => Date.now(), random: Math.random };
     this.files = new FileTransfer(this.id, clock);
+    this.journal = new Journal(this.id, clock);
     this.mesh = new MeshNode(this.id, clock, {
       transmit: (bytes, reason) => this.radio.enqueue(bytes, reason === 'ack'),
       deliver: (p) => void this.onDeliver(p),
-      delivery: (msgId, ok) => this.onDelivery(msgId, ok),
+      delivery: (msgId, ok) => {
+        this.journal.delivered(msgId, ok);
+        this.changed();
+      },
       channelBusy: () => this.busy,
       // A receipt says "read": not for a message sealed for another circle (as far as its one-byte tag tells).
       readable: (p) => !p.encrypted || p.channel === this.circle?.channel,
@@ -256,19 +255,21 @@ export class Station {
     }
   }
 
-  /** Feeds a decoded frame (from the air or from a recording) into the mesh. */
-  onFrame(f: DecodedFrame) {
+  /** Feeds a decoded frame into the mesh: one heard `live`, or one found in a recording. */
+  onFrame(f: DecodedFrame, live = true) {
     this.totals.rxBits += f.payload.length * 8;
     this.totals.rxSec += f.airtimeSec;
     const p = decodePacket(f.payload);
+    // Only a frame its sender aired just now says how well we hear that sender.
+    if (p && live && p.hops === 0 && p.src !== this.id) this.links.add(p.src, { profile: f.profile, snrDb: f.toneSnrDb, at: Date.now() });
     this.logAir({
       dir: 'rx',
       profile: f.profile,
       label: !p
         ? 'not a Resonance packet'
         : p.src === this.id
-          ? `echo of your ${TYPE_LABEL[p.type]}: a neighbour repeated it`
-          : `${TYPE_LABEL[p.type]} from ${nodeHex(p.src)}${p.hops ? ` · hop ${p.hops}` : ''}`,
+          ? `echo of your ${PACKET_LABEL[p.type]}: a neighbour repeated it`
+          : `${PACKET_LABEL[p.type]} from ${nodeHex(p.src)}${p.hops ? ` · hop ${p.hops}` : ''}`,
       bytes: f.payload.length,
       airtimeSec: f.airtimeSec,
       toneSnrDb: f.toneSnrDb,
@@ -285,7 +286,7 @@ export class Station {
     const profile = this.settings.profile;
     const fs = this.link.sampleRate || 48000;
     const p = decodePacket(bytes);
-    const label = p ? `${TYPE_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
+    const label = p ? `${PACKET_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
     await this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
     // We were deaf while sending. Listen for a moment before the queue may send again, so carrier
     // sense can hear a neighbour who started meanwhile.
@@ -319,22 +320,53 @@ export class Station {
 
   // ---- sending -------------------------------------------------------------------------
 
-  /** Bytes left for free text in a message, given the current nick and encryption. */
-  textBudget() {
-    const nick = new TextEncoder().encode(this.settings.nick).length;
-    return MAX_PAYLOAD - HEADER_LEN - (this.circle ? SEAL_OVERHEAD : 0) - 4 - 1 - Math.min(16, nick);
+  /** Sends what someone wrote, sealed if we are in a circle. Your own check-in's place and family contact become your defaults. */
+  async say(draft: Draft, dst?: number) {
+    const body = this.stamp(draft);
+    await this.transmit(body, { dst });
+    if (body.kind === 'checkin' && !body.about) this.update({ place: body.place ?? '', outside: body.outside ?? '' });
   }
 
-  /** Seconds a body would take on air with the current profile. */
-  estimateAirtime(body: Body) {
-    const n = HEADER_LEN + encodeBody(body).length + (this.circle ? SEAL_OVERHEAD : 0);
-    return airtimeSec(PROFILES[this.settings.profile], Math.min(MAX_PAYLOAD, n));
+  /** Answers a check-in, sealed exactly when it was: a circle's request is answered inside the circle, an open one in the open. */
+  async reply(to: Heard<CheckInBody>, what: ReplyKind) {
+    await this.transmit({ kind: 'reply', ts: nowSec(), nick: this.settings.nick, what, src: to.src, msgId: to.msgId }, { sealed: to.encrypted });
   }
 
-  async send(body: Body, opts: { dst?: number; sealed?: boolean; ttl?: number } = {}) {
+  /** "Send again" for a direct message with no receipt: a fresh packet, sealed as the first was, in place of the old item. */
+  async resend(item: FeedItem) {
+    if (!item.body) return;
+    await this.transmit({ ...item.body, ts: nowSec() }, { dst: item.dst, sealed: item.encrypted });
+    // Only once it went: a send refused loses nothing.
+    this.journal.drop(item.id);
+    this.changed();
+  }
+
+  /** Bytes left in the packet (below 0: over by that many) and seconds on air, for the draft as it would go now. */
+  budget(draft: Draft) {
+    const n = this.packetBytes(this.stamp(draft));
+    return { left: MAX_PAYLOAD - n, seconds: airtimeSec(PROFILES[this.settings.profile], Math.min(MAX_PAYLOAD, n)) };
+  }
+
+  /** About how long a file takes to reach a room. Measured with three devices: each chunk costs about 3 × its airtime + 3.9 s. */
+  fileSeconds(size: number) {
+    const profile = PROFILES[this.settings.profile];
+    return chunkFile(0, { name: '', mime: '' }, new Uint8Array(size)).reduce((s, c) => s + 3 * airtimeSec(profile, this.packetBytes(c)) + 3.9, 0);
+  }
+
+  private stamp(d: Draft): ContentBody {
+    return d.kind === 'contact' ? { ...d, ts: nowSec() } : { ...d, ts: nowSec(), nick: this.settings.nick };
+  }
+
+  private packetBytes(body: Body) {
+    return HEADER_LEN + encodeBody(body).length + (this.circle ? SEAL_OVERHEAD : 0);
+  }
+
+  /** Sealed for our circle, if we are in one, unless `sealed` is false. */
+  private async transmit(body: Body, opts: { dst?: number; sealed?: boolean; ttl?: number } = {}) {
     const dst = opts.dst ?? BROADCAST;
-    // Sealed for our circle, if we are in one, unless asked not to be.
     const circle = (opts.sealed ?? true) ? this.circle : null;
+    // A circle's thread never goes out in the open.
+    if (opts.sealed && !circle) throw new Error(`Join the circle again to ${body.kind === 'reply' ? 'answer' : 'send'} this.`);
     const plain = encodeBody(body);
     const base: Omit<Packet, 'src' | 'hops' | 'attempt'> = {
       type: typeOf[body.kind],
@@ -350,29 +382,15 @@ export class Station {
     if (HEADER_LEN + base.body.length > MAX_PAYLOAD) throw new Error('That is too long for one sound packet.');
     const p = this.mesh.originate(base);
     if (body.kind === 'file') this.files.sent(body, p.msgId);
-    else if (body.kind === 'text' || body.kind === 'checkin' || body.kind === 'contact') {
-      this.addFeed({ ...this.itemBase(p, true), body, delivery: dst !== BROADCAST ? 'sending' : undefined });
-    }
+    else if (isContent(body) || body.kind === 'reply') this.journal.add(met(p), body);
     this.changed();
     return p;
   }
 
-  sendText(text: string, dst?: number) {
-    return this.send({ kind: 'text', ts: nowSec(), nick: this.settings.nick, text }, { dst });
-  }
-
-  sendCheckIn(status: Status, note: string, geo?: Geo) {
-    return this.send({ kind: 'checkin', ts: nowSec(), nick: this.settings.nick, status, geo, note });
-  }
-
-  sendContact(name: string, phone: string, note: string, dst?: number) {
-    return this.send({ kind: 'contact', ts: nowSec(), name, phone, note }, { dst });
-  }
-
   async sendFile(name: string, mime: string, data: Uint8Array) {
     const { key, chunks } = this.files.create(randomU32() & 0xffff, { name, mime }, data);
-    this.addFeed({ id: `file:${key}`, src: this.id, msgId: 0, at: Date.now(), hops: 0, mine: true, encrypted: !!this.circle, locked: false, dst: BROADCAST, fileKey: key });
-    for (const c of chunks) await this.send(c);
+    this.journal.file({ src: this.id, msgId: 0, at: Date.now(), hops: 0, encrypted: !!this.circle, dst: BROADCAST }, key);
+    for (const c of chunks) await this.transmit(c);
     return key;
   }
 
@@ -383,52 +401,36 @@ export class Station {
   }
 
   private ask(req: FileRequest) {
-    return this.send(req, { sealed: false, ttl: FILE_REQUEST_TTL });
+    return this.transmit(req, { sealed: false, ttl: FILE_REQUEST_TTL });
   }
 
   // ---- receiving -------------------------------------------------------------------------
 
-  private itemBase(p: Packet, mine: boolean): FeedItem {
-    return { id: `${p.src}:${p.msgId}`, src: p.src, msgId: p.msgId, at: Date.now(), hops: p.hops, mine, encrypted: p.encrypted, locked: false, dst: p.dst };
-  }
-
   private async onDeliver(p: Packet) {
     const frame = this.frameInFlight;
+    const meta = met(p);
     let plain: Uint8Array | null = p.body;
     if (p.encrypted) plain = this.circle ? await open(this.circle, p) : null;
     if (!plain) {
-      if (p.type !== PacketType.FileChunk) this.addFeed({ ...this.itemBase(p, false), locked: true });
+      if (p.type !== PacketType.FileChunk) this.journal.add(meta, 'locked');
       return this.changed();
     }
     const body = decodeBody(p.type, plain);
     if (!body) return;
     if (body.kind === 'file') {
-      const f = this.files.heard(p.src, body, p.msgId, frame?.airtimeSec ?? 0);
-      const id = `file:${f.key}`;
-      if (!this.feed.some((i) => i.id === id)) this.addFeed({ ...this.itemBase(p, false), id, fileKey: f.key });
+      this.journal.file(meta, this.files.heard(p.src, body, p.msgId, frame?.airtimeSec ?? 0).key);
     } else if (body.kind === 'filereq') {
       // Anyone holding a requested chunk may answer; the mesh lets the holder nearest the asker go first.
       for (const msgId of this.files.asked(body)) this.mesh.answer(body.fileSrc, msgId, p.hops);
     } else if (body.kind === 'range') {
       void this.ranger.onPacket(p, body, frame);
-    } else if (body.kind === 'text' || body.kind === 'checkin' || body.kind === 'contact') {
-      this.addFeed({ ...this.itemBase(p, false), body });
+    } else if (isContent(body) || body.kind === 'reply') {
+      this.journal.add(meta, body);
       // Name a neighbour in People and the To menu now, not at its next hello minutes from now.
       const n = this.mesh.neighbors.get(p.src);
       if (n && body.kind !== 'contact' && body.nick) n.nick = body.nick;
     }
     this.changed();
-  }
-
-  private onDelivery(msgId: number, ok: boolean) {
-    const item = this.feed.find((i) => i.mine && i.msgId === msgId);
-    if (item) item.delivery = ok ? 'acked' : 'failed';
-    this.changed();
-  }
-
-  private addFeed(item: FeedItem) {
-    if (this.feed.some((i) => i.id === item.id)) return;
-    this.feed = [item, ...this.feed].slice(0, 400);
   }
 
   setPosition(geo: Geo) {
@@ -447,7 +449,7 @@ export class Station {
   /** Decodes every packet found in a recording (any format the browser can decode). */
   async importRecording(data: ArrayBuffer): Promise<number> {
     const frames = await decodeRecording(data);
-    frames.forEach((f) => this.onFrame(f));
+    frames.forEach((f) => this.onFrame(f, false));
     return frames.length;
   }
 
@@ -472,6 +474,16 @@ export class Station {
     this.settings.passphrase = passphrase;
     this.circle = circle;
     this.changed();
+    if (!circle) return;
+    // Sealed news heard before we joined opens where it lies.
+    for (const item of this.journal.feed.filter((i) => i.locked)) {
+      const stored = this.mesh.store.get(storeKey(item));
+      const p = stored && decodePacket(stored.bytes);
+      const plain = p && (await open(circle, p));
+      const body = p && plain && decodeBody(p.type, plain);
+      if (body && (isContent(body) || body.kind === 'reply')) this.journal.add(item, body);
+    }
+    this.changed();
   }
 
   private scheduleSave() {
@@ -486,7 +498,7 @@ export class Station {
     this.saved.save({
       identity: { id: this.id },
       settings: this.settings,
-      feed: this.feed.slice(0, 200),
+      ...this.journal.snapshot(),
       store: saveStore(this.mesh.store.values()),
       ...this.files.snapshot(),
     });
@@ -494,15 +506,14 @@ export class Station {
 
   private restore() {
     const saved = this.saved;
-    // Retry timers do not survive a reload; a late receipt can still turn these into "delivered".
-    this.feed = (saved.load('feed') ?? []).map((i) => (i.delivery === 'sending' ? { ...i, delivery: 'unknown' } : i));
+    this.journal.restore({ safety: saved.load('safety'), feed: saved.load('feed') });
     this.mesh.hydrate(loadStore(saved.load('store') ?? []));
     this.files.restore({ files: saved.load('files') ?? [], chunks: saved.load('chunks') ?? [] });
   }
 
   /** Forgets everything heard (keeps identity and settings). */
   wipe() {
-    this.feed = [];
+    this.journal.clear();
     this.air = [];
     this.files.clear();
     this.mesh.store.clear();
@@ -511,4 +522,7 @@ export class Station {
 }
 
 export const nodeHex = (id: number) => id.toString(16).padStart(6, '0').toUpperCase();
+
+/** How a packet met this device, just now. */
+const met = (p: Packet): Meta => ({ src: p.src, msgId: p.msgId, at: Date.now(), hops: p.hops, encrypted: p.encrypted, dst: p.dst });
 

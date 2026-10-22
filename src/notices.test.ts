@@ -10,6 +10,7 @@ const notice = (src: number, topic: Topic, ts: number, hours: number, place = 'G
   msgId: ++ids,
   at: ts * 1000,
   hops: 1,
+  encrypted: false,
   body: { kind: 'notice', ts, nick: `n${src}`, topic, hours, place, text: `${topic} at ${place}` },
 });
 

@@ -1,34 +1,81 @@
 import { render } from 'preact';
-import { useEffect } from 'preact/hooks';
-import { MicTransport, SimulatedAir } from './audio/transport';
-import { Station, nodeHex } from './station';
+import { useState } from 'preact/hooks';
+import { boot, useAutoStart } from './boot';
+import { MAX_NICK } from './mesh/payloads';
+import { nodeHex } from './station';
 import { AirLog, AirStatus, Waterfall } from './ui/air';
+import { named } from './ui/feed';
+import { fitInput } from './ui/format';
 import { useMedia, useStation, useTicker } from './ui/hooks';
-import { Logo, Mic } from './ui/icons';
+import { Mic } from './ui/icons';
+import { NoticeBoard, type NoticeDraft, NoticeFields, newNotice } from './ui/notices';
+import { RosterList, headcount } from './ui/roster';
+import { StatGrid, TopBar } from './ui/shell';
 import './ui/styles.css';
 
 // A laptop left in a hallway: listens forever, relays everything, and hands stored messages
 // to phones that come within earshot (they trade hellos, then each sends what the other lacks).
 
-const params = new URLSearchParams(location.search);
-const sim = params.get('air') === 'sim';
-const [x = 0, y = 0] = (params.get('at') ?? '').split(',').map(Number).filter(Number.isFinite);
-const station = new Station(sim ? new SimulatedAir({ x, y }) : new MicTransport(), 'beacon', sim ? null : undefined);
+const station = boot('beacon');
+// Its notices are signed with this, as a person's are with their nickname.
+if (!station.settings.nick) station.update({ nick: 'Beacon' });
 
 function uptime(ms: number) {
   const m = Math.floor(ms / 60_000);
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
+/** A notice from the desk the beacon sits on: water, food, danger, for everyone in earshot. */
+function NoticeForm() {
+  const [notice, setNotice] = useState<NoticeDraft>(newNotice);
+  const [err, setErr] = useState('');
+  const [working, setWorking] = useState(false);
+  const room = station.budget({ kind: 'notice', ...notice }).left;
+
+  async function submit(e: Event) {
+    e.preventDefault();
+    setWorking(true);
+    setErr('');
+    try {
+      await station.say({ kind: 'notice', ...notice, place: notice.place.trim(), text: notice.text.trim() });
+      setNotice(newNotice());
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : String(x));
+    }
+    setWorking(false);
+  }
+
+  return (
+    <form class="beacon-notice" aria-labelledby="notice-title" onSubmit={submit}>
+      <h2 class="label" id="notice-title">
+        Post a notice
+      </h2>
+      <label class="field">
+        <span class="label">Sign as</span>
+        <input value={station.settings.nick} maxLength={MAX_NICK} onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })} />
+      </label>
+      <NoticeFields draft={notice} set={(patch) => setNotice((d) => ({ ...d, ...patch }))} room={room} />
+      <button type="submit" class="primary" disabled={working || !notice.text.trim() || room < 0}>
+        {working ? 'Posting…' : 'Post notice'}
+      </button>
+      {err && (
+        <p class="error small" role="alert">
+          {err}
+        </p>
+      )}
+    </form>
+  );
+}
+
 function Beacon() {
   useStation(station);
+  useAutoStart(station);
   useTicker(5_000);
   const narrow = useMedia('(max-width: 600px)');
-  useEffect(() => {
-    if (sim) void station.start();
-  }, []);
   const m = station.mesh.stats;
   const live = station.status === 'listening';
+  const entries = station.journal.roster();
+  const by = (src: number, nick: string) => named(station, src, nick);
   const cells: Array<[string, string | number]> = [
     ['Heard', m.heard],
     ['Relayed', m.relayed],
@@ -39,22 +86,16 @@ function Beacon() {
   ];
   return (
     <div class="beacon-page">
-      <header class="top">
-        <a class="brand" href="./">
-          <Logo size={22} />
-          <span>Resonance</span>
-        </a>
+      <TopBar station={station} compact={narrow} right={live && <AirStatus station={station} compact={narrow} announce />}>
         <span class="chip beacon">Beacon #{nodeHex(station.id)}</span>
-        {sim && <span class="chip sim">{narrow ? 'Sim' : 'Simulated air'}</span>}
-        <div class="top-right">{live && <AirStatus station={station} compact={narrow} announce />}</div>
-      </header>
+      </TopBar>
       <main class="beacon-main">
         {!live && (
           <section class="gate">
             <h1>Leave this device here as a relay.</h1>
             <p class="lede">
-              It listens in all three modes, repeats every message it hears, stores them for 12 hours and hands them to any phone that comes within
-              earshot. Plug it in, turn the volume up, keep the lid open.
+              It listens in all three modes, repeats every message it hears, keeps the newest 300 packets (check-ins and notices for three days,
+              the rest for 12 hours) and hands them to any phone that comes within earshot. Plug it in, turn the volume up, keep the lid open.
             </p>
             {station.status === 'error' && <p class="error" role="alert">{station.error}</p>}
             <button
@@ -66,14 +107,27 @@ function Beacon() {
             </button>
           </section>
         )}
-        <dl class="stats huge">
-          {cells.map(([k, v]) => (
-            <div key={k}>
-              <dt>{k}</dt>
-              <dd>{v}</dd>
-            </div>
-          ))}
-        </dl>
+        <NoticeBoard large notices={station.journal.notices()} by={by} />
+        <StatGrid variant="huge" cells={cells} />
+        <section aria-labelledby="roster-title">
+          <h2 class="label" id="roster-title">
+            Check-ins{entries.length > 0 && ` · ${headcount(entries)}`}
+          </h2>
+          {entries.length === 0 ? (
+            <p class="empty small">No check-ins heard yet.</p>
+          ) : (
+            <RosterList
+              entries={entries}
+              me={null}
+              self={station.id}
+              name={(e) => e.latest.body.about ?? by(e.latest.src, e.latest.body.nick)}
+              by={by}
+              reply={null}
+              find={() => null}
+            />
+          )}
+        </section>
+        {live && <NoticeForm />}
         <Waterfall station={station} height={260} />
         <AirLog events={station.air} limit={40} />
       </main>
@@ -82,7 +136,3 @@ function Beacon() {
 }
 
 render(<Beacon />, document.getElementById('app')!);
-
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => undefined);
-}

@@ -1,4 +1,5 @@
 import { type Need, type ReplyKind, type Skill, type Status, type Topic, fitUtf8 } from '../mesh/payloads';
+import type { ProfileId } from '../modem/profiles';
 import type { Strength } from '../signal';
 
 /** Keeps a text input within `max` UTF-8 bytes (an emoji is 4), the room its field has on air. */
@@ -79,3 +80,5 @@ export const TOPIC_TEXT: Record<Topic, string> = {
 export const REPLY_TEXT: Record<ReplyKind, string> = { coming: 'is on the way', resolved: 'marked it resolved', passed: 'passed it on' };
 
 export const STRENGTH_TEXT: Record<Strength, string> = { strong: 'Strong signal', fair: 'Fair signal', weak: 'Weak signal' };
+
+export const PROFILE_NAME: Record<ProfileId, string> = { audible: 'Audible', fast: 'Fast', ultrasonic: 'Near-ultrasonic' };

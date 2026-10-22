@@ -1,23 +1,25 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { bearingDeg, compassPoint, distanceM, formatDistance } from '../geo';
+import { bearingDeg, compassPoint, distanceM, formatDistance, locate } from '../geo';
 import { missing, received } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
-import { type FeedItem, type Station, nodeHex } from '../station';
-import { STATUS_TEXT, ago, bytes } from './format';
+import type { Geo } from '../mesh/payloads';
+import type { FeedItem } from '../journal';
+import { type Station, nodeHex } from '../station';
+import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, writtenAt } from './format';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
-
-/**
- * When the author wrote it. Heard from the author itself, just now. Passed along, it may have
- * travelled for hours, so go by the author's clock, but never later than when we heard it.
- */
-export const writtenAt = (item: FeedItem) => (item.body && item.hops > 0 ? Math.min(item.at, item.body.ts * 1000) : item.at);
+import { NoticeBoard } from './notices';
 
 export function who(station: Station, src: number, nick?: string) {
   if (src === station.id) return 'You';
-  return nick || station.mesh.neighbors.get(src)?.nick || `#${nodeHex(src)}`;
+  return named(station, src, nick);
 }
 
-function download(blob: Blob, name: string) {
+/** A device's name as everyone else knows it: its nickname, else its id. */
+export function named(station: Station, src: number, nick?: string) {
+  return nick || (src === station.id ? station.settings.nick : station.mesh.neighbors.get(src)?.nick) || `#${nodeHex(src)}`;
+}
+
+export function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -28,7 +30,8 @@ function download(blob: Blob, name: string) {
 
 function vcard(name: string, phone: string, note: string) {
   const esc = (s: string) => s.replace(/[\\,;]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
-  return new Blob([`BEGIN:VCARD\r\nVERSION:3.0\r\nFN:${esc(name)}\r\nTEL:${esc(phone)}\r\nNOTE:${esc(note)}\r\nEND:VCARD\r\n`], { type: 'text/vcard' });
+  // vCard 3.0 requires N as well as FN; the whole name goes in as the given name.
+  return new Blob([`BEGIN:VCARD\r\nVERSION:3.0\r\nN:;${esc(name)};;;\r\nFN:${esc(name)}\r\nTEL:${esc(phone)}\r\nNOTE:${esc(note)}\r\nEND:VCARD\r\n`], { type: 'text/vcard' });
 }
 
 function Meta({ station, item }: { station: Station; item: FeedItem }) {
@@ -50,12 +53,31 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
   );
 }
 
-function Delivery({ state }: { state: FeedItem['delivery'] }) {
+function Delivery({ station, item }: { station: Station; item: FeedItem }) {
+  const [err, setErr] = useState('');
+  const state = item.delivery;
   if (!state) return null;
   if (state === 'acked') return <span class="delivery ok"><Check size={14} /> delivered</span>;
-  if (state === 'failed') return <span class="delivery bad"><Cross size={14} /> no answer after 3 tries</span>;
-  if (state === 'unknown') return <span class="delivery">no receipt: the app was closed while waiting</span>;
-  return <span class="delivery">waiting for receipt…</span>;
+  if (state === 'sending') return <span class="delivery">waiting for receipt…</span>;
+  return (
+    <>
+      {state === 'failed' ? (
+        <span class="delivery bad">
+          <Cross size={14} /> no answer after 3 tries
+        </span>
+      ) : (
+        <span class="delivery">no receipt: the app was closed while waiting</span>
+      )}
+      <button type="button" class="ghost small" disabled={station.status !== 'listening'} onClick={() => station.resend(item).catch((e: Error) => setErr(e.message))}>
+        Send again
+      </button>
+      {err && (
+        <span class="error small" role="alert">
+          {err}
+        </span>
+      )}
+    </>
+  );
 }
 
 function SoundFileButton({ station, item }: { station: Station; item: FeedItem }) {
@@ -63,7 +85,7 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
     <button
       type="button"
       class="ghost small"
-      title="Save this packet as a sound file. Play it from any speaker, radio or phone call near a Resonance device."
+      title="Save this packet as a sound file. Play it from any speaker near a Resonance device (phone calls and walkie-talkies cut the tones it needs)."
       onClick={() => {
         const blob = station.exportWav(item);
         if (blob) download(blob, `resonance-${nodeHex(item.src)}-${item.msgId.toString(16)}.wav`);
@@ -127,13 +149,42 @@ function FileView({ station, item }: { station: Station; item: FeedItem }) {
   );
 }
 
-function FeedItemView({ station, item, position }: { station: Station; item: FeedItem; position?: import('../mesh/payloads').Geo | null }) {
+/** Where a pin is from here; until we know where we are, its coordinates and a way to find out. */
+function PinLine({ station, geo, me }: { station: Station; geo: Geo; me: Geo | null }) {
+  const [err, setErr] = useState('');
+  const d = me && distanceM(me, geo);
+  return (
+    <p class="geo small">
+      <Pin size={14} />
+      {me && d !== null ? (d < 10 ? 'Right next to you' : `${formatDistance(d)} ${compassPoint(bearingDeg(me, geo))} of you`) : `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`}
+      {` · ±${geo.accuracyM} m`}
+      {!me && (
+        <button
+          type="button"
+          class="ghost small"
+          onClick={() =>
+            locate()
+              .then((g) => station.setPosition(g))
+              .catch((e: Error) => setErr(e.message))
+          }
+        >
+          Show distance
+        </button>
+      )}
+      {err && <span class="error"> {err}</span>}
+    </p>
+  );
+}
+
+function FeedItemView({ station, item, position }: { station: Station; item: FeedItem; position: Geo | null }) {
   if (item.locked) {
     return (
       <article class="item locked">
         <Meta station={station} item={item} />
         <p class="muted">
-          <Lock size={14} /> Sealed for a circle you are not in.{station.settings.relay && ' Your device still relays it.'}
+          <Lock size={14} /> Sealed for a circle you are not in.
+          {station.circleChannel !== null && ' If you should be, check the passphrase in Settings.'}
+          {station.settings.relay && ' Your device still relays it.'}
         </p>
       </article>
     );
@@ -149,22 +200,55 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
   const b = item.body;
   if (!b) return null;
   if (b.kind === 'checkin') {
-    const there = b.geo && position ? { d: distanceM(position, b.geo), brg: bearingDeg(position, b.geo) } : null;
+    const replies = station.journal.repliesTo(item.src, item.msgId);
     return (
       <article class={`item checkin s-${b.status}`}>
         <Meta station={station} item={item} />
         <p class="status-line">
           <span class="status-word">{STATUS_TEXT[b.status]}</span>
+          {b.about && (
+            <span>
+              <strong>{b.about}</strong>, reported by {item.mine ? 'you' : named(station, item.src, b.nick)}
+            </span>
+          )}
+          {b.place && <span>{b.place}</span>}
           {b.note && <span>{b.note}</span>}
         </p>
-        {b.geo && (
-          <p class="geo small">
-            <Pin size={14} />
-            {there ? (there.d < 10 ? 'Right next to you' : `${formatDistance(there.d)} ${compassPoint(there.brg)} of you`) : `${b.geo.lat.toFixed(4)}, ${b.geo.lon.toFixed(4)}`} · ±{b.geo.accuracyM} m
+        {b.needs && (
+          <p class="pills" aria-label="Needs">
+            {b.needs.map((n) => (
+              <span key={n} class="chip need">
+                {NEED_TEXT[n]}
+              </span>
+            ))}
           </p>
         )}
+        {b.geo && <PinLine station={station} geo={b.geo} me={position} />}
+        {b.outside && <p class="muted small">For family outside: {b.outside}</p>}
+        {replies.map((r) => (
+          <p key={`${r.src}:${r.msgId}`} class="small reply">
+            {r.src === station.id ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${named(station, r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`}
+            {' · '}
+            {ago(writtenAt(r))}
+          </p>
+        ))}
         <div class="actions">
-          <Delivery state={item.delivery} />
+          <Delivery station={station} item={item} />
+          <SoundFileButton station={station} item={item} />
+        </div>
+      </article>
+    );
+  }
+  if (b.kind === 'notice') {
+    return (
+      <article class={`item notice t-${b.topic}`}>
+        <Meta station={station} item={item} />
+        <span class="topic">{TOPIC_TEXT[b.topic]}</span>
+        <p class="notice-text">{b.text}</p>
+        <p class="muted small">
+          {[b.place, `for ${b.hours < 24 ? `${b.hours} hours` : `${b.hours / 24} day${b.hours > 24 ? 's' : ''}`}`].filter(Boolean).join(' · ')}
+        </p>
+        <div class="actions">
           <SoundFileButton station={station} item={item} />
         </div>
       </article>
@@ -177,10 +261,11 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
         <div class="card">
           <strong>{b.name}</strong>
           {b.phone && <a href={`tel:${b.phone.replace(/[^+\d]/g, '')}`}>{b.phone}</a>}
+          {b.skills && <span>Can help with: {b.skills.map((k) => SKILL_TEXT[k].toLowerCase()).join(', ')}</span>}
           {b.note && <span class="muted">{b.note}</span>}
         </div>
         <div class="actions">
-          <Delivery state={item.delivery} />
+          <Delivery station={station} item={item} />
           <button type="button" class="ghost small" onClick={() => download(vcard(b.name, b.phone, b.note), `${b.name || 'contact'}.vcf`)}>
             <Download size={14} /> Save contact
           </button>
@@ -194,7 +279,7 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
       <Meta station={station} item={item} />
       <p class="text-body">{b.text}</p>
       <div class="actions">
-        <Delivery state={item.delivery} />
+        <Delivery station={station} item={item} />
         <SoundFileButton station={station} item={item} />
       </div>
     </article>
@@ -202,20 +287,33 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
 }
 
 export function Feed({ station }: { station: Station }) {
-  if (!station.feed.length) {
+  const notices = <NoticeBoard notices={station.journal.notices()} by={(src, nick) => who(station, src, nick)} />;
+  if (!station.journal.feed.length) {
     return (
       <div class="empty">
+        {notices}
         <p class="empty-title">The room is quiet.</p>
         <p>
-          Messages from any device within earshot land here, including ones that hopped through other phones on the way. Say something below, or open a
-          second tab in <a href="?air=sim">simulated air</a> to watch two devices talk.
+          Messages from any device within earshot land here, including ones that hopped through other phones on the way. Say something below
+          {station.transport.kind === 'simulated' ? (
+            <>
+              , or open{' '}
+              <a href="?air=sim&at=3,0" target="_blank">
+                another tab on simulated air
+              </a>{' '}
+              to watch two devices talk.
+            </>
+          ) : (
+            '.'
+          )}
         </p>
       </div>
     );
   }
   return (
     <div class="feed">
-      {station.feed.map((item) => (
+      {notices}
+      {station.journal.feed.map((item) => (
         <FeedItemView key={item.id} station={station} item={item} position={station.position} />
       ))}
     </div>

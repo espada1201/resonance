@@ -3,6 +3,8 @@ import { who } from './feed';
 import { ago } from './format';
 import { FindPanel } from './find';
 import { Compass, Relay, Send } from './icons';
+import { linkWords } from './links';
+import { StatGrid } from './shell';
 
 export function People({ station, onMessage }: { station: Station; onMessage: (id: number) => void }) {
   const ns = [...station.mesh.neighbors.values()].sort((a, b) => b.lastHeard - a.lastHeard);
@@ -12,7 +14,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
     ['Delivered', s.delivered, 'new messages for you or everyone'],
     ['Relayed', s.relayed, 'packets this device repeated for others'],
     ['Held back', s.suppressed, 'relays skipped because enough neighbours already repeated them'],
-    ['Carried', s.carried, 'stored packets handed to a newcomer who had missed them'],
+    ['Carried', s.carried, 'stored packets sent again for newcomers who lacked them'],
     ['Stored', station.mesh.store.size, 'packets kept to pass on to people who arrive later'],
   ];
   return (
@@ -27,14 +29,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
         </p>
       </section>
 
-      <dl class="stats wide">
-        {stats.map(([k, v, t]) => (
-          <div key={k} title={t}>
-            <dt>{k}</dt>
-            <dd>{v}</dd>
-          </div>
-        ))}
-      </dl>
+      <StatGrid variant="wide" cells={stats} />
 
       <h2 class="label">Heard directly</h2>
       {ns.length === 0 ? (
@@ -51,9 +46,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
                   </span>
                 )}
               </span>
-              <span class="muted small">
-                #{nodeHex(n.id)} · {ago(n.lastHeard)}
-              </span>
+              <span class="muted small">{[`#${nodeHex(n.id)}`, ago(n.lastHeard), linkWords(station, n.id)].filter(Boolean).join(' · ')}</span>
               <span class="node-actions">
                 <button
                   type="button"

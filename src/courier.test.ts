@@ -10,6 +10,7 @@ const checkIn = (src: number, ts: number, extra: Partial<CheckInBody>): Heard<Ch
   msgId: ++ids,
   at: ts * 1000,
   hops: 1,
+  encrypted: false,
   body: { kind: 'checkin', ts, nick: `n${src}`, status: 'safe', note: '', ...extra },
 });
 const passedOn = (c: Heard<CheckInBody>): Heard<ReplyBody> => ({
@@ -17,6 +18,7 @@ const passedOn = (c: Heard<CheckInBody>): Heard<ReplyBody> => ({
   msgId: ++ids,
   at: 0,
   hops: 0,
+  encrypted: false,
   body: { kind: 'reply', ts: c.body.ts + 60, nick: 'ben', what: 'passed', src: c.src, msgId: c.msgId },
 });
 const NEED_TEXT = { trapped: 'Trapped', water: 'Water' } as Record<Need, string>;

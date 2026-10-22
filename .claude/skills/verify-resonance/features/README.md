@@ -27,8 +27,14 @@ Each feature file starts with an H1 title and one paragraph on the user-visible 
 
 ## Features
 
+- [Getting on the air](./start.md): the microphone, or simulated air in two tabs.
 - [Messages](./messages.md): broadcast and direct messages, receipts, contact cards.
 - [Check-ins](./check-ins.md): "I'm safe" and "I need help" with a GPS fix, the list of who checked in.
+- [Safety list and replies](./safety-list.md): needs and place, "On my way", someone without a phone, search and spreadsheet.
+- [Open requests on the Safety tab](./badge.md): the tab's name counts the requests for help still open.
+- [Courier to family outside](./courier.md): a phone with signal passes a check-in on by text or email, once.
+- [Notices](./notices.md): water, food or danger, pinned on every feed and large on the beacon.
+- [Signal](./signal.md): how well each neighbour comes across, in words.
 - [Circles](./circles.md): a shared passphrase seals messages from everyone outside it.
 - [Tiny files](./files.md): a small file or photo crosses the air in chunks.
 - [Find](./find.md): two devices measure the distance between them by sound.

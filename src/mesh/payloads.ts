@@ -43,8 +43,9 @@ export type Body =
   | { kind: 'range'; phase: 'request' | 'report'; session: number; intervalUs: number };
 
 /** What the feed shows as its own item. */
-export type ContentBody = Extract<Body, { kind: 'text' | 'checkin' | 'contact' | 'notice' }>;
-export const isContent = (b: Body): b is ContentBody => b.kind === 'text' || b.kind === 'checkin' || b.kind === 'contact' || b.kind === 'notice';
+export const CONTENT_KINDS = ['text', 'checkin', 'contact', 'notice'] as const;
+export type ContentBody = Extract<Body, { kind: (typeof CONTENT_KINDS)[number] }>;
+export const isContent = (b: Body): b is ContentBody => (CONTENT_KINDS as readonly string[]).includes(b.kind);
 
 export interface FileMeta {
   name: string;

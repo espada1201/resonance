@@ -1,12 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AirTransport } from './audio/transport';
+import type { FeedItem } from './journal';
+import { SEAL_OVERHEAD } from './mesh/crypto';
 import { chunkFile, fileKey, missing } from './mesh/files';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './mesh/packet';
 import { type Body, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
 import { rng } from './modem/channel-sim';
+import { MAX_PAYLOAD } from './modem/framing';
+import { airtimeSec } from './modem/modulator';
+import { PROFILES } from './modem/profiles';
 import type { DecodedFrame } from './modem/receiver';
-import { Station, nodeHex } from './station';
+import { type Draft, Station, nodeHex } from './station';
 import { MemoryStorage, StubWorker } from './testing';
 
 // Characterization tests: they pin what the station does today, so that its collaborators can
@@ -95,6 +100,17 @@ async function listening(opts: { failStart?: Error; storage?: Storage } = {}) {
 /** Ticks of the station's 200 ms interval fall on whole multiples of 200 ms from start. */
 const nextTick = (t: number) => Math.ceil(t / 200) * 200;
 
+/** Every packet the station queues, as it leaves. */
+function outbox(s: Station) {
+  const out: Array<{ at: number; p: Packet; bytes: Uint8Array }> = [];
+  const enqueue = s.radio.enqueue.bind(s.radio);
+  vi.spyOn(s.radio, 'enqueue').mockImplementation((bytes, urgent) => {
+    out.push({ at: ms(), p: decodePacket(bytes)!, bytes });
+    enqueue(bytes, urgent);
+  });
+  return out;
+}
+
 describe('saved files', () => {
   const theirs = new TextEncoder().encode('Open shelters tonight: St Thomas church hall, 40 beds. '.repeat(6));
   const mine = new TextEncoder().encode('My own note, sent from this phone. '.repeat(8));
@@ -148,17 +164,6 @@ describe('saved files', () => {
 describe('file transfer', () => {
   // Five chunks: 0 (name and size) and four of data.
   const chunks = chunkFile(77, { name: 'n.txt', mime: 'text/plain' }, new TextEncoder().encode('y'.repeat(600)));
-
-  /** Every packet the station queues, as it leaves. */
-  function outbox(s: Station) {
-    const out: Array<{ at: number; p: Packet }> = [];
-    const enqueue = s.radio.enqueue.bind(s.radio);
-    vi.spyOn(s.radio, 'enqueue').mockImplementation((bytes, urgent) => {
-      out.push({ at: ms(), p: decodePacket(bytes)! });
-      enqueue(bytes, urgent);
-    });
-    return out;
-  }
 
   it('its tick asks for the missing chunks of a quiet file, unsealed and one relay deep', async () => {
     const { s } = await listening();
@@ -225,9 +230,9 @@ describe('saved state', () => {
     s.onFrame(heard(BEN, 103, { kind: 'contact', ts: nowSec(), name: 'Dr Okafor', phone: '+44 20 7946 0000', note: 'Medic, east gate' }));
     at(4);
     // Direct, and still waiting for its receipt when the app closes.
-    await s.sendText('Are you hurt?', CAL);
+    await s.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
     at(5);
-    await s.sendCheckIn('safe', 'At the library', { lat: 51.5007, lon: -0.1246, accuracyM: 12 });
+    await s.say({ kind: 'checkin', status: 'safe', geo: { lat: 51.5007, lon: -0.1246, accuracyM: 12 }, note: 'At the library' });
     at(6);
     chunkFile(77, { name: 'shelters.txt', mime: 'text/plain' }, theirs).forEach((c, i) => s.onFrame(heard(BEN, 500 + i, c)));
     at(7);
@@ -239,37 +244,58 @@ describe('saved state', () => {
     at(9);
     await s.setPassphrase('blue lantern 7');
     at(10);
-    await s.sendText('Meet at six');
+    await s.say({ kind: 'text', text: 'Meet at six' });
     s.save();
     return s;
   }
 
-  /** The six keys as that afternoon left them, recorded from the station before it was split up. */
+  /** The six keys as that afternoon left them, recorded from the station before it was split up and before it kept a safety log. */
   const fixture = () => JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, string>;
   const FEED = 'resonance:v1:phone:feed';
+  const SETTINGS = 'resonance:v1:phone:settings';
+  const SAFETY = 'resonance:v1:phone:safety';
+  /** Each part as a later version reads it back. */
+  const parsed = (parts: Record<string, string>) => Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, JSON.parse(v)]));
+  /** That afternoon's safety log: the two check-ins in its feed, as they arrived. */
+  function safetyLog() {
+    const feed = JSON.parse(fixture()[FEED]) as FeedItem[];
+    const checkins = feed.filter((i) => i.body?.kind === 'checkin').reverse();
+    expect(checkins.map((i) => i.src)).toEqual([CAL, JSON.parse(fixture()['resonance:v1:phone:identity']).id]);
+    return { checkins: checkins.map(({ src, msgId, at, hops, encrypted, body }) => ({ src, msgId, at, hops, encrypted, body })), replies: [], notices: [] };
+  }
 
-  it('writes what it holds exactly as the fixture records it', async () => {
+  it('saves what the fixture records, plus two settings and the safety log', async () => {
     const storage = new MemoryStorage();
     await afternoon(storage);
-    expect(storage.dump()).toEqual(fixture());
+    const old = parsed(fixture());
+    expect(parsed(storage.dump())).toEqual({ ...old, [SETTINGS]: { ...old[SETTINGS], place: '', outside: '' }, [SAFETY]: safetyLog() });
   });
 
-  it('reads the fixture back, and saves it again byte for byte', async () => {
+  it('reads a save from before the safety log, whose check-ins seed the roster, and writes it back with only the new parts added', async () => {
     const saved = fixture();
     const storage = MemoryStorage.of(saved);
     const s = new Station(air, 'phone', storage);
-    expect(s.settings).toEqual({ nick: 'Ana', profile: 'fast', relay: true, volume: 0.8, passphrase: 'blue lantern 7', answerFind: true });
-    expect(s.feed).toHaveLength(9);
+    expect(s.settings).toEqual({ nick: 'Ana', profile: 'fast', relay: true, volume: 0.8, passphrase: 'blue lantern 7', answerFind: true, place: '', outside: '' });
+    expect(s.journal.feed).toHaveLength(9);
     // Retry timers do not survive a reload: the direct message still waiting says so.
-    expect(s.feed.find((i) => i.dst === CAL)).toMatchObject({ mine: true, delivery: 'unknown' });
+    expect(s.journal.feed.find((i) => i.dst === CAL)).toMatchObject({ mine: true, delivery: 'unknown' });
+    expect(s.journal.roster().map((e) => [e.latest.src, e.latest.body.status, e.open])).toEqual([
+      [CAL, 'help', true],
+      [s.id, 'safe', false],
+    ]);
     expect(s.files.data(fileKey(BEN, 77))).toEqual(theirs);
-    const own = s.feed.find((i) => i.mine && 'fileKey' in i);
-    expect(own && 'fileKey' in own && s.files.data(own.fileKey!)).toEqual(mine);
+    const own = s.journal.feed.find((i) => i.mine && i.fileKey);
+    expect(own && s.files.data(own.fileKey!)).toEqual(mine);
     expect(s.mesh.store.size).toBe(14);
 
     s.save();
     expect(saved[FEED].split('"delivery":"sending"')).toHaveLength(2);
-    expect(storage.dump()).toEqual({ ...saved, [FEED]: saved[FEED].replace('"delivery":"sending"', '"delivery":"unknown"') });
+    expect(storage.dump()).toEqual({
+      ...saved,
+      [FEED]: saved[FEED].replace('"delivery":"sending"', '"delivery":"unknown"'),
+      [SETTINGS]: saved[SETTINGS].replace(/}$/, ',"place":"","outside":""}'),
+      [SAFETY]: JSON.stringify(safetyLog()),
+    });
 
     // The circle is joined again from the saved passphrase, and the file's chunks can be handed on.
     await vi.waitFor(() => expect(s.circleChannel).not.toBeNull(), { timeout: 10_000 });
@@ -320,6 +346,179 @@ describe('settings', () => {
   });
 });
 
+describe('what people say', () => {
+  const CIRCLE = 'blue lantern 7';
+
+  /** A station in the circle, and everything it sends. */
+  async function member(nick: string) {
+    const m = new Station(air, 'phone', null);
+    m.update({ nick });
+    await m.setPassphrase(CIRCLE);
+    return { m, out: outbox(m) };
+  }
+
+  /** The same packet, as if relayed `hops` times on its way here. */
+  const relayed = (bytes: Uint8Array, hops: number) => frame(encodePacket({ ...decodePacket(bytes)!, hops }));
+  const text = (src: number, msgId: number, t: string) => heard(src, msgId, { kind: 'text', ts: nowSec(), nick: 'Ben', text: t });
+
+  it("stamps the name and the time on what is said; your own check-in's place and family contact become your defaults", async () => {
+    const s = new Station(air, 'phone', null);
+    s.update({ nick: 'Ana' });
+    const out = outbox(s);
+    await s.say({ kind: 'checkin', status: 'help', needs: ['injured'], note: 'Twisted ankle', place: 'Floor 4, room 412', outside: 'Mum +44 7700 900123' });
+    await s.say({ kind: 'checkin', status: 'safe', note: 'Seen at the gym', about: 'Mr Ito', place: 'Gym' });
+    await s.say({ kind: 'contact', name: 'Dr Okafor', phone: '+44 20 7946 0000', note: 'Medic' }, CAL);
+    expect(out.map((o) => [o.p.dst, decodeBody(o.p.type, o.p.body)])).toMatchObject([
+      [BROADCAST, { kind: 'checkin', ts: nowSec(), nick: 'Ana', status: 'help', needs: ['injured'], place: 'Floor 4, room 412', outside: 'Mum +44 7700 900123' }],
+      [BROADCAST, { kind: 'checkin', ts: nowSec(), nick: 'Ana', about: 'Mr Ito', place: 'Gym' }],
+      [CAL, { kind: 'contact', ts: nowSec(), name: 'Dr Okafor' }],
+    ]);
+    // A check-in about someone else leaves them as they were.
+    expect([s.settings.place, s.settings.outside]).toEqual(['Floor 4, room 412', 'Mum +44 7700 900123']);
+  });
+
+  it('measures the very packet that goes: a draft with 0 bytes left fits, one more byte does not, and a seal costs its overhead', async () => {
+    const s = new Station(air, 'phone', null);
+    s.update({ nick: 'Ana', profile: 'fast' });
+    const out = outbox(s);
+    const { left } = s.budget({ kind: 'text', text: '' });
+    const full: Draft = { kind: 'text', text: 'x'.repeat(left) };
+    expect(s.budget(full)).toEqual({ left: 0, seconds: airtimeSec(PROFILES.fast, MAX_PAYLOAD) });
+    await s.say(full);
+    expect(out.map((o) => o.bytes.length)).toEqual([MAX_PAYLOAD]);
+    await expect(s.say({ kind: 'text', text: 'x'.repeat(left + 1) })).rejects.toThrow('That is too long for one sound packet.');
+    await s.setPassphrase(CIRCLE);
+    expect(s.budget({ kind: 'text', text: '' }).left).toBe(left - SEAL_OVERHEAD);
+  });
+
+  it('reckons a 4 KB photo at about 3 minutes in Fast and 14 in Audible, as measured with three devices', () => {
+    const s = new Station(air, 'phone', null);
+    s.update({ profile: 'fast' });
+    expect(s.fileSeconds(4096)).toBeCloseTo(180, -1);
+    s.update({ profile: 'audible' });
+    expect(s.fileSeconds(4096)).toBeCloseTo(830, -1);
+  });
+
+  it('answers a check-in sealed exactly when it was, and will not answer a sealed one from outside the circle', async () => {
+    const ben = await member('Ben');
+    await ben.m.say({ kind: 'checkin', status: 'help', note: 'Twisted ankle' });
+    const { m: s, out } = await member('Ana');
+    s.onFrame(frame(ben.out[0].bytes));
+    s.onFrame(heard(CAL, 2, { kind: 'checkin', ts: nowSec(), nick: 'Cal', status: 'medical', note: 'Asthma' }));
+    await vi.waitFor(() => expect(s.journal.roster()).toHaveLength(2));
+    const checkIn = (src: number) => s.journal.roster().find((e) => e.latest.src === src)!.latest;
+
+    await s.reply(checkIn(ben.m.id), 'coming');
+    await s.reply(checkIn(CAL), 'coming');
+    expect(out.map((o) => [o.p.type, o.p.encrypted])).toEqual([
+      [PacketType.Reply, true],
+      [PacketType.Reply, false],
+    ]);
+    await s.setPassphrase('');
+    await expect(s.reply(checkIn(ben.m.id), 'resolved')).rejects.toThrow('Join the circle again to answer this.');
+    await s.reply(checkIn(CAL), 'resolved');
+    expect(out.map((o) => o.p.encrypted)).toEqual([true, false, false]);
+    expect(s.journal.roster().map((e) => [e.latest.src, e.coming, e.resolved])).toEqual([
+      [ben.m.id, true, false],
+      [CAL, true, true],
+    ]);
+  });
+
+  it('sends a direct message again as a fresh packet, sealed as the first was, in place of the old one', async () => {
+    const { m: s, out } = await member('Ana');
+    await s.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
+    const [first] = s.journal.feed;
+    vi.setSystemTime(T0 + 60_000);
+    await s.resend(first);
+    expect(s.journal.feed).toHaveLength(1);
+    expect(s.journal.feed[0]).toMatchObject({ dst: CAL, encrypted: true, delivery: 'sending', body: { text: 'Are you hurt?', ts: nowSec() } });
+    expect(s.journal.feed[0].msgId).not.toBe(first.msgId);
+    expect(out.map((o) => [o.p.dst, o.p.encrypted])).toEqual([
+      [CAL, true],
+      [CAL, true],
+    ]);
+    // Out of the circle it will not send the circle's message in the open, and keeps it.
+    await s.setPassphrase('');
+    await expect(s.resend(s.journal.feed[0])).rejects.toThrow('Join the circle again to send this.');
+    expect(out).toHaveLength(2);
+    expect(s.journal.feed).toHaveLength(1);
+  });
+
+  /** Ben asks for help and Cal answers, both sealed for the circle; then a message in the open. */
+  async function sealedNews() {
+    const ben = await member('Ben');
+    const cal = await member('Cal');
+    await ben.m.say({ kind: 'checkin', status: 'help', note: 'Twisted ankle' });
+    await cal.m.reply(ben.m.journal.roster()[0].latest, 'coming');
+    return { ben, cal, frames: [relayed(ben.out[0].bytes, 2), frame(cal.out[0].bytes), text(BEN, 7, 'Water at the north stairwell')] };
+  }
+
+  /** A station outside the circle that heard it all. */
+  function outsider(frames: DecodedFrame[]) {
+    const s = new Station(air, 'phone', null);
+    frames.forEach((f) => s.onFrame(f));
+    expect(s.journal.feed.map((i) => i.locked)).toEqual([false, true, true]);
+    return s;
+  }
+
+  it('opens sealed news heard before joining where it lies: the check-in in the roster as it arrived, the reply under it', async () => {
+    const { ben, frames } = await sealedNews();
+    const s = outsider(frames);
+    vi.setSystemTime(T0 + 60_000);
+    await s.setPassphrase(CIRCLE);
+    expect(s.journal.feed.map((i) => [i.src, i.locked, i.body?.kind])).toEqual([
+      [BEN, false, 'text'],
+      [ben.m.id, false, 'checkin'],
+    ]);
+    const [entry] = s.journal.roster();
+    expect(entry.latest).toMatchObject({ src: ben.m.id, at: T0, hops: 2, encrypted: true });
+    expect([entry.open, entry.coming]).toEqual([true, true]);
+  });
+
+  it('joining while packets arrive ends as joining, then hearing them', async () => {
+    const { ben, cal, frames } = await sealedNews();
+    await cal.m.say({ kind: 'checkin', status: 'safe', note: 'At the library' });
+    // The same packets reach both stations: a message, and a check-in sealed for the circle.
+    const later = [text(ben.m.id, 8, 'Meet at six'), frame(cal.out[1].bytes)];
+    const alone = outsider(frames);
+    const busy = outsider(frames);
+
+    await alone.setPassphrase(CIRCLE);
+    later.forEach((f) => alone.onFrame(f));
+    // The other hears them while it works through what it holds, as its feed shifts underneath.
+    const get = busy.mesh.store.get.bind(busy.mesh.store);
+    let arriving = true;
+    vi.spyOn(busy.mesh.store, 'get').mockImplementation((key) => {
+      if (arriving) {
+        arriving = false;
+        later.forEach((f) => busy.onFrame(f));
+      }
+      return get(key);
+    });
+    await busy.setPassphrase(CIRCLE);
+    expect(arriving).toBe(false);
+
+    for (const s of [alone, busy]) await vi.waitFor(() => expect(s.journal.feed).toHaveLength(4));
+    expect(busy.journal.feed).toEqual(alone.journal.feed);
+    expect(busy.journal.roster()).toEqual(alone.journal.roster());
+    expect(alone.journal.roster().map((e) => [e.latest.src, e.latest.body.status, e.coming])).toEqual([
+      [ben.m.id, 'help', true],
+      [cal.m.id, 'safe', false],
+    ]);
+  });
+});
+
+describe('signal', () => {
+  it('rates a neighbour by the frames it airs itself, not by those relayed for it', () => {
+    const s = new Station(air, 'phone', null);
+    const hi = { kind: 'text', ts: nowSec(), nick: 'Ben', text: 'Hi' } as const;
+    s.onFrame(heard(BEN, 1, hi, { hops: 1 }));
+    expect(s.links.get(BEN)).toBeNull();
+    s.onFrame({ ...heard(BEN, 2, hi), toneSnrDb: 15 });
+    expect(s.links.get(BEN)).toEqual({ profile: 'audible', strength: 'fair', at: T0 });
+  });
+});
+
 describe('sound files', () => {
   /** The browser's decoder, for the 16-bit WAVs the station writes; it hands back two equal channels. */
   class WavDecoder {
@@ -332,9 +531,10 @@ describe('sound files', () => {
   it('a packet saved as a sound file plays back into another station', async () => {
     const a = new Station(air, 'phone', null);
     a.update({ profile: 'fast' });
-    await a.sendText('Meet at six');
-    expect(a.exportWav({ ...a.feed[0], msgId: a.feed[0].msgId + 1 })).toBeNull();
-    const blob = a.exportWav(a.feed[0])!;
+    await a.say({ kind: 'text', text: 'Meet at six' });
+    const [sent] = a.journal.feed;
+    expect(a.exportWav({ ...sent, msgId: sent.msgId + 1 })).toBeNull();
+    const blob = a.exportWav(sent)!;
     expect(blob.type).toBe('audio/wav');
     const data = await blob.arrayBuffer();
     const v = new DataView(data);
@@ -352,8 +552,10 @@ describe('sound files', () => {
     const imported = b.importRecording(data);
     await vi.advanceTimersByTimeAsync(1000);
     expect(await imported).toBe(1);
-    expect(b.feed[0]).toMatchObject({ src: a.id, msgId: a.feed[0].msgId, body: { kind: 'text', text: 'Meet at six' } });
+    expect(b.journal.feed[0]).toMatchObject({ src: a.id, msgId: sent.msgId, body: { kind: 'text', text: 'Meet at six' } });
     expect(b.air[0]).toMatchObject({ dir: 'rx', profile: 'fast', label: `message from ${nodeHex(a.id)}` });
+    // A recording says nothing about how well we hear its sender.
+    expect(b.links.get(a.id)).toBeNull();
   });
 });
 
@@ -393,8 +595,8 @@ describe('decoder worker and mute', () => {
 
   it('unmutes between queued frames, and listens a while before the next', async () => {
     const { s, plays } = await listening();
-    await s.sendText('One');
-    await s.sendText('Two');
+    await s.say({ kind: 'text', text: 'One' });
+    await s.say({ kind: 'text', text: 'Two' });
     await vi.advanceTimersByTimeAsync(30_000);
     const [one, two] = plays;
     const end = one.at + one.ms;
@@ -409,7 +611,7 @@ describe('decoder worker and mute', () => {
     log = [];
     // Find plays its ping ahead of the queue; a message queued meanwhile goes the moment it ends.
     s.ranger.start(BEN);
-    await s.sendText('On my way');
+    await s.say({ kind: 'text', text: 'On my way' });
     await vi.advanceTimersByTimeAsync(10_000);
     s.ranger.stop();
     const [, ping, text] = plays;
@@ -484,7 +686,8 @@ describe('decoder worker and mute', () => {
     expect(s.receiving).toBeNull();
     expect(s.totals).toEqual({ rxBits: f.payload.length * 8, rxSec: 1.5, txSec: 0, lost: 2 });
     expect(s.air[0]).toMatchObject({ dir: 'rx', profile: 'fast', label: 'message from 2B2B2B', bytes: f.payload.length, airtimeSec: 1.5 });
-    expect(s.feed[0]).toMatchObject({ src: BEN, body: { text: 'Hi' } });
+    expect(s.journal.feed[0]).toMatchObject({ src: BEN, body: { text: 'Hi' } });
+    expect(s.links.get(BEN)).toEqual({ profile: 'fast', strength: 'strong', at: T0 });
   });
 
   it('hands spectra to the waterfall and pings to Find', async () => {

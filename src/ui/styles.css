@@ -33,11 +33,11 @@
     --line-strong: #b9ae95;
     --text: #1c1e1b;
     --muted: #575d58;
-    --amber: #a85f00;
+    --amber: #905200;
     --amber-ink: #fffaf0;
     --teal: #00745f;
-    --coral: #b83a22;
-    --green: #3b7520;
+    --coral: #af3720;
+    --green: #386f1e;
     --blue: #2856a3;
     --violet: #6b45b8;
     color-scheme: light;
@@ -376,6 +376,7 @@ input[type='radio'] {
 /* ---------- feed ---------- */
 .feed {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   max-width: 760px;
 }
@@ -477,6 +478,13 @@ input[type='radio'] {
   align-items: baseline;
   flex-wrap: wrap;
 }
+.status-line > span,
+.card,
+.people li,
+.nodes li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .status-word {
   font: 700 13px var(--mono);
   letter-spacing: 0.08em;
@@ -555,12 +563,13 @@ input[type='radio'] {
   overflow-x: auto;
   scrollbar-width: none;
 }
+/* All five kinds fit a 390 px phone; a narrower screen scrolls them. */
 .seg button {
   min-height: 32px;
   font-size: 13px;
   border-color: transparent;
   color: var(--muted);
-  padding: 0 10px;
+  padding: 0 8px;
 }
 .seg button[aria-checked='true'] {
   color: var(--text);
@@ -608,6 +617,11 @@ input[type='radio'] {
   min-height: 34px;
   border-radius: 999px;
   font-size: 13px;
+}
+.pill[aria-pressed='true'] {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
 }
 .pill[aria-checked='true'] {
   border-color: var(--status);
@@ -670,6 +684,11 @@ input[type='radio'] {
   justify-content: space-between;
   gap: 8px;
   padding: 12px 16px;
+}
+.link-doctor {
+  margin: 0;
+  padding: 0 16px 12px;
+  overflow-wrap: anywhere;
 }
 .air-status {
   display: flex;
@@ -826,9 +845,6 @@ input[type='radio'] {
 .airlog .lost .dir {
   color: var(--coral);
 }
-.airlog .sync {
-  opacity: 0.6;
-}
 .airlog .sync .dir {
   color: var(--muted);
 }
@@ -938,6 +954,129 @@ input[type='radio'] {
   border: 0;
   background: none;
   padding: 0;
+}
+
+/* ---------- check-ins, requests, helpers, courier, notices ---------- */
+.checkin-card {
+  display: grid;
+  gap: 10px;
+}
+.more summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.more form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.more form > button {
+  justify-self: start;
+}
+.chip.need {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--status, var(--amber)) 55%, transparent);
+}
+.field-with-count {
+  display: grid;
+  gap: 2px;
+}
+.count {
+  justify-self: end;
+  font: 11px var(--mono);
+  color: var(--muted);
+}
+.count.over {
+  color: var(--coral);
+}
+input[aria-invalid='true'] {
+  border-color: var(--coral);
+}
+.section-head {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.section-head input[type='search'] {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.people.roster li,
+.people.courier li {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.people.roster li.open {
+  background: color-mix(in srgb, var(--status) 7%, var(--surface));
+}
+.reply {
+  color: var(--teal);
+}
+.helpers {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.helpers dt {
+  font: 700 12px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.helpers dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.notices {
+  display: grid;
+  gap: 8px;
+}
+.notice {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--topic) 50%, var(--line));
+  background: color-mix(in srgb, var(--topic) 8%, var(--surface));
+}
+.notice .topic {
+  font: 700 12px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--topic);
+}
+.notice-text {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.notices.huge .notice-text {
+  font-size: clamp(20px, 3vw, 32px);
+  line-height: 1.2;
+}
+.t-water {
+  --topic: var(--blue);
+  --status: var(--blue);
+}
+.t-food,
+.t-shelter {
+  --topic: var(--green);
+  --status: var(--green);
+}
+.t-power,
+.t-info {
+  --topic: var(--amber);
+  --status: var(--amber);
+}
+.t-medical,
+.t-danger {
+  --topic: var(--coral);
+  --status: var(--coral);
 }
 
 /* ---------- people & settings ---------- */
@@ -1087,6 +1226,11 @@ input[type='radio'] {
 .beacon-page .waterfall {
   padding: 0;
 }
+.beacon-notice {
+  display: grid;
+  gap: 10px;
+  max-width: 640px;
+}
 .stats.huge {
   margin: 0;
   grid-template-columns: repeat(6, 1fr);
@@ -1115,5 +1259,32 @@ input[type='radio'] {
   }
   .compose-foot button[type='submit'] {
     margin-left: auto;
+  }
+}
+
+/* The safety list on paper, for a shelter desk or a sheriff's list. */
+@media print {
+  .top,
+  .tabs,
+  .compose,
+  .airpanel,
+  .checkin-card,
+  .radar-wrap,
+  .find,
+  .section-head .row,
+  .actions {
+    display: none !important;
+  }
+  html,
+  body,
+  .shell,
+  .main,
+  .left,
+  .scroll {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .people li {
+    break-inside: avoid;
   }
 }
