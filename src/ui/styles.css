@@ -1,4 +1,6 @@
-:root {
+:root,
+.airpanel,
+.beacon-page {
   --bg: #0d0f0e;
   --surface: #141816;
   --surface-2: #1b201d;
@@ -13,11 +15,13 @@
   --green: #a3d97f;
   --blue: #86b9ff;
   --violet: #c7a6ff;
+  color-scheme: dark;
+}
+:root {
   --screen: #090b0a;
   --radius: 10px;
   --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Inter, Roboto, system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
@@ -69,7 +73,8 @@ textarea {
   font: inherit;
   color: inherit;
 }
-:focus-visible {
+:focus-visible,
+label.button:has(input:focus-visible) {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
 }
@@ -95,6 +100,9 @@ textarea {
 }
 .error {
   color: var(--coral);
+}
+.hint-warn {
+  color: var(--amber);
 }
 
 /* ---------- controls ---------- */
@@ -553,7 +561,7 @@ input[type='radio'] {
   color: var(--muted);
   padding: 0 10px;
 }
-.seg button[aria-selected='true'] {
+.seg button[aria-checked='true'] {
   color: var(--text);
   border-color: var(--line-strong);
   background: var(--surface-2);
@@ -640,14 +648,17 @@ input[type='radio'] {
 }
 
 /* ---------- air panel ---------- */
+/* The air panel and the beacon are an instrument screen, dark in light mode too (palette at the top). */
+.airpanel,
+.beacon-page {
+  --bg: var(--screen);
+  background: var(--screen);
+  color: var(--text);
+}
 .airpanel {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--screen);
-  color: #e9e4d6;
-  --muted: #98a29a;
-  --line: #222a26;
 }
 .left .airpanel {
   margin: -16px;
@@ -723,7 +734,7 @@ input[type='radio'] {
   display: block;
   width: 100%;
   border-radius: 6px;
-  border: 1px solid #222a26;
+  border: 1px solid var(--line);
   background: var(--screen);
 }
 .bands {
@@ -731,7 +742,7 @@ input[type='radio'] {
   gap: 2%;
   margin-top: 6px;
   font: 11px var(--mono);
-  color: #98a29a;
+  color: var(--muted);
 }
 .band {
   border-top: 2px solid #2c3530;
@@ -744,12 +755,12 @@ input[type='radio'] {
   letter-spacing: 0.08em;
 }
 .band.rx {
-  color: #62e3c5;
-  border-color: #62e3c5;
+  color: var(--teal);
+  border-color: var(--teal);
 }
 .band.tx {
-  color: #ffb547;
-  border-color: #ffb547;
+  color: var(--amber);
+  border-color: var(--amber);
 }
 .stats {
   display: grid;
@@ -807,29 +818,29 @@ input[type='radio'] {
   letter-spacing: 0.06em;
 }
 .airlog .rx .dir {
-  color: #62e3c5;
+  color: var(--teal);
 }
 .airlog .tx .dir {
-  color: #ffb547;
+  color: var(--amber);
 }
 .airlog .lost .dir {
-  color: #ff7a62;
+  color: var(--coral);
 }
 .airlog .sync {
   opacity: 0.6;
 }
 .airlog .sync .dir {
-  color: #98a29a;
+  color: var(--muted);
 }
 .airlog .what {
   display: grid;
   min-width: 0;
 }
 .airlog .meta {
-  color: #98a29a;
+  color: var(--muted);
 }
 .airlog time {
-  color: #98a29a;
+  color: var(--muted);
 }
 
 /* ---------- safety ---------- */
@@ -1065,13 +1076,6 @@ input[type='radio'] {
 /* ---------- beacon ---------- */
 .beacon-page {
   min-height: 100dvh;
-  background: var(--screen);
-  color: #e9e4d6;
-  --muted: #98a29a;
-  --line: #222a26;
-  --text: #e9e4d6;
-  --surface: #121614;
-  --bg: var(--screen);
 }
 .beacon-main {
   display: grid;

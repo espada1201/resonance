@@ -54,7 +54,7 @@ async function joinCircle(page: Page, passphrase: string) {
   await openTab(page, 'Settings');
   await page.getByLabel('Circle passphrase').fill(passphrase);
   await page.getByRole('button', { name: 'Apply' }).click();
-  await expect(page.getByText('Sealing everything you send')).toBeVisible();
+  await expect(page.getByText('are sealed with AES-256-GCM')).toBeVisible();
   await openTab(page, 'Feed');
 }
 
@@ -90,7 +90,7 @@ test('a tiny file crosses the air in chunks and reassembles byte for byte', asyn
       '3. Archbishop Park pavilion: dry floor space, bring a blanket\n' +
       'Water point: Westminster Bridge Rd fountain (working)\n',
   );
-  await a.getByRole('tab', { name: 'Tiny file', exact: true }).click();
+  await a.getByRole('radio', { name: 'Tiny file', exact: true }).click();
   await a.getByLabel('Choose a file or photo').setInputFiles({ name: 'shelters.txt', mimeType: 'text/plain', buffer: content });
   await expect(a.getByText(`shelters.txt · ${content.length} B`)).toBeVisible();
   await a.getByRole('button', { name: 'Send', exact: true }).click();

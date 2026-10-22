@@ -6,7 +6,9 @@ import { type Packet, immutableHeader } from './packet';
 // and the immutable header is authenticated so relays cannot re-address a sealed message.
 
 const SALT = new TextEncoder().encode('resonance/circle/v1');
-const ITERATIONS = 210_000;
+// OWASP's 2023 figure for PBKDF2-HMAC-SHA256. Anyone who records one sealed message can test
+// guesses offline, so this (and the passphrase) is all that stands between them and the circle.
+const ITERATIONS = 600_000;
 const TAG_BITS = 96;
 export const SEAL_OVERHEAD = TAG_BITS / 8;
 

@@ -2,12 +2,13 @@ import { useState } from 'preact/hooks';
 import { locate } from '../geo';
 import { CHUNK_BYTES, MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
-import { type Body, type Geo, STATUSES, type Status, nowSec } from '../mesh/payloads';
+import { type Body, type Geo, MAX_CONTACT_NAME, MAX_CONTACT_PHONE, STATUSES, type Status, nowSec } from '../mesh/payloads';
 import { airtimeSec } from '../modem/modulator';
 import { PROFILES } from '../modem/profiles';
 import type { Station } from '../station';
 import { who } from './feed';
-import { STATUS_TEXT, bytes, seconds } from './format';
+import { STATUS_TEXT, bytes, fitInput, seconds } from './format';
+import { rovingKeys } from './hooks';
 import { FileIcon, Lock, Pin, Send } from './icons';
 
 type Mode = 'text' | 'checkin' | 'contact' | 'file';
@@ -17,6 +18,7 @@ const MODES: Array<[Mode, string]> = [
   ['contact', 'Contact'],
   ['file', 'Tiny file'],
 ];
+const MODE_IDS = MODES.map(([m]) => m);
 
 /** Shrinks a photo to a JPEG small enough to cross the air in a few minutes. */
 async function shrinkImage(file: File, maxBytes: number): Promise<Blob> {
@@ -55,6 +57,8 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   const [working, setWorking] = useState(false);
 
   const sealed = station.circleChannel !== null;
+  // Check-ins feed everyone's safety map, and files go to everyone; only messages and contacts go to one person.
+  const toEveryone = mode === 'checkin' || mode === 'file';
   const profile = PROFILES[station.settings.profile];
   const budget = station.textBudget();
   const used = new TextEncoder().encode(text).length;
@@ -94,7 +98,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
     setWorking(true);
     setError('');
     try {
-      const target = dst === BROADCAST ? undefined : dst;
+      const target = dst === BROADCAST || toEveryone ? undefined : dst;
       if (mode === 'text') {
         await station.sendText(text.trim(), target);
         setText('');
@@ -107,7 +111,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         await station.sendCheckIn(status, note.trim(), geo);
         setNote('');
       } else if (mode === 'contact') {
-        await station.sendContact(name.trim(), phone.trim(), note.trim());
+        await station.sendContact(name.trim(), phone.trim(), note.trim(), target);
         setName('');
         setPhone('');
         setNote('');
@@ -126,9 +130,9 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
 
   return (
     <form class="compose" onSubmit={submit} aria-label="Compose">
-      <div class="seg" role="tablist" aria-label="What to send">
+      <div class="seg" role="radiogroup" aria-label="What to send" onKeyDown={rovingKeys(MODE_IDS, mode, setMode)}>
         {MODES.map(([m, label]) => (
-          <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => setMode(m)}>
+          <button key={m} type="button" role="radio" aria-checked={mode === m} tabIndex={mode === m ? 0 : -1} onClick={() => setMode(m)}>
             {label}
           </button>
         ))}
@@ -140,7 +144,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           <textarea
             rows={2}
             value={text}
-            placeholder="Say something to everyone in earshot…"
+            placeholder={dst === BROADCAST ? 'Say something to everyone in earshot…' : `Say something to ${who(station, dst)}…`}
             onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -154,9 +158,9 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
 
       {mode === 'checkin' && (
         <div class="checkin-fields">
-          <div class="pills" role="radiogroup" aria-label="Status">
+          <div class="pills" role="radiogroup" aria-label="Status" onKeyDown={rovingKeys(STATUSES, status, setStatus)}>
             {STATUSES.map((s) => (
-              <button key={s} type="button" role="radio" aria-checked={status === s} class={`pill s-${s}`} onClick={() => setStatus(s)}>
+              <button key={s} type="button" role="radio" aria-checked={status === s} tabIndex={status === s ? 0 : -1} class={`pill s-${s}`} onClick={() => setStatus(s)}>
                 {STATUS_TEXT[s]}
               </button>
             ))}
@@ -171,8 +175,8 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
 
       {mode === 'contact' && (
         <div class="grid2">
-          <input value={name} placeholder="Name" aria-label="Name" maxLength={40} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
-          <input value={phone} placeholder="Phone" aria-label="Phone" inputMode="tel" maxLength={24} onInput={(e) => setPhone((e.target as HTMLInputElement).value)} />
+          <input value={name} placeholder="Name" aria-label="Name" maxLength={MAX_CONTACT_NAME} onInput={(e) => setName(fitInput(e, MAX_CONTACT_NAME))} />
+          <input value={phone} placeholder="Phone" aria-label="Phone" inputMode="tel" maxLength={MAX_CONTACT_PHONE} onInput={(e) => setPhone(fitInput(e, MAX_CONTACT_PHONE))} />
           <input class="span2" value={note} placeholder="Note: role, skills, where to find you" aria-label="Contact note" maxLength={120} onInput={(e) => setNote((e.target as HTMLInputElement).value)} />
         </div>
       )}
@@ -197,7 +201,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
       <div class="compose-foot">
         <label class="to">
           <span class="label">To</span>
-          <select value={String(dst)} onChange={(e) => setDst(Number((e.target as HTMLSelectElement).value))} disabled={mode === 'file'}>
+          <select value={String(toEveryone ? BROADCAST : dst)} onChange={(e) => setDst(Number((e.target as HTMLSelectElement).value))} disabled={toEveryone}>
             <option value={String(BROADCAST)}>Everyone</option>
             {neighbors.map((n) => (
               <option key={n.id} value={String(n.id)}>
@@ -207,7 +211,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
             {dst !== BROADCAST && !station.mesh.neighbors.has(dst) && <option value={String(dst)}>{who(station, dst)}</option>}
           </select>
         </label>
-        <span class="budget small" aria-live="polite">
+        <span class="budget small">
           {mode === 'text' && <span class={used > budget ? 'over' : ''}>{budget - used} bytes left · </span>}
           {eta > 0 && <>≈ {seconds(eta)} on air</>}
           {sealed && (
@@ -221,7 +225,11 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           <Send size={16} /> {working ? 'Sending…' : 'Send'}
         </button>
       </div>
-      {mode === 'text' && used > budget && <p class="error small">One sound packet holds {budget} bytes. Trim {used - budget}.</p>}
+      {mode === 'text' && used > budget && (
+        <p class="error small">
+          <span role="alert">Too long for one sound packet.</span> It holds {budget} bytes; trim {used - budget}.
+        </p>
+      )}
       {error && (
         <p class="error small" role="alert">
           {error}

@@ -50,6 +50,8 @@ export class TxQueue {
 
   /** Call frequently; starts the next transmission when the air is clear. */
   async tick(): Promise<void> {
+    // The patience is for one unbroken stretch of busy air: any clear moment starts it afresh.
+    if (!this.io.busy()) this.deferringSince = null;
     if (this.paused || this.sending || !this.queue.length || this.clock.now() < this.notBefore) return;
     const now = this.clock.now();
     if (this.io.busy() && now - (this.deferringSince ?? now) < MAX_DEFER_MS) {

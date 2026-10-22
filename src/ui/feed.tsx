@@ -6,6 +6,12 @@ import { type FeedItem, type Station, nodeHex } from '../station';
 import { STATUS_TEXT, ago, bytes } from './format';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 
+/**
+ * When the author wrote it. Heard from the author itself, just now. Passed along, it may have
+ * travelled for hours, so go by the author's clock, but never later than when we heard it.
+ */
+export const writtenAt = (item: FeedItem) => (item.body && item.hops > 0 ? Math.min(item.at, item.body.ts * 1000) : item.at);
+
 export function who(station: Station, src: number, nick?: string) {
   if (src === station.id) return 'You';
   return nick || station.mesh.neighbors.get(src)?.nick || `#${nodeHex(src)}`;
@@ -39,7 +45,7 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
         </span>
       )}
       {!item.mine && <span class="chip">{item.hops === 0 ? 'heard directly' : `${item.hops} hop${item.hops > 1 ? 's' : ''}`}</span>}
-      <time dateTime={new Date(item.at).toISOString()}>{ago(item.at)}</time>
+      <time dateTime={new Date(writtenAt(item)).toISOString()}>{ago(writtenAt(item))}</time>
     </header>
   );
 }
@@ -48,6 +54,7 @@ function Delivery({ state }: { state: FeedItem['delivery'] }) {
   if (!state) return null;
   if (state === 'acked') return <span class="delivery ok"><Check size={14} /> delivered</span>;
   if (state === 'failed') return <span class="delivery bad"><Cross size={14} /> no answer after 3 tries</span>;
+  if (state === 'unknown') return <span class="delivery">no receipt: the app was closed while waiting</span>;
   return <span class="delivery">waiting for receipt…</span>;
 }
 
@@ -120,7 +127,7 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
       <article class="item locked">
         <Meta station={station} item={item} />
         <p class="muted">
-          <Lock size={14} /> Sealed for a circle you are not in. Your device still relays it.
+          <Lock size={14} /> Sealed for a circle you are not in.{station.settings.relay && ' Your device still relays it.'}
         </p>
       </article>
     );
@@ -167,6 +174,7 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
           {b.note && <span class="muted">{b.note}</span>}
         </div>
         <div class="actions">
+          <Delivery state={item.delivery} />
           <button type="button" class="ghost small" onClick={() => download(vcard(b.name, b.phone, b.note), `${b.name || 'contact'}.vcf`)}>
             <Download size={14} /> Save contact
           </button>

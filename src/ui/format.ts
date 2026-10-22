@@ -1,4 +1,12 @@
-import type { Status } from '../mesh/payloads';
+import { type Status, fitUtf8 } from '../mesh/payloads';
+
+/** Keeps a text input within `max` UTF-8 bytes (an emoji is 4), the room its field has on air. */
+export function fitInput(e: Event, max: number): string {
+  const el = e.target as HTMLInputElement;
+  const v = fitUtf8(el.value, max);
+  if (v !== el.value) el.value = v;
+  return v;
+}
 
 export function ago(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));

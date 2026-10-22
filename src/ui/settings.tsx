@@ -2,26 +2,38 @@ import { useState } from 'preact/hooks';
 import { MAX_NICK } from '../mesh/payloads';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
 import type { Station } from '../station';
+import { fitInput } from './format';
 import { Compass, Lock, Relay, Upload } from './icons';
 
 const PROFILE_TEXT: Record<ProfileId, string> = {
   audible: 'Chirps you can hear. Carries across a room or down a corridor, through walls with the volume up.',
-  fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s, so a 4 KB photo arrives in under a minute instead of over four minutes.',
+  fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s, so a 4 KB photo crosses a small room in about a minute and a half instead of ten.',
   ultrasonic: 'Near the top of human hearing: quiet for most adults, short range, best for devices on the same table. Some speakers cannot play it.',
 };
+
+/** Rough, but the threat is real: anyone who records a sealed message can try guesses offline, at leisure. */
+const guessable = (p: string) => p.length > 0 && p.length < 16 && p.split(/\s+/).length < 4;
 
 export function Settings({ station }: { station: Station }) {
   const s = station.settings;
   const [pass, setPass] = useState(s.passphrase);
   const [show, setShow] = useState(false);
   const [deriving, setDeriving] = useState(false);
+  const [passError, setPassError] = useState('');
   const [importMsg, setImportMsg] = useState('');
+  const sealed = station.circleChannel !== null;
 
   const applyPass = async (e: Event) => {
     e.preventDefault();
     setDeriving(true);
-    await station.setPassphrase(pass.trim());
-    setDeriving(false);
+    setPassError('');
+    try {
+      await station.setPassphrase(pass.trim());
+    } catch {
+      setPassError('This browser only encrypts on secure pages: open Resonance over https:// or on localhost.');
+    } finally {
+      setDeriving(false);
+    }
   };
 
   const importFile = async (file: File | undefined) => {
@@ -39,7 +51,7 @@ export function Settings({ station }: { station: Station }) {
     <div class="settings">
       <label class="field">
         <span class="label">Nickname</span>
-        <input value={s.nick} maxLength={MAX_NICK} placeholder="How others see you" onInput={(e) => station.update({ nick: (e.target as HTMLInputElement).value })} />
+        <input value={s.nick} maxLength={MAX_NICK} placeholder="How others see you" onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })} />
       </label>
 
       <fieldset class="field">
@@ -96,9 +108,18 @@ export function Settings({ station }: { station: Station }) {
             {deriving ? 'Deriving…' : 'Apply'}
           </button>
         </div>
+        {guessable(pass.trim()) && (
+          <span class="hint-warn small">Easy to guess. Anyone who records one sealed message can try passphrases offline; use four or more random words.</span>
+        )}
+        {passError && (
+          <span class="error small" role="alert">
+            {passError}
+          </span>
+        )}
         <span class="muted small">
-          {station.circleChannel !== null ? 'Sealing everything you send with AES-256-GCM. ' : 'Messages are open. '}
-          Everyone who types the same passphrase can read sealed messages. Others still relay them but see only “sealed”. Stored on this device only.
+          {sealed ? 'Your messages, check-ins, contacts and files are sealed with AES-256-GCM. ' : 'Messages are open. '}
+          Everyone who types the same passphrase can read sealed messages; others relay them but see only “sealed”. Not hidden: which device sent what
+          kind of packet, how big, when and to whom, and your nickname in hellos. Stored on this device only.
         </span>
       </form>
 

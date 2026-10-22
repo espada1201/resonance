@@ -71,7 +71,7 @@ export async function openTab(page: Page, name: 'Feed' | 'Safety' | 'People' | '
 
 export async function sendText(page: Page, text: string) {
   await openTab(page, 'Feed');
-  await page.getByRole('tab', { name: 'Message', exact: true }).click();
+  await page.getByRole('radio', { name: 'Message', exact: true }).click();
   const box = page.getByPlaceholder('Say something');
   await box.fill(text);
   await page.getByRole('button', { name: 'Send', exact: true }).click();

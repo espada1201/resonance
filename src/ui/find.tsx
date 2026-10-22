@@ -45,8 +45,8 @@ export function FindPanel({ station }: { station: Station }) {
       </p>
       <Sparkline values={readings} />
       <p class="muted small">
-        {f.note || `${phase}. ${readings.length} reading${readings.length === 1 ? '' : 's'}.`} Distance comes from timing chirps between the two
-        devices, the way bats and avalanche beacons work. It needs no GPS and works indoors. Walk, watch the number fall.
+        {f.note || `${phase}. ${readings.length} reading${readings.length === 1 ? '' : 's'}.`} Distance comes from timing chirps sent back and forth
+        between the two devices: sound covers about a metre every 3 milliseconds. It needs no GPS and works indoors. Walk, watch the number fall.
       </p>
     </section>
   );

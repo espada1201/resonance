@@ -4,10 +4,11 @@ import { twoWayDistance } from './mesh/ranging';
 import { renderPing } from './modem/ping';
 import type { DecodedFrame } from './modem/receiver';
 
-// Find mode: repeated two-way acoustic ranging with one chosen device, like an avalanche
-// transceiver. Each round: we send a range request frame with our ping 0.2 s behind it; the
-// target notes when our ping reached it, answers with its own ping, then reports the interval
-// it measured. Both intervals are measured on each device's own sample clock.
+// Find mode: repeated two-way acoustic ranging with one chosen device, used like an avalanche
+// transceiver (walk and watch the number fall). Each round: we send a range request frame with
+// our ping 0.2 s behind it; the target notes when our ping reached it, answers with its own ping,
+// then reports the interval it measured. Both intervals are measured on each device's own sample
+// clock.
 
 type RangeBody = Extract<Body, { kind: 'range' }>;
 

@@ -59,7 +59,7 @@ class Writer {
     return this.u32(v >>> 0);
   }
   str(s: string, max: number) {
-    const b = truncateUtf8(s, max);
+    const b = new TextEncoder().encode(fitUtf8(s, max));
     this.u8(b.length);
     return this.raw(b);
   }
@@ -105,20 +105,18 @@ class Reader {
   }
 }
 
-/** UTF-8 encode, cutting at a character boundary so the result fits in `max` bytes. */
-function truncateUtf8(s: string, max: number): Uint8Array {
+/** The longest start of `s`, cut at a character boundary, whose UTF-8 fits in `max` bytes. */
+export function fitUtf8(s: string, max: number): string {
   const enc = new TextEncoder();
-  let b = enc.encode(s);
-  if (b.length <= max) return b;
   let chars = [...s];
-  while (b.length > max) {
-    chars = chars.slice(0, -1);
-    b = enc.encode(chars.join(''));
-  }
-  return b;
+  while (enc.encode(chars.join('')).length > max) chars = chars.slice(0, -1);
+  return chars.join('');
 }
 
+/** Name fields are length-prefixed byte strings on air; inputs hold the same limits in bytes. */
 export const MAX_NICK = 16;
+export const MAX_CONTACT_NAME = 40;
+export const MAX_CONTACT_PHONE = 24;
 export const nowSec = () => Math.floor(Date.now() / 1000);
 
 export function encodeBody(body: Body): Uint8Array {
@@ -135,7 +133,7 @@ export function encodeBody(body: Body): Uint8Array {
       return w.str(body.nick, MAX_NICK).raw(new TextEncoder().encode(body.note)).done();
     }
     case 'contact':
-      return w.u32(body.ts).str(body.name, 40).str(body.phone, 24).raw(new TextEncoder().encode(body.note)).done();
+      return w.u32(body.ts).str(body.name, MAX_CONTACT_NAME).str(body.phone, MAX_CONTACT_PHONE).raw(new TextEncoder().encode(body.note)).done();
     case 'file':
       w.u16(body.fileId).u8(body.index).u8(body.total);
       if (body.index === 0) {

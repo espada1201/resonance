@@ -243,6 +243,32 @@ describe('mesh flooding', () => {
     expect(w.inbox.get('C')).toHaveLength(1);
   });
 
+  it('any copy of a packet stands down a planned answer, whichever attempt we first caught', () => {
+    let t = 0;
+    const out: string[] = [];
+    const n = new MeshNode(2, { now: () => t, random: () => 0.5 }, { transmit: (_b, reason) => void out.push(reason), deliver: () => undefined });
+    n.config.relay = false;
+    // We missed the author's first send and caught only its one repeat (attempt 1).
+    const chunk = { type: PacketType.Text, encrypted: false, ackRequested: false, msgId: 4242, src: 7, dst: BROADCAST, ttl: 5, hops: 0, channel: 0, body: encodeBody(text('chunk')) };
+    n.receive(encodePacket({ ...chunk, attempt: 1 }));
+    t += 60_000;
+    expect(n.answer(7, 4242)).toBe(true);
+    // Another holder answers first (its stored copy: attempt 0, one hop deep).
+    n.receive(encodePacket({ ...chunk, attempt: 0, hops: 1 }));
+    for (let i = 0; i < 100; i++, t += 100) n.tick();
+    expect(out).toEqual([]);
+  });
+
+  it('never answers or carries a packet that cannot go one more hop', () => {
+    let t = 0;
+    const out: Uint8Array[] = [];
+    const n = new MeshNode(2, { now: () => t, random: () => 0.5 }, { transmit: (b) => void out.push(b), deliver: () => undefined });
+    n.receive(encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId: 5, src: 7, dst: BROADCAST, ttl: 1, hops: 0, attempt: 0, channel: 0, body: encodeBody(text('local')) }));
+    expect(n.answer(7, 5)).toBe(false);
+    for (let i = 0; i < 100; i++, t += 100) n.tick();
+    expect(out).toEqual([]);
+  });
+
   it('stops at the TTL', () => {
     const w = new World();
     const [a] = ['A', 'B', 'C', 'D'].map((n, i) => w.add(n, i + 1));
@@ -274,6 +300,13 @@ describe('mesh flooding', () => {
     expect(w.inbox.get('C')).toHaveLength(1);
     expect(w.inbox.get('B')).toHaveLength(0);
     expect(w.deliveries).toEqual([['A', p.msgId, true]]);
+  });
+
+  it('sends receipts as receipts, so the radio puts them ahead of queued traffic', () => {
+    const sent: string[] = [];
+    const n = new MeshNode(3, { now: () => 0, random: () => 0.5 }, { transmit: (b, reason) => void sent.push(`${PacketType[decodePacket(b)!.type]}:${reason}`), deliver: () => undefined });
+    n.receive(encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: true, msgId: 9, src: 1, dst: 3, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody(text('hi')) }));
+    expect(sent).toEqual(['Ack:ack']);
   });
 
   it('acknowledges each attempt once, however many copies of it arrive', () => {
@@ -314,6 +347,19 @@ describe('mesh flooding', () => {
     w.run(400_000);
     expect(w.tx.filter((t) => t.from === 'A' && t.packet.msgId === p.msgId)).toHaveLength(3);
     expect(w.deliveries).toEqual([['A', p.msgId, false]]);
+  });
+
+  it('a receipt that arrives after giving up still counts as delivered', () => {
+    const w = new World();
+    const a = w.add('A', 1);
+    const p = send(a, text('anyone?'), { dst: 99, ackRequested: true });
+    w.run(400_000);
+    const ack = { type: PacketType.Ack, encrypted: false, ackRequested: false, msgId: 5, src: 99, dst: 1, ttl: 5, hops: 2, attempt: 0, channel: 0 };
+    a.receive(encodePacket({ ...ack, body: encodeBody({ kind: 'ack', msgId: p.msgId, attempt: 2 }) }));
+    expect(w.deliveries).toEqual([
+      ['A', p.msgId, false],
+      ['A', p.msgId, true],
+    ]);
   });
 
   it('carries a message in a pocket to a node that was out of range (HELLO sync)', () => {
@@ -384,6 +430,41 @@ describe('HELLO summaries', () => {
     expect(b.store.size).toBe(30);
   });
 
+  it("a room answers a newcomer's hello with one copy of each packet it lacks", () => {
+    const w = new World();
+    const nodes = ['A', 'B', 'C', 'D', 'N'].map((n, i) => w.add(n, i + 1));
+    for (const n of nodes) n.config.relay = false;
+    for (const msgId of [500, 501, 502]) for (const n of nodes.slice(0, 4)) n.receive(farAway(msgId));
+    w.link('AB', 'AC', 'AD', 'AN', 'BC', 'BD', 'BN', 'CD', 'CN', 'DN');
+    nodes[4].hello('n', 'phone');
+    w.run(30_000);
+    expect(w.tx.filter((t) => t.reason === 'carry').map((t) => t.packet.msgId).sort()).toEqual([500, 501, 502]);
+    expect(w.inbox.get('N')).toHaveLength(3);
+  });
+
+  for (const carrier of ['beacon', 'phone'] as const) {
+    it(`a ${carrier} meeting a newcomer passes on its freshest news at once, however big both stores are`, () => {
+      // Both hold the same 300 packets; the carrier also heard one more, five minutes before they met.
+      const w = new World();
+      const [b, p] = ['B', 'P'].map((n, i) => w.add(n, i + 1));
+      for (const n of [b, p]) n.config.relay = false;
+      for (let msgId = 1000; msgId < 1300; msgId++) {
+        b.receive(farAway(msgId));
+        p.receive(farAway(msgId));
+        w.t += 1000;
+      }
+      const [holder, lacker] = carrier === 'beacon' ? [b, p] : [p, b];
+      holder.receive(farAway(77));
+      w.t += 5 * 60_000;
+      w.link('BP');
+      // Whoever speaks first, the other one has just met them.
+      lacker.hello('x', 'phone');
+      w.run(20_000);
+      expect(lacker.store.has('99:77')).toBe(true);
+      expect(w.tx.filter((t) => t.reason === 'carry').length).toBeLessThanOrEqual(3);
+    });
+  }
+
   it('two beacons holding the same 200 packets stay quiet for an hour', () => {
     // A summary only fits ~40 ids, so HELLOs take turns covering slices of the store.
     const w = new World();
@@ -395,25 +476,35 @@ describe('HELLO summaries', () => {
       w.t += 1000;
     }
     w.link('AB');
-    for (let minute = 0; minute < 60; minute++) {
+    // Meeting costs at most a few spare frames (each offers its newest news); then silence.
+    const carries = () => w.tx.filter((t) => t.reason === 'carry').length;
+    a.hello('a', 'beacon');
+    b.hello('b', 'beacon');
+    w.run(60_000);
+    expect(carries()).toBeLessThanOrEqual(6);
+    const afterMeeting = carries();
+    for (let minute = 1; minute < 60; minute++) {
       a.hello('a', 'beacon');
       b.hello('b', 'beacon');
       w.run(60_000);
     }
-    expect(w.tx.filter((t) => t.reason === 'carry')).toHaveLength(0);
+    expect(carries()).toBe(afterMeeting);
   });
 
   it('finds the gaps anywhere in a 200-packet store within a few HELLOs', () => {
     const w = new World();
     const [a, b] = ['A', 'B'].map((n, i) => w.add(n, i + 1));
     for (const n of [a, b]) n.config.relay = false;
+    // Neighbours all along (so no newcomer offers), both hearing the same far-away traffic.
+    w.link('AB');
+    b.hello('b', 'phone');
+    w.run(10_000);
     const lost = [1004, 1077, 1150];
     for (let msgId = 1000; msgId < 1200; msgId++) {
       a.receive(farAway(msgId));
       if (!lost.includes(msgId)) b.receive(farAway(msgId));
       w.t += 1000;
     }
-    w.link('AB');
     for (let k = 0; k < 6; k++) {
       b.hello('b', 'phone');
       w.run(30_000);
@@ -425,7 +516,7 @@ describe('HELLO summaries', () => {
   it('greets a neighbour it has not heard for a while, once', () => {
     let t = 0;
     let greetings = 0;
-    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined, met: () => greetings++ });
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined, heardHello: (_id, newcomer) => void (newcomer && greetings++) });
     const hello = (msgId: number) => encodePacket({ type: PacketType.Hello, encrypted: false, ackRequested: false, msgId, src: 5, dst: BROADCAST, ttl: 1, hops: 0, attempt: 0, channel: 0, body: encodeBody({ kind: 'hello', role: 'beacon', nick: 'hall', hashes: 0, part: 0, parts: 1, bits: new Uint8Array() }) });
     n.receive(hello(1));
     t += 60_000;
@@ -463,6 +554,25 @@ describe('transmit queue', () => {
     for (let i = 0; i < 66; i++) q.enqueue(Uint8Array.of(i));
     expect(done).toEqual([64, 65]);
     expect(q.length).toBe(64);
+  });
+
+  it("never talks over a neighbour's back-to-back frames, however long the stream", async () => {
+    // The 25 s patience is for one stuck reading; each gap between a neighbour's frames resets it.
+    const r = rng(5);
+    let collisions = 0;
+    for (let trial = 0; trial < 100; trial++) {
+      let t = 0;
+      const frames: Array<[number, number]> = [];
+      for (let s = 0; s < 150_000; s += 20_300 + 700 + r() * 600) frames.push([s, s + 20_300]);
+      const busyAt = (x: number) => frames.some(([a, b]) => x >= a && x < b);
+      let startedAt = -1;
+      const q = new TxQueue({ busy: () => busyAt(t), send: async () => void (startedAt = t) }, { now: () => t, random: r });
+      t = 100 + r() * 200;
+      q.enqueue(Uint8Array.of(1));
+      for (; startedAt < 0 && t < 200_000; t += 200) await q.tick();
+      if (startedAt < 0 || busyAt(startedAt)) collisions++;
+    }
+    expect(collisions).toBe(0);
   });
 
   it('waits out the longest frame, then stops deferring, and reports each finished frame', async () => {

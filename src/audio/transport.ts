@@ -49,6 +49,8 @@ export class MicTransport implements AirTransport {
     const node = new AudioWorkletNode(ctx, 'resonance-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
     node.port.onmessage = (e: MessageEvent<Float32Array>) => onSamples(e.data);
     ctx.createMediaStreamSource(stream).connect(node);
+    // Phones suspend audio for a call or a trip to the background; pick it up again on return.
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && ctx.state !== 'running' && void ctx.resume().catch(() => undefined));
     const sink = ctx.createGain();
     sink.gain.value = 0;
     node.connect(sink).connect(ctx.destination);
@@ -58,16 +60,27 @@ export class MicTransport implements AirTransport {
     return ctx.sampleRate;
   }
 
-  play(wave: Float32Array, sampleRate: number): Promise<void> {
+  async play(wave: Float32Array, sampleRate: number): Promise<void> {
     const ctx = this.ctx;
-    if (!ctx || !this.gain) return Promise.reject(new Error('audio is not running'));
+    if (!ctx || !this.gain) throw new Error('audio is not running');
+    if (ctx.state !== 'running') await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 1000))]).catch(() => undefined);
     const buf = ctx.createBuffer(1, wave.length, sampleRate);
     buf.copyToChannel(wave as Float32Array<ArrayBuffer>, 0);
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.gain);
-    return new Promise((resolve) => {
-      src.onended = () => resolve();
+    await new Promise<void>((resolve) => {
+      // A suspended context never ends a sound. Give up on it rather than hold the queue, and cut
+      // it loose so it cannot play late, with every other abandoned frame, when audio wakes.
+      const timer = setTimeout(() => {
+        src.onended = null;
+        src.disconnect();
+        resolve();
+      }, (wave.length / sampleRate) * 1000 + 3000);
+      src.onended = () => {
+        clearTimeout(timer);
+        resolve();
+      };
       src.start();
     });
   }

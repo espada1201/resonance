@@ -2,18 +2,25 @@ import { useEffect, useState } from 'preact/hooks';
 import { bearingDeg, compassPoint, distanceM, formatDistance, locate } from '../geo';
 import type { Geo, Status } from '../mesh/payloads';
 import { type FeedItem, type Station, nodeHex } from '../station';
-import { who } from './feed';
+import { who, writtenAt } from './feed';
 import { STATUS_TEXT, ago } from './format';
 import { Compass, Pin } from './icons';
 
 type CheckIn = FeedItem & { body: Extract<NonNullable<FeedItem['body']>, { kind: 'checkin' }> };
 const URGENCY: Record<Status, number> = { help: 0, medical: 1, sheltering: 2, safe: 3 };
 
-/** Latest check-in per person, most urgent first. */
+/**
+ * Each person's latest check-in by their own clock, most urgent first. Arrival order is not enough:
+ * an old "I need help" carried in from another room must not hide a newer "I'm safe".
+ */
 export function latestCheckIns(feed: FeedItem[]): CheckIn[] {
   const by = new Map<number, CheckIn>();
-  for (const i of feed) if (i.body?.kind === 'checkin' && !by.has(i.src)) by.set(i.src, i as CheckIn);
-  return [...by.values()].sort((a, b) => URGENCY[a.body.status] - URGENCY[b.body.status] || b.at - a.at);
+  for (const i of feed) {
+    if (i.body?.kind !== 'checkin') continue;
+    const prev = by.get(i.src);
+    if (!prev || i.body.ts > prev.body.ts) by.set(i.src, i as CheckIn);
+  }
+  return [...by.values()].sort((a, b) => URGENCY[a.body.status] - URGENCY[b.body.status] || b.body.ts - a.body.ts);
 }
 
 const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
@@ -164,7 +171,7 @@ export function Safety({ station }: { station: Station }) {
               <span class="status-word">{STATUS_TEXT[p.body.status]}</span>
               <span class="who">{who(station, p.src, p.body.nick)}</span>
               <span class="muted small">
-                {rel} · {ago(p.at)}
+                {rel} · sent {ago(writtenAt(p))}
                 {p.body.note && ` · ${p.body.note}`}
               </span>
             </li>

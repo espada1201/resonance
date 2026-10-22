@@ -127,7 +127,7 @@ export function Waterfall({ station, height = 220 }: { station: Station; height?
 type Tone = 'off' | 'idle' | 'rx' | 'tx' | 'warn';
 
 function stateLine(s: Station, compact: boolean): { text: string; tone: Tone } {
-  if (s.status === 'error') return { text: compact ? 'No mic' : 'Microphone unavailable', tone: 'warn' };
+  if (s.status === 'error') return { text: compact ? 'Stopped' : 'Not listening', tone: 'warn' };
   if (s.status !== 'listening') return { text: s.status === 'starting' ? 'Starting…' : 'Not listening', tone: 'off' };
   if (s.transmitting) return { text: compact ? `Sending ${seconds(s.transmitting.seconds)}` : `Transmitting · ${seconds(s.transmitting.seconds)}`, tone: 'tx' };
   if (s.receiving) return { text: compact ? 'Receiving…' : `Receiving ${PROFILE_NAME[s.receiving]} frame…`, tone: 'rx' };
@@ -135,10 +135,11 @@ function stateLine(s: Station, compact: boolean): { text: string; tone: Tone } {
   return { text: 'Listening', tone: 'idle' };
 }
 
-export function AirStatus({ station, compact = false }: { station: Station; compact?: boolean }) {
+/** `announce` makes this the page's one live region for the air state; other copies stay quiet. */
+export function AirStatus({ station, compact = false, announce = false }: { station: Station; compact?: boolean; announce?: boolean }) {
   const st = stateLine(station, compact);
   return (
-    <div class={`air-status ${st.tone}`} role="status" aria-live="polite">
+    <div class={`air-status ${st.tone}`} role={announce ? 'status' : undefined}>
       <span class="dot" aria-hidden="true" />
       <span class="text">{st.text}</span>
       {station.transmitting && !compact && <TxProgress started={station.transmitting.started} seconds={station.transmitting.seconds} />}
@@ -175,7 +176,7 @@ function AirStats({ station }: { station: Station }) {
     ['Sent', t.txSec ? seconds(t.txSec) : '—', 'total time this device spent transmitting'],
     ['Tone SNR', last?.toneSnrDb !== undefined ? `${last.toneSnrDb.toFixed(0)} dB` : '—'],
     ['Heard', `${m.heard}`],
-    ['Relayed', `${m.relayed + m.carried}`],
+    ['Relayed', `${m.relayed}`, 'packets this device repeated for others'],
     ['Lost', `${t.lost}`, 'frames detected but too damaged to repair'],
   ];
   return (
@@ -220,12 +221,12 @@ export function AirLog({ events, limit = 60 }: { events: AirEvent[]; limit?: num
   );
 }
 
-export function AirPanel({ station }: { station: Station }) {
+export function AirPanel({ station, announce = false }: { station: Station; announce?: boolean }) {
   return (
     <section class="airpanel" aria-label="Air">
       <div class="air-head">
         <span class="label">The air</span>
-        <AirStatus station={station} />
+        <AirStatus station={station} announce={announce} />
       </div>
       <Waterfall station={station} />
       <AirStats station={station} />

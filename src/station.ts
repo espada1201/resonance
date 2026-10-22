@@ -32,7 +32,8 @@ export interface FeedItem {
   dst: number;
   body?: ContentBody;
   fileKey?: string;
-  delivery?: 'sending' | 'acked' | 'failed';
+  /** For direct messages. 'unknown': the app was closed while waiting for the receipt. */
+  delivery?: 'sending' | 'acked' | 'failed' | 'unknown';
 }
 
 export interface AirEvent {
@@ -66,12 +67,17 @@ interface Spectrum {
 const DEFAULT_TTL = 5;
 /** Listening time after our own frame before the next may start (the worker's busy flag needs a few hundred ms). */
 const LISTEN_AFTER_SEND_MS = 400;
-/** Someone else's file that goes quiet this long asks for its missing pieces (random, so a crowd does not ask at once). */
-const FILE_PATIENCE_MS: [number, number] = [20_000, 35_000];
-/** Automatic asks per file; after that the feed's "Ask for missing" button is left. */
+/**
+ * Someone else's file that goes quiet asks for its missing pieces. Each chunk shares the air with
+ * neighbours' relays of the one before, so quiet means a few chunk airtimes, never under 20 s.
+ * The wait is stretched by up to 75% at random, so a crowd missing the same chunk does not ask at once.
+ */
+const FILE_PATIENCE_MS = 20_000;
+const FILE_PATIENCE_AIRTIMES = 4;
+/** Automatic asks per file that bring nothing new; after that the feed's "Ask for missing" button is left. */
 const AUTO_ASKS = 3;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
-/** A neighbour who just turned up gets a hello back, unless we sent one this recently. */
+/** Hellos are at least this far apart; a neighbour who just turned up gets one back within seconds. */
 const GREET_GAP_MS = 30_000;
 /** File requests go one relay deep: far enough to reach a holder, near enough to keep the air quiet. */
 const FILE_REQUEST_TTL = 2;
@@ -111,14 +117,16 @@ export class Station {
   private circle: Circle | null = null;
   private worker: Worker | null = null;
   private workerBusy = false;
+  private workerFailures: number[] = [];
   private listeners = new Set<() => void>();
   private spectrumListeners = new Set<(s: Spectrum) => void>();
   private chunkIds = new Map<string, Map<number, number>>();
   private airSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private unmute: ReturnType<typeof setTimeout> | null = null;
-  private fileWaits = new Map<string, { due: number; asks: number }>();
+  private fileWaits = new Map<string, { due: number; asks: number; patienceMs: number }>();
   private lastHello = 0;
+  private greeting: ReturnType<typeof setTimeout> | null = null;
   private frameInFlight: DecodedFrame | null = null;
   private readonly prefix: string;
 
@@ -146,9 +154,9 @@ export class Station {
       deliver: (p) => void this.onDeliver(p),
       delivery: (msgId, ok) => this.onDelivery(msgId, ok),
       channelBusy: () => this.busy,
-      // A receipt says "read": never for a message sealed for a circle we are not in.
+      // A receipt says "read": not for a message sealed for another circle (as far as its one-byte tag tells).
       readable: (p) => !p.encrypted || p.channel === this.circle?.channel,
-      met: () => this.greet(),
+      heardHello: (_src, newcomer) => this.onHello(newcomer),
     });
     this.mesh.config.relay = this.settings.relay;
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];
@@ -173,7 +181,7 @@ export class Station {
     });
     this.ranger.answering = this.settings.answerFind;
     this.restore();
-    if (this.settings.passphrase) void this.setPassphrase(this.settings.passphrase);
+    if (this.settings.passphrase) this.setPassphrase(this.settings.passphrase).catch(() => undefined);
     // The browser drops the wake lock whenever the page is hidden; take it back on return.
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.status === 'listening' && void this.keepAwake());
   }
@@ -203,12 +211,13 @@ export class Station {
 
   async start() {
     if (this.status === 'listening' || this.status === 'starting') return;
+    // Audio is already running and the decoder gave up: only a fresh page starts cleanly.
+    if (this.sampleRate) return location.reload();
     this.status = 'starting';
     this.error = '';
     this.changed();
     try {
-      this.worker = new Worker(new URL('./audio/rx-worker.ts', import.meta.url), { type: 'module' });
-      this.worker.onmessage = (e: MessageEvent<FromWorker>) => this.onWorker(e.data);
+      this.spawnWorker();
       this.sampleRate = await this.transport.start((chunk) => this.toWorker({ type: 'samples', data: chunk }, [chunk.buffer]));
       this.transport.setVolume(this.settings.volume);
       this.toWorker({ type: 'init', sampleRate: this.sampleRate });
@@ -223,26 +232,39 @@ export class Station {
       setInterval(() => this.hello(), HELLO_MS[this.role] * (0.85 + Math.random() * 0.3));
     } catch (err) {
       this.status = 'error';
-      this.error = err instanceof Error ? err.message : String(err);
+      this.error = `${err instanceof Error ? err.message : String(err)} Check that this page may use the microphone, then try again.`;
       this.worker?.terminate();
       this.worker = null;
     }
     this.changed();
   }
 
+  /** Announces what we hold, unless a hello went out moments ago (a greeting, say). */
   private hello() {
+    if (Date.now() - this.lastHello < GREET_GAP_MS) return;
     this.lastHello = Date.now();
     this.mesh.hello(this.settings.nick, this.role);
   }
 
   /**
-   * Someone new is in earshot. Saying hello back tells them what we hold, so whatever they carry
-   * that we lack comes over now, not at their next scheduled hello minutes later.
+   * A newcomer is in earshot. One hello from this room tells it what the room holds, so whatever it
+   * carries that we lack comes over now, not at its next hello minutes later. A neighbour we
+   * already know shares our news, so its hello does the same job and ours stands down.
    */
-  private greet() {
-    if (Date.now() - this.lastHello < GREET_GAP_MS) return;
-    this.lastHello = Date.now();
-    setTimeout(() => this.hello(), 1000 + Math.random() * 3000);
+  private onHello(newcomer: boolean) {
+    if (!newcomer) {
+      if (this.greeting) clearTimeout(this.greeting);
+      this.greeting = null;
+      return;
+    }
+    if (this.greeting || Date.now() - this.lastHello < GREET_GAP_MS) return;
+    const greet = () => {
+      // Wait for clear air, so that a greeting already under way can stand ours down.
+      if (this.busy) return void (this.greeting = setTimeout(greet, 500 + Math.random() * 1500));
+      this.greeting = null;
+      this.hello();
+    };
+    this.greeting = setTimeout(greet, 1000 + Math.random() * 8000);
   }
 
   /** Phones stop the microphone when the screen locks, so a listening station keeps it on. */
@@ -252,6 +274,30 @@ export class Station {
     } catch {
       // Unsupported, or refused in battery saver: everything still works while the screen is on.
     }
+  }
+
+  private spawnWorker() {
+    const w = new Worker(new URL('./audio/rx-worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e: MessageEvent<FromWorker>) => this.onWorker(e.data);
+    // A decoder that threw may be left half-way through a frame: replace it, unless it keeps failing.
+    w.onerror = (e) => {
+      e.preventDefault();
+      w.terminate();
+      if (this.worker !== w) return;
+      this.workerBusy = false;
+      const now = Date.now();
+      this.workerFailures = [...this.workerFailures.filter((t) => now - t < 10 * 60_000), now];
+      if (this.workerFailures.length > 3) {
+        this.worker = null;
+        this.status = 'error';
+        this.error = 'The sound decoder keeps failing in this browser. Reload the page to listen again.';
+        return this.changed();
+      }
+      this.spawnWorker();
+      if (this.sampleRate) this.toWorker({ type: 'init', sampleRate: this.sampleRate });
+      if (this.transmitting || this.unmute) this.toWorker({ type: 'mute', on: true });
+    };
+    this.worker = w;
   }
 
   private toWorker(m: ToWorker, transfer: Transferable[] = []) {
@@ -412,8 +458,8 @@ export class Station {
     return this.send({ kind: 'checkin', ts: nowSec(), nick: this.settings.nick, status, geo, note });
   }
 
-  sendContact(name: string, phone: string, note: string) {
-    return this.send({ kind: 'contact', ts: nowSec(), name, phone, note });
+  sendContact(name: string, phone: string, note: string, dst?: number) {
+    return this.send({ kind: 'contact', ts: nowSec(), name, phone, note }, { dst });
   }
 
   async sendFile(name: string, mime: string, data: Uint8Array) {
@@ -433,16 +479,22 @@ export class Station {
     return this.send({ kind: 'filereq', fileSrc: f.src, fileId: f.fileId, missing: missing(f) }, { sealed: false, ttl: FILE_REQUEST_TTL });
   }
 
-  /** Heard progress on someone else's unfinished file: give it time before asking for the rest. */
-  private expectMore(key: string) {
+  /**
+   * Heard from someone else's unfinished file: give it time before asking for the rest. A new chunk
+   * (with its airtime) means the file is moving, which also renews the automatic asks.
+   */
+  private expectMore(key: string, chunkAirtimeSec?: number) {
     const f = this.files.get(key);
     if (!f || f.src === this.id || !missing(f).length) {
       this.fileWaits.delete(key);
       return;
     }
-    const [lo, hi] = FILE_PATIENCE_MS;
-    const w = this.fileWaits.get(key) ?? { due: 0, asks: 0 };
-    w.due = Date.now() + lo + Math.random() * (hi - lo);
+    const w = this.fileWaits.get(key) ?? { due: 0, asks: 0, patienceMs: FILE_PATIENCE_MS };
+    if (chunkAirtimeSec !== undefined) {
+      w.asks = 0;
+      w.patienceMs = Math.max(FILE_PATIENCE_MS, FILE_PATIENCE_AIRTIMES * chunkAirtimeSec * 1000);
+    }
+    w.due = Date.now() + w.patienceMs * (1 + 0.75 * Math.random());
     this.fileWaits.set(key, w);
   }
 
@@ -481,7 +533,7 @@ export class Station {
     if (body.kind === 'file') {
       this.trackChunk(p.src, body.fileId, body.index, p.msgId);
       const f = addChunk(this.files, p.src, body);
-      this.expectMore(f.key);
+      this.expectMore(f.key, frame?.airtimeSec ?? 0);
       const id = `file:${f.key}`;
       if (!this.feed.some((i) => i.id === id)) this.addFeed({ ...this.itemBase(p, false), id, fileKey: f.key });
     } else if (body.kind === 'filereq') {
@@ -493,6 +545,9 @@ export class Station {
       void this.ranger.onPacket(p, body, frame);
     } else if (body.kind === 'text' || body.kind === 'checkin' || body.kind === 'contact') {
       this.addFeed({ ...this.itemBase(p, false), body });
+      // Name a neighbour in People and the To menu now, not at its next hello minutes from now.
+      const n = this.mesh.neighbors.get(p.src);
+      if (n && body.kind !== 'contact' && body.nick) n.nick = body.nick;
     }
     this.changed();
   }
@@ -574,9 +629,11 @@ export class Station {
     this.changed();
   }
 
+  /** Joins (or with "" leaves) a circle. Throws where the browser offers no crypto (plain http). */
   async setPassphrase(passphrase: string) {
+    const circle = passphrase ? await deriveCircle(passphrase) : null;
     this.settings.passphrase = passphrase;
-    this.circle = passphrase ? await deriveCircle(passphrase) : null;
+    this.circle = circle;
     this.changed();
   }
 
@@ -614,7 +671,8 @@ export class Station {
   private restore() {
     const s = this.storage;
     const k = this.prefix;
-    this.feed = load<FeedItem[]>(s, k + 'feed') ?? [];
+    // Retry timers do not survive a reload; a late receipt can still turn these into "delivered".
+    this.feed = (load<FeedItem[]>(s, k + 'feed') ?? []).map((i) => (i.delivery === 'sending' ? { ...i, delivery: 'unknown' } : i));
     const store = load<Array<{ b: string; t: number }>>(s, k + 'store') ?? [];
     this.mesh.hydrate(store.map((x): StoredPacket => ({ bytes: unb64(x.b), firstHeard: x.t, lastPushed: -Infinity })));
     for (const f of load<Array<Omit<FileState, 'chunks'> & { chunks: Array<string | null> }>>(s, k + 'files') ?? []) {

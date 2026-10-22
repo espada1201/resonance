@@ -4,7 +4,7 @@ An offline mesh network made of sound. Phones and laptops pass messages through 
 
 ## Run on your Mac
 
-1. Install Node once: open Terminal and run `brew install node`.
+1. Install Node once: open Terminal and run `brew install node` (no Homebrew yet? install it from https://brew.sh first).
 2. Get the code: `git clone https://github.com/espada1201/resonance.git && cd resonance`
 3. Start it: `npm install && npm start`. Your browser opens at http://localhost:4173.
 4. Click **Start listening** and allow the microphone. No second device? Click **Try it in two tabs**.
@@ -13,10 +13,10 @@ An offline mesh network made of sound. Phones and laptops pass messages through 
 ## What it does
 
 - **Messages**: text, "I'm safe" check-ins with an optional GPS pin shown as distance and direction from you, contact cards, and files up to 4 KB (photos are shrunk to fit). Direct messages are acknowledged and retried.
-- **Private circles**: a shared passphrase encrypts messages end to end (AES-GCM, key stretched with PBKDF2).
+- **Private circles**: a shared passphrase seals what you write end to end (AES-256-GCM, key stretched with 600,000 rounds of PBKDF2). Which device sent what kind of packet, to whom and when stays visible.
 - **Find**: two phones measure the distance between them by timing chirps back and forth.
 - **See the air**: a live spectrum shows each frame arrive, decode and get relayed.
-- **Beacon page**: a laptop listens, relays, and hands stored messages to anyone who walks past.
+- **Beacon page**: a laptop listens, relays, and hands stored messages to phones that come within earshot.
 - **Works offline**: after the first visit the app is cached and installable.
 
 ## Three modes, measured
@@ -31,9 +31,9 @@ You pick the mode you send in; every device listens in all three at once.
 
 ## How it works
 
-Each frame opens with two chirps that mark its start and measure the sender's clock against ours. Audible and near-ultrasonic send one byte per symbol as two tones out of 16 each (MFSK). Fast uses OFDM: about a hundred tones at once, each carrying 2 bits as a phase step (DQPSK). Reed-Solomon codes repair damaged bytes and a CRC rejects anything still wrong. On top runs a flooding mesh: hop limits, duplicate suppression, random backoff, listen-before-talk, and HELLOs that summarise what each device holds in a Bloom filter, so neighbours fill each other's gaps.
+Each frame opens with two chirps that mark its start and measure the sender's clock against ours. Audible and near-ultrasonic send one byte per symbol as two tones out of 16 each (MFSK). Fast uses OFDM: about a hundred tones at once, each carrying 2 bits as a phase step (DQPSK). Reed-Solomon codes repair damaged bytes and a CRC rejects anything still wrong. On top runs a flooding mesh: hop limits, duplicate suppression, random backoff, listen-before-talk, and HELLOs that summarise what each device holds in a Bloom filter, so neighbours fill each other's gaps. A lost piece of a file is resent by whichever device nearest the asker holds it.
 
-The demodulators are judged against textbook error rates for these modulations (Proakis; Pawula, Rice and Roberts) and land within 0.25 dB of an ideal detector.
+With symbol timing known, the demodulators land within 0.25 dB of the textbook error rates for these modulations (Proakis; Pawula, Rice and Roberts).
 
 ## Tests
 

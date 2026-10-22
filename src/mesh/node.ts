@@ -66,18 +66,19 @@ interface MeshEvents {
   channelBusy?(): boolean;
   /** Whether this node can open a packet; only readable direct messages are acknowledged. */
   readable?(p: Packet): boolean;
-  /** A neighbour we had not heard for a while said hello: a chance to say hello back. */
-  met?(id: number): void;
+  /** A neighbour said hello; `newcomer` if we had not heard it for a while (a chance to say hello back). */
+  heardHello?(src: number, newcomer: boolean): void;
 }
 
 interface PendingRelay {
+  /** A relay is of one attempt (relayKey); an answer or carry is of the packet itself (storeKey). */
   key: string;
   msgId: number;
   due: number;
   heard: number;
   /** Copies overheard before ours is due that make ours redundant. */
   quorum: number;
-  reason: 'relay' | 'answer';
+  reason: 'relay' | 'answer' | 'carry';
   bytes: Uint8Array;
 }
 
@@ -92,6 +93,8 @@ const ANSWER_COOLDOWN_MS = 15_000;
 const HELLO_SLICE = 40;
 /** A neighbour silent this long counts as new when it says hello again. */
 const MET_AFTER_MS = 10 * 60_000;
+/** Packets heard more recently than this are probably still spreading through the room the newcomer just walked into. */
+const SETTLED_MS = 60_000;
 
 const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
 const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
@@ -115,7 +118,7 @@ export class MeshNode {
   ) {}
 
   /** Sends a packet this node authored. src/hops/attempt are filled in here. */
-  originate(p: Omit<Packet, 'src' | 'hops' | 'attempt'>): Packet {
+  originate(p: Omit<Packet, 'src' | 'hops' | 'attempt'>, reason: 'origin' | 'ack' = 'origin'): Packet {
     const packet: Packet = { ...p, src: this.id, hops: 0, attempt: 0 };
     this.seen.set(relayKey(packet), this.clock.now());
     this.delivered.add(storeKey(packet));
@@ -126,7 +129,7 @@ export class MeshNode {
     } else if (packet.dst === BROADCAST && packet.ttl > 1 && this.isStorable(packet)) {
       this.echoes.set(packet.msgId, { packet, due: Infinity });
     }
-    this.events.transmit(encodePacket(packet), 'origin');
+    this.events.transmit(encodePacket(packet), reason);
     return packet;
   }
 
@@ -151,31 +154,31 @@ export class MeshNode {
     const p = decodePacket(bytes);
     if (!p) return p;
     const rk = relayKey(p);
+    const sk = storeKey(p);
+    // Any copy of a packet makes our answer or carry of it redundant; a relay, only the same attempt.
+    for (const r of this.relays) if (r.key === rk || r.key === sk) r.heard++;
+    // Someone repeated our broadcast: it made it out.
     if (p.src === this.id) {
-      // Someone repeated our broadcast: it made it out, and an answer we planned is not needed.
       this.echoes.delete(p.msgId);
-      for (const r of this.relays) if (r.key === rk) r.heard++;
       return p;
     }
     const now = this.clock.now();
     this.stats.heard++;
     const known = this.neighbors.get(p.src);
-    const met = p.type === PacketType.Hello && (!known || now - known.lastHeard > MET_AFTER_MS);
+    const newcomer = !known || now - known.lastHeard > MET_AFTER_MS;
     if (p.hops === 0) this.touchNeighbor(p.src, now);
 
-    if (this.seen.has(rk)) {
-      // Another copy of something we already have (and acknowledged, if it was for us). A retry
-      // carries a new attempt number, so it is not a copy.
-      for (const r of this.relays) if (r.key === rk) r.heard++;
-      return p;
-    }
+    // Another copy of something we already have (and acknowledged, if it was for us). A retry
+    // carries a new attempt number, so it is not a copy.
+    if (this.seen.has(rk)) return p;
     this.seen.set(rk, now);
     this.pruneSeen(now);
 
     if (p.type === PacketType.Ack) this.onAck(p);
-    if (p.type === PacketType.Hello && p.hops === 0) this.onHello(p);
-    if (met) this.events.met?.(p.src);
-    const sk = storeKey(p);
+    if (p.type === PacketType.Hello && p.hops === 0) {
+      this.onHello(p, newcomer);
+      this.events.heardHello?.(p.src, newcomer);
+    }
     const forMe = p.dst === BROADCAST || p.dst === this.id;
     if (forMe && p.type !== PacketType.Ack && p.type !== PacketType.Hello && !this.delivered.has(sk)) {
       this.delivered.add(sk);
@@ -184,7 +187,7 @@ export class MeshNode {
     }
     if (p.dst === this.id && p.ackRequested && (this.events.readable?.(p) ?? true)) this.sendAck(p);
     if (this.isStorable(p)) this.remember(p);
-    if (this.config.relay && p.dst !== this.id && p.hops + 1 < p.ttl) this.schedule(p, rk, 'relay');
+    if (this.config.relay && p.dst !== this.id) this.schedule(p, rk, 'relay');
     return p;
   }
 
@@ -219,11 +222,19 @@ export class MeshNode {
     if (body?.kind !== 'ack') return;
     // The message reached its destination: anyone still holding a relay of it can stand down.
     this.relays = this.relays.filter((r) => r.msgId !== body.msgId);
-    if (p.dst === this.id && this.acks.delete(body.msgId)) this.events.delivery?.(body.msgId, true);
+    if (p.dst !== this.id) return;
+    // Also after we gave up, or after a reload forgot the retry timer: it arrived all the same.
+    this.acks.delete(body.msgId);
+    this.events.delivery?.(body.msgId, true);
   }
 
-  /** A neighbour said hello: push back up to three stored packets its summary's slice lacks. */
-  private onHello(p: Packet) {
+  /**
+   * A neighbour said hello: push it up to three stored packets its summary's slice lacks, newest
+   * first. Someone just arrived from elsewhere is also offered our newest news outside that slice:
+   * it most likely lacks it, and waiting for its summaries to cycle round could take an hour.
+   * Every holder in earshot offers; the first copy on air stands the others down.
+   */
+  private onHello(p: Packet, newcomer: boolean) {
     const body = decodeBody(PacketType.Hello, p.body);
     if (body?.kind !== 'hello') return;
     const src = p.src;
@@ -234,15 +245,12 @@ export class MeshNode {
     for (const id of this.echoes.keys()) if (covered(id) && theirs.has(id)) this.echoes.delete(id);
     const offers = [...this.store.values()]
       .map((s) => ({ s, p: decodePacket(s.bytes)! }))
-      .filter(({ s, p }) => p && p.src !== src && !s.queued && covered(p.msgId) && !theirs.has(p.msgId) && now - s.lastPushed > this.config.carryCooldownMs)
+      .filter(({ s, p }) => p.src !== src && !s.queued && !theirs.has(p.msgId) && now - s.lastPushed > this.config.carryCooldownMs)
+      .filter(({ s, p }) => covered(p.msgId) || (newcomer && now - s.firstHeard > SETTLED_MS))
       .filter(({ p }) => p.dst === BROADCAST || p.dst === src)
       .sort((a, b) => Number(b.p.dst === src) - Number(a.p.dst === src) || b.s.firstHeard - a.s.firstHeard)
       .slice(0, 3);
-    for (const { s, p } of offers) {
-      s.lastPushed = now;
-      this.stats.carried++;
-      this.events.transmit(encodePacket({ ...p, hops: 1 }), 'carry');
-    }
+    for (const { s, p } of offers) if (this.schedule(p, storeKey(p), 'carry')) s.lastPushed = now;
   }
 
   /**
@@ -253,12 +261,12 @@ export class MeshNode {
    * At most once per ANSWER_COOLDOWN_MS, and never for one of ours still in the transmit queue.
    */
   answer(src: number, msgId: number, requestHops = 0): boolean {
-    const s = this.store.get(storeKey({ src, msgId }));
+    const k = storeKey({ src, msgId });
+    const s = this.store.get(k);
     const now = this.clock.now();
     if (!s || s.queued || now - s.lastPushed < ANSWER_COOLDOWN_MS) return false;
+    if (!this.schedule(decodePacket(s.bytes)!, k, 'answer', requestHops)) return false;
     s.lastPushed = now;
-    const p = decodePacket(s.bytes)!;
-    this.schedule(p, relayKey(p), 'answer', requestHops);
     return true;
   }
 
@@ -277,6 +285,7 @@ export class MeshNode {
         continue;
       }
       if (r.reason === 'relay') this.stats.relayed++;
+      if (r.reason === 'carry') this.stats.carried++;
       this.events.transmit(r.bytes, r.reason);
     }
     for (const [id, a] of this.acks) {
@@ -307,7 +316,7 @@ export class MeshNode {
     for (const s of saved) {
       const p = decodePacket(s.bytes);
       if (!p) continue;
-      this.store.set(storeKey(p), { ...s, queued: false });
+      this.store.set(storeKey(p), s);
       this.seen.set(relayKey(p), s.firstHeard);
       this.delivered.add(storeKey(p));
     }
@@ -331,11 +340,15 @@ export class MeshNode {
       ttl: p.ttl,
       channel: 0,
       body: encodeBody({ kind: 'ack', msgId: p.msgId, attempt: p.attempt }),
-    });
+    }, 'ack');
   }
 
-  /** Queues a copy of `p` one hop deeper, after a random backoff; `distance` adds whole backoff windows. */
+  /**
+   * Queues a copy of `p` one hop deeper, after a random backoff; `distance` adds whole backoff
+   * windows. False if the packet has no hops left.
+   */
   private schedule(p: Packet, key: string, reason: PendingRelay['reason'], distance = 0) {
+    if (p.hops + 1 >= p.ttl) return false;
     const [lo, hi] = this.config.backoffMs;
     this.relays.push({
       key,
@@ -346,6 +359,7 @@ export class MeshNode {
       reason,
       bytes: encodePacket({ ...p, hops: p.hops + 1 }),
     });
+    return true;
   }
 
   private isStorable(p: Packet) {

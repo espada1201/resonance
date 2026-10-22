@@ -8,7 +8,7 @@ import { Logo, Mic } from './ui/icons';
 import './ui/styles.css';
 
 // A laptop left in a hallway: listens forever, relays everything, and hands stored messages
-// to anyone who walks past and says hello.
+// to phones that come within earshot (they trade hellos, then each sends what the other lacks).
 
 const params = new URLSearchParams(location.search);
 const sim = params.get('air') === 'sim';
@@ -46,7 +46,7 @@ function Beacon() {
         </a>
         <span class="chip beacon">Beacon #{nodeHex(station.id)}</span>
         {sim && <span class="chip sim">{narrow ? 'Sim' : 'Simulated air'}</span>}
-        <div class="top-right">{live && <AirStatus station={station} compact={narrow} />}</div>
+        <div class="top-right">{live && <AirStatus station={station} compact={narrow} announce />}</div>
       </header>
       <main class="beacon-main">
         {!live && (
@@ -82,3 +82,7 @@ function Beacon() {
 }
 
 render(<Beacon />, document.getElementById('app')!);
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+}

@@ -5,7 +5,7 @@ import { type Station, nodeHex } from '../station';
 import { AirPanel, AirStatus } from './air';
 import { Compose } from './compose';
 import { Feed } from './feed';
-import { useMedia, useStation, useTicker } from './hooks';
+import { rovingKeys, useMedia, useStation, useTicker } from './hooks';
 import { Logo, Mic } from './icons';
 import { People } from './people';
 import { Safety, latestCheckIns } from './safety';
@@ -32,7 +32,7 @@ function Gate({ station }: { station: Station }) {
       </p>
       {station.status === 'error' && (
         <p class="error" role="alert">
-          {station.error} Check that this page may use the microphone, then try again.
+          {station.error}
         </p>
       )}
       <div class="gate-actions">
@@ -90,12 +90,21 @@ export function App({ station }: { station: Station }) {
           {station.settings.nick && <b>{station.settings.nick}</b>}
         </span>
         {station.transport.kind === 'simulated' && <span class="chip sim">{wide ? 'Simulated air' : 'Sim'}</span>}
-        <div class="top-right">{live && !wide ? <AirStatus station={station} compact /> : null}</div>
+        <div class="top-right">{live && !wide ? <AirStatus station={station} compact announce /> : null}</div>
       </header>
 
-      <nav class="tabs" role="tablist" aria-label="Sections">
+      <nav class="tabs" role="tablist" aria-label="Sections" onKeyDown={rovingKeys(tabs, current, setTab)}>
         {tabs.map((t) => (
-          <button key={t} type="button" role="tab" aria-selected={current === t} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            id={`tab-${t}`}
+            aria-selected={current === t}
+            aria-controls="section"
+            tabIndex={current === t ? 0 : -1}
+            onClick={() => setTab(t)}
+          >
             {TAB_TEXT[t]}
             {t === 'safety' && urgent > 0 && <span class="badge" aria-label={`${urgent} need help`}>{urgent}</span>}
           </button>
@@ -104,7 +113,7 @@ export function App({ station }: { station: Station }) {
 
       <main class="main">
         <div class="left">
-          <div class="scroll">
+          <div class="scroll" role="tabpanel" id="section" aria-labelledby={`tab-${current}`}>
             {!live && current !== 'settings' && current !== 'air' && <Gate station={station} />}
             {current === 'feed' && (live || station.feed.length > 0) && <Feed station={station} />}
             {current === 'safety' && <Safety station={station} />}
@@ -114,7 +123,7 @@ export function App({ station }: { station: Station }) {
           </div>
           {current === 'feed' && live && <Compose station={station} dst={dst} setDst={setDst} />}
         </div>
-        {wide && <AirPanel station={station} />}
+        {wide && <AirPanel station={station} announce />}
       </main>
     </div>
   );
