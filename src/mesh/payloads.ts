@@ -5,6 +5,17 @@ import { PacketType } from './packet';
 
 export type Status = 'safe' | 'help' | 'medical' | 'sheltering';
 export const STATUSES: Status[] = ['safe', 'help', 'medical', 'sheltering'];
+/** What someone asking for help needs (one bit each on air). */
+export type Need = 'trapped' | 'injured' | 'medicine' | 'water' | 'food' | 'power' | 'transport' | 'shelter';
+export const NEEDS: Need[] = ['trapped', 'injured', 'medicine', 'water', 'food', 'power', 'transport', 'shelter'];
+/** What a contact card's owner can offer (one bit each on air). */
+export type Skill = 'firstaid' | 'medical' | 'power' | 'water' | 'vehicle' | 'satphone' | 'language' | 'space';
+export const SKILLS: Skill[] = ['firstaid', 'medical', 'power', 'water', 'vehicle', 'satphone', 'language', 'space'];
+export type Topic = 'water' | 'food' | 'power' | 'medical' | 'shelter' | 'danger' | 'info';
+export const TOPICS: Topic[] = ['water', 'food', 'power', 'medical', 'shelter', 'danger', 'info'];
+/** A reply to a check-in: help is on the way, it is resolved, or a phone with signal passed it on outside. */
+export type ReplyKind = 'coming' | 'resolved' | 'passed';
+export const REPLIES: ReplyKind[] = ['coming', 'resolved', 'passed'];
 
 export interface Geo {
   lat: number;
@@ -14,8 +25,16 @@ export interface Geo {
 
 export type Body =
   | { kind: 'text'; ts: number; nick: string; text: string }
-  | { kind: 'checkin'; ts: number; nick: string; status: Status; geo?: Geo; note: string }
-  | { kind: 'contact'; ts: number; name: string; phone: string; note: string }
+  /**
+   * `place` is where indoors ("Floor 4, room 412"); `about` names someone without a phone this check-in
+   * is for; `outside` is a phone number or email that any device with signal may pass it on to.
+   */
+  | { kind: 'checkin'; ts: number; nick: string; status: Status; geo?: Geo; note: string; needs?: Need[]; place?: string; about?: string; outside?: string }
+  | { kind: 'contact'; ts: number; name: string; phone: string; note: string; skills?: Skill[] }
+  /** Refers to the check-in `src`:`msgId`. */
+  | { kind: 'reply'; ts: number; nick: string; what: ReplyKind; src: number; msgId: number }
+  /** Pinned news (water, charging, a blocked road) that stays up for `hours`. */
+  | { kind: 'notice'; ts: number; nick: string; topic: Topic; hours: number; place: string; text: string }
   | { kind: 'file'; fileId: number; index: number; total: number; meta?: FileMeta; data: Uint8Array }
   | { kind: 'ack'; msgId: number; attempt: number }
   /** `hashes` and `bits` are a Bloom filter of the message ids the sender holds in slice `part` of `parts` (see bloom.ts). */
@@ -38,7 +57,13 @@ export const typeOf: Record<Body['kind'], PacketType> = {
   hello: PacketType.Hello,
   filereq: PacketType.FileRequest,
   range: PacketType.Range,
+  reply: PacketType.Reply,
+  notice: PacketType.Notice,
 };
+
+/** A set of options as a bit mask, in the order of `all`. */
+const toBits = <T>(all: T[], some: T[] = []) => some.reduce((m, x) => m | (1 << all.indexOf(x)), 0);
+const fromBits = <T>(all: T[], m: number) => (m ? all.filter((_, i) => m & (1 << i)) : undefined);
 
 class Writer {
   private bytes: number[] = [];
@@ -117,6 +142,9 @@ export function fitUtf8(s: string, max: number): string {
 export const MAX_NICK = 16;
 export const MAX_CONTACT_NAME = 40;
 export const MAX_CONTACT_PHONE = 24;
+export const MAX_PLACE = 32;
+/** A phone number or an email address. */
+export const MAX_OUTSIDE = 40;
 export const nowSec = () => Math.floor(Date.now() / 1000);
 
 export function encodeBody(body: Body): Uint8Array {
@@ -125,15 +153,28 @@ export function encodeBody(body: Body): Uint8Array {
     case 'text':
       return w.u32(body.ts).str(body.nick, MAX_NICK).raw(new TextEncoder().encode(body.text)).done();
     case 'checkin': {
-      w.u32(body.ts).u8(STATUSES.indexOf(body.status)).u8(body.geo ? 1 : 0);
+      // One flag bit per optional field, in the order the fields follow.
+      const needs = toBits(NEEDS, body.needs);
+      const flags = (body.geo ? 1 : 0) | (needs ? 2 : 0) | (body.place ? 4 : 0) | (body.about ? 8 : 0) | (body.outside ? 16 : 0);
+      w.u32(body.ts).u8(STATUSES.indexOf(body.status)).u8(flags);
       if (body.geo) {
         w.i32(Math.round(body.geo.lat * 1e5)).i32(Math.round(body.geo.lon * 1e5));
         w.u16(Math.min(65535, Math.round(body.geo.accuracyM)));
       }
+      if (needs) w.u8(needs);
+      if (body.place) w.str(body.place, MAX_PLACE);
+      if (body.about) w.str(body.about, MAX_CONTACT_NAME);
+      if (body.outside) w.str(body.outside, MAX_OUTSIDE);
       return w.str(body.nick, MAX_NICK).raw(new TextEncoder().encode(body.note)).done();
     }
     case 'contact':
-      return w.u32(body.ts).str(body.name, MAX_CONTACT_NAME).str(body.phone, MAX_CONTACT_PHONE).raw(new TextEncoder().encode(body.note)).done();
+      w.u32(body.ts).str(body.name, MAX_CONTACT_NAME).str(body.phone, MAX_CONTACT_PHONE).u8(toBits(SKILLS, body.skills));
+      return w.raw(new TextEncoder().encode(body.note)).done();
+    case 'reply':
+      return w.u32(body.ts).u8(REPLIES.indexOf(body.what)).u24(body.src).u32(body.msgId).str(body.nick, MAX_NICK).done();
+    case 'notice':
+      w.u32(body.ts).u8(TOPICS.indexOf(body.topic)).u8(body.hours).str(body.nick, MAX_NICK).str(body.place, MAX_PLACE);
+      return w.raw(new TextEncoder().encode(body.text)).done();
     case 'file':
       w.u16(body.fileId).u8(body.index).u8(body.total);
       if (body.index === 0) {
@@ -167,11 +208,22 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
       case PacketType.CheckIn: {
         const ts = r.u32();
         const status = STATUSES[r.u8()] ?? 'safe';
-        const geo = r.u8() ? { lat: r.i32() / 1e5, lon: r.i32() / 1e5, accuracyM: r.u16() } : undefined;
-        return { kind: 'checkin', ts, status, geo, nick: r.str(), note: new TextDecoder().decode(r.rest()) };
+        const flags = r.u8();
+        const geo = flags & 1 ? { lat: r.i32() / 1e5, lon: r.i32() / 1e5, accuracyM: r.u16() } : undefined;
+        const needs = flags & 2 ? fromBits(NEEDS, r.u8()) : undefined;
+        const place = flags & 4 ? r.str() : undefined;
+        const about = flags & 8 ? r.str() : undefined;
+        const outside = flags & 16 ? r.str() : undefined;
+        return { kind: 'checkin', ts, status, geo, needs, place, about, outside, nick: r.str(), note: new TextDecoder().decode(r.rest()) };
       }
       case PacketType.Contact:
-        return { kind: 'contact', ts: r.u32(), name: r.str(), phone: r.str(), note: new TextDecoder().decode(r.rest()) };
+        return { kind: 'contact', ts: r.u32(), name: r.str(), phone: r.str(), skills: fromBits(SKILLS, r.u8()), note: new TextDecoder().decode(r.rest()) };
+      case PacketType.Reply: {
+        const reply = { kind: 'reply' as const, ts: r.u32(), what: REPLIES[r.u8()], src: r.u24(), msgId: r.u32(), nick: r.str() };
+        return reply.what ? reply : null;
+      }
+      case PacketType.Notice:
+        return { kind: 'notice', ts: r.u32(), topic: TOPICS[r.u8()] ?? 'info', hours: r.u8(), nick: r.str(), place: r.str(), text: new TextDecoder().decode(r.rest()) };
       case PacketType.FileChunk: {
         const fileId = r.u16();
         const index = r.u8();

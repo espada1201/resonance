@@ -1,5 +1,5 @@
 import { Bloom, sliceOf } from './bloom';
-import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './packet';
+import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket, peekType } from './packet';
 import { decodeBody, encodeBody } from './payloads';
 
 // Store-and-forward flooding for a broadcast medium where every transmission is heard by every
@@ -23,6 +23,8 @@ interface MeshConfig {
   maxAttempts: number;
   storeLimit: number;
   storeTtlMs: number;
+  /** How long lasting news (check-ins, replies, notices) is kept and carried: an outage runs for days. */
+  lastingTtlMs: number;
   carryCooldownMs: number;
   /** A broadcast nobody repeats within this window is sent once more (passive acknowledgement). */
   echoTimeoutMs: number;
@@ -36,6 +38,7 @@ const DEFAULT_CONFIG: MeshConfig = {
   maxAttempts: 3,
   storeLimit: 300,
   storeTtlMs: 12 * 3600_000,
+  lastingTtlMs: 72 * 3600_000,
   carryCooldownMs: 10 * 60_000,
   echoTimeoutMs: 20_000,
 };
@@ -95,6 +98,9 @@ const HELLO_SLICE = 40;
 const MET_AFTER_MS = 10 * 60_000;
 /** Packets heard more recently than this are probably still spreading through the room the newcomer just walked into. */
 const SETTLED_MS = 60_000;
+
+/** Check-ins, the replies to them and notices: someone who turns up on day two still learns who checked in on day one. */
+const LASTING = new Set<PacketType | null>([PacketType.CheckIn, PacketType.Reply, PacketType.Notice]);
 
 const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
 const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
@@ -305,7 +311,11 @@ export class MeshNode {
       this.seen.set(relayKey(again), now);
       this.events.transmit(encodePacket(again), 'retry');
     }
-    for (const [k, s] of this.store) if (now - s.firstHeard > this.config.storeTtlMs) this.store.delete(k);
+    for (const [k, s] of this.store) if (now - s.firstHeard > this.keepMs(s.bytes)) this.store.delete(k);
+  }
+
+  private keepMs(bytes: Uint8Array) {
+    return LASTING.has(peekType(bytes)) ? this.config.lastingTtlMs : this.config.storeTtlMs;
   }
 
   /** Restores packets persisted from an earlier session. */
@@ -381,8 +391,10 @@ export class MeshNode {
     this.neighbors.set(id, n);
   }
 
+  /** Dedupe memory outlives everything stored, so a late copy of something we hold is not relayed again. */
   private pruneSeen(now: number) {
     if (this.seen.size < 4000) return;
-    for (const [k, t] of this.seen) if (now - t > this.config.storeTtlMs) this.seen.delete(k);
+    const keep = Math.max(this.config.storeTtlMs, this.config.lastingTtlMs);
+    for (const [k, t] of this.seen) if (now - t > keep) this.seen.delete(k);
   }
 }

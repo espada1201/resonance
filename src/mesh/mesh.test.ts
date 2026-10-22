@@ -109,7 +109,24 @@ describe('packet + payload codecs', () => {
     text('héllo 🌊 world'),
     { kind: 'checkin', ts: 1, nick: 'bo', status: 'medical', geo: { lat: -33.86785, lon: 151.20732, accuracyM: 12 }, note: 'ankle' },
     { kind: 'checkin', ts: 2, nick: 'cy', status: 'safe', note: '' },
+    {
+      kind: 'checkin',
+      ts: 4,
+      nick: 'dee',
+      status: 'help',
+      geo: { lat: 35.59512, lon: -82.55151, accuracyM: 30 },
+      needs: ['trapped', 'water'],
+      place: 'Floor 4, room 412',
+      about: 'Maria López',
+      outside: 'maria.family@example.org',
+      note: 'door jammed',
+    },
+    { kind: 'checkin', ts: 5, nick: '', status: 'safe', place: 'Gym', note: '' },
     { kind: 'contact', ts: 3, name: 'Dee Rivera', phone: '+1 555 0100', note: 'nurse, 3rd floor' },
+    { kind: 'contact', ts: 3, name: 'Sam', phone: '', skills: ['firstaid', 'vehicle', 'space'], note: '' },
+    { kind: 'reply', ts: 6, nick: 'ben', what: 'coming', src: 0xabcdef, msgId: 0xdeadbeef },
+    { kind: 'reply', ts: 7, nick: '', what: 'passed', src: 1, msgId: 2 },
+    { kind: 'notice', ts: 8, nick: 'desk', topic: 'water', hours: 24, place: 'North stairwell', text: 'Bottled water 9–5, bring a container' },
     { kind: 'file', fileId: 513, index: 0, total: 4, meta: { name: 'map.png', mime: 'image/png', size: 600 }, data: Uint8Array.of(9, 9) },
     { kind: 'file', fileId: 513, index: 3, total: 4, data: Uint8Array.of(1, 2, 3) },
     { kind: 'ack', msgId: 0xfffffffe, attempt: 1 },
@@ -382,6 +399,48 @@ describe('mesh flooding', () => {
   });
 });
 
+describe('how long news lasts', () => {
+  /** A packet from node 99, somewhere out of earshot, as a neighbour relayed it. */
+  const far = (msgId: number, body: Body) =>
+    encodePacket({ type: typeOf[body.kind], encrypted: false, ackRequested: false, msgId, src: 99, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(body) });
+  const farCheckIn = (msgId: number) => far(msgId, { kind: 'checkin', ts: 1, nick: 'ana', status: 'help', note: '' });
+  const HOUR = 3600_000;
+
+  it('keeps check-ins, replies to them and notices for three days, and chat for twelve hours', () => {
+    // An outage runs for days: someone who arrives on day two still learns who checked in on day one.
+    let t = 0;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    n.receive(farAway(1));
+    n.receive(farCheckIn(2));
+    n.receive(far(3, { kind: 'reply', ts: 1, nick: 'ben', what: 'coming', src: 99, msgId: 2 }));
+    n.receive(far(4, { kind: 'notice', ts: 1, nick: 'desk', topic: 'water', hours: 72, place: 'Gym', text: 'Water' }));
+    t += 13 * HOUR;
+    n.tick();
+    expect([...n.store.keys()]).toEqual(['99:2', '99:3', '99:4']);
+    t += 60 * HOUR;
+    n.tick();
+    expect(n.store.size).toBe(0);
+  });
+
+  it('remembers a check-in it has relayed for as long as it keeps it, so a late copy is not relayed again', () => {
+    let t = 0;
+    const relayed: number[] = [];
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: (b) => void relayed.push(decodePacket(b)!.msgId), deliver: () => undefined });
+    n.receive(farCheckIn(7));
+    t += 10_000;
+    n.tick();
+    expect(relayed).toEqual([7]);
+    // A day of busy air later (dedupe memory is pruned once it holds 4000 entries), someone
+    // carries the same check-in in again.
+    t += 24 * HOUR;
+    for (let i = 0; i < 4000; i++) n.receive(farAway(1000 + i));
+    n.receive(farCheckIn(7));
+    t += 10_000;
+    n.tick();
+    expect(relayed.filter((id) => id === 7)).toEqual([7]);
+  });
+});
+
 describe('HELLO summaries', () => {
   it('a summary never misses an id it holds and rarely claims one it does not', () => {
     const r = rng(7);
@@ -546,6 +605,58 @@ describe('transmit queue', () => {
     }
     expect(sent).toEqual([0, 1, 2]);
     expect(q.deferrals).toBe(1);
+  });
+
+  /** A frame of the given type, tagged with its message id. */
+  const framed = (type: PacketType, msgId: number) =>
+    encodePacket({ type, encrypted: false, ackRequested: false, msgId, src: 1, dst: BROADCAST, ttl: 5, hops: 0, attempt: 0, channel: 0, body: new Uint8Array() });
+  const tag = (b: Uint8Array) => `${PacketType[decodePacket(b)!.type]}${decodePacket(b)!.msgId}`;
+
+  it('sends receipts first, then check-ins and replies to them, then everything else, each in arrival order', async () => {
+    // "I need help" must not wait behind a photo: a 4 KB file is minutes of audible airtime.
+    let t = 0;
+    const sent: string[] = [];
+    const q = new TxQueue({ busy: () => false, send: async (b) => void sent.push(tag(b)) }, { now: () => t, random: () => 0.5 });
+    q.enqueue(framed(PacketType.FileChunk, 1));
+    q.enqueue(framed(PacketType.FileChunk, 2));
+    q.enqueue(framed(PacketType.Text, 3));
+    q.enqueue(framed(PacketType.CheckIn, 4));
+    q.enqueue(framed(PacketType.Notice, 5));
+    q.enqueue(framed(PacketType.Ack, 6), true);
+    q.enqueue(framed(PacketType.Reply, 7));
+    for (let i = 0; i < 20; i++, t += 1000) await q.tick();
+    expect(sent).toEqual(['Ack6', 'CheckIn4', 'Reply7', 'FileChunk1', 'FileChunk2', 'Text3', 'Notice5']);
+  });
+
+  it('lets a check-in go next after the frame already on air', async () => {
+    let t = 0;
+    let finish = () => undefined as void;
+    const sent: string[] = [];
+    const q = new TxQueue(
+      { busy: () => false, send: (b) => new Promise<void>((r) => ((finish = r), sent.push(tag(b)))) },
+      { now: () => t, random: () => 0.5 },
+    );
+    for (let i = 1; i <= 3; i++) q.enqueue(framed(PacketType.FileChunk, i));
+    const onAir = q.tick();
+    q.enqueue(framed(PacketType.CheckIn, 9));
+    finish();
+    await onAir;
+    for (let i = 0; i < 3; i++) {
+      t += 1000;
+      const next = q.tick();
+      finish();
+      await next;
+    }
+    expect(sent).toEqual(['FileChunk1', 'CheckIn9', 'FileChunk2', 'FileChunk3']);
+  });
+
+  it('drops the least important frames when full', () => {
+    const done: string[] = [];
+    const q = new TxQueue({ busy: () => false, send: async () => undefined, finished: (b) => void done.push(tag(b)) }, { now: () => 0, random: () => 0.5 });
+    for (let i = 0; i < 64; i++) q.enqueue(framed(PacketType.FileChunk, i));
+    q.enqueue(framed(PacketType.CheckIn, 100));
+    expect(done).toEqual(['FileChunk63']);
+    expect(q.length).toBe(64);
   });
 
   it('reports the frames a full queue drops, so their retry timers still start', () => {

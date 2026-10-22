@@ -19,6 +19,8 @@ export enum PacketType {
   Hello = 6,
   FileRequest = 7,
   Range = 8,
+  Reply = 9,
+  Notice = 10,
 }
 
 export interface Packet {
@@ -48,10 +50,16 @@ export function encodePacket(p: Packet): Uint8Array {
   return out;
 }
 
-export function decodePacket(bytes: Uint8Array): Packet | null {
+/** The type of an encoded packet, read from its first byte without decoding the rest; null for junk. */
+export function peekType(bytes: Uint8Array): PacketType | null {
   if (bytes.length < HEADER_LEN || bytes[0] >> 6 !== VERSION) return null;
   const type = (bytes[0] >> 2) & 15;
-  if (!(type in PacketType)) return null;
+  return type in PacketType ? type : null;
+}
+
+export function decodePacket(bytes: Uint8Array): Packet | null {
+  const type = peekType(bytes);
+  if (type === null) return null;
   const ttl = bytes[11] >> 5;
   const hops = (bytes[11] >> 2) & 7;
   if (ttl === 0 || hops >= ttl) return null;

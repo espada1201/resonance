@@ -1,7 +1,8 @@
 import type { MeshClock } from './node';
+import { PacketType, peekType } from './packet';
 
 // Half-duplex channel access for an acoustic broadcast medium: listen before talk, back off
-// randomly while someone else is on air, and send one frame at a time.
+// randomly while someone else is on air, and send one frame at a time, most important first.
 
 interface RadioIO {
   /** True while the receiver hears another transmission. */
@@ -19,9 +20,17 @@ const SENSE_BACKOFF_MS: [number, number] = [250, 1500];
  */
 const MAX_DEFER_MS = 25_000;
 const QUEUE_LIMIT = 64;
+/** Sent ahead of chat and files, own or relayed: "I need help" (and "On my way") must not wait behind a photo. */
+const SAFETY_NEWS = new Set<PacketType | null>([PacketType.CheckIn, PacketType.Reply]);
+
+interface Queued {
+  bytes: Uint8Array;
+  /** 0 receipts and ranging, 1 safety news, 2 everything else. */
+  rank: number;
+}
 
 export class TxQueue {
-  private queue: Uint8Array[] = [];
+  private queue: Queued[] = [];
   private sending = false;
   private notBefore = 0;
   private deferringSince: number | null = null;
@@ -42,10 +51,12 @@ export class TxQueue {
     return this.sending;
   }
 
+  /** Queues a frame behind everything at least as important; a full queue drops the least important. */
   enqueue(bytes: Uint8Array, urgent = false) {
-    if (urgent) this.queue.unshift(bytes);
-    else this.queue.push(bytes);
-    for (const dropped of this.queue.splice(QUEUE_LIMIT)) this.io.finished?.(dropped);
+    const rank = urgent ? 0 : SAFETY_NEWS.has(peekType(bytes)) ? 1 : 2;
+    const behind = this.queue.findIndex((q) => q.rank > rank);
+    this.queue.splice(behind < 0 ? this.queue.length : behind, 0, { bytes, rank });
+    for (const dropped of this.queue.splice(QUEUE_LIMIT)) this.io.finished?.(dropped.bytes);
   }
 
   /** Call frequently; starts the next transmission when the air is clear. */
@@ -62,7 +73,7 @@ export class TxQueue {
       return;
     }
     this.deferringSince = null;
-    const next = this.queue.shift()!;
+    const next = this.queue.shift()!.bytes;
     this.sending = true;
     try {
       await this.io.send(next);
