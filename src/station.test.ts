@@ -264,6 +264,18 @@ describe('saved state', () => {
     return { checkins: checkins.map(({ src, msgId, at, hops, encrypted, body }) => ({ src, msgId, at, hops, encrypted, body })), replies: [], notices: [] };
   }
 
+  it('saves at once when the page is hidden, which may freeze or close it before a pending save runs', () => {
+    let onVisibility = () => {};
+    const doc = { visibilityState: 'visible', addEventListener: (type: string, fn: () => void) => void (type === 'visibilitychange' && (onVisibility = fn)) };
+    vi.stubGlobal('document', doc);
+    const storage = new MemoryStorage();
+    const s = new Station(air, 'phone', storage);
+    s.update({ nick: 'Ana' });
+    doc.visibilityState = 'hidden';
+    onVisibility();
+    expect(storage.getItem(SETTINGS)).toContain('"nick":"Ana"');
+  });
+
   it('saves what the fixture records, plus two settings and the safety log', async () => {
     const storage = new MemoryStorage();
     await afternoon(storage);

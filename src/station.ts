@@ -158,8 +158,12 @@ export class Station {
     this.applySettings();
     this.restore();
     if (this.settings.passphrase) this.setPassphrase(this.settings.passphrase).catch(() => undefined);
-    // The browser drops the wake lock whenever the page is hidden; take it back on return.
-    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.status === 'listening' && void this.keepAwake());
+    // A hidden page may be frozen or closed before a pending save runs, so it runs now. The browser
+    // drops the wake lock whenever the page is hidden; take it back on return.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.saveNow();
+      else if (this.status === 'listening') void this.keepAwake();
+    });
   }
 
   get busy() {
@@ -488,10 +492,15 @@ export class Station {
 
   private scheduleSave() {
     if (this.saveTimer || !this.saved.available) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null;
-      this.save();
-    }, 800);
+    this.saveTimer = setTimeout(() => this.saveNow(), 800);
+  }
+
+  /** Runs the pending save, if there is one. */
+  private saveNow() {
+    if (!this.saveTimer) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.save();
   }
 
   save() {
