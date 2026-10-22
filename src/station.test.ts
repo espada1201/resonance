@@ -348,7 +348,10 @@ describe('sound files', () => {
 
     vi.stubGlobal('OfflineAudioContext', WavDecoder);
     const b = new Station(air, 'phone', null);
-    expect(await b.importRecording(data)).toBe(1);
+    // The decoder lets the page take a turn now and then, so this test's clock has to move.
+    const imported = b.importRecording(data);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await imported).toBe(1);
     expect(b.feed[0]).toMatchObject({ src: a.id, msgId: a.feed[0].msgId, body: { kind: 'text', text: 'Meet at six' } });
     expect(b.air[0]).toMatchObject({ dir: 'rx', profile: 'fast', label: `message from ${nodeHex(a.id)}` });
   });
