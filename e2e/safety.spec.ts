@@ -9,6 +9,11 @@ test('a call for help travels with its details, gets an answer, and closes when 
   const a = await context.newPage();
   await joinAir(a);
   const b = await context.newPage();
+  await b.addInitScript(() => {
+    const w = window as unknown as { buzzes: unknown[] };
+    w.buzzes = [];
+    navigator.vibrate = (p) => w.buzzes.push(p) > 0;
+  });
   await joinAir(b, '/?air=sim', 'Ben');
 
   await openTab(a, 'Safety');
@@ -21,6 +26,10 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await a.getByLabel('Where', { exact: true }).fill('Floor 4, room 412');
   await a.getByRole('button', { name: 'Send check-in' }).click();
 
+  // Ben is reading the feed: his phone buzzes once, the title counts the request, a screen reader says it.
+  await expect(b).toHaveTitle('(1) Resonance');
+  await expect(b.locator('[aria-live="assertive"]')).toHaveText('Needs help: Ana');
+  expect(await b.evaluate(() => (window as unknown as { buzzes: unknown[] }).buzzes)).toHaveLength(1);
   await openTab(b, 'Safety');
   const ana = checkInRow(b, 'Ana');
   await expect(ana).toContainText('Waiting for help');
@@ -46,6 +55,7 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(ana).toContainText('Safe');
   await expect(ana).not.toContainText('Waiting for help');
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
+  await expect(b).toHaveTitle('Resonance');
   await proof(b, 'call-for-help');
 });
 

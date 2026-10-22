@@ -1,11 +1,13 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { useAutoStart } from '../boot';
 import { BROADCAST, nodeHex } from '../mesh/packet';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
+import type { RosterEntry } from '../roster';
 import type { Station } from '../station';
 import { AirPanel, AirStatus } from './air';
 import { Compose } from './compose';
-import { Feed } from './feed';
+import { Feed, who } from './feed';
+import { STATUS_TEXT } from './format';
 import { rovingKeys, useMedia, useStation, useTicker } from './hooks';
 import { Mic } from './icons';
 import { People } from './people';
@@ -65,6 +67,32 @@ function Gate({ station }: { station: Station }) {
   );
 }
 
+/**
+ * A call for help heard while the page is open, that nobody is coming to yet, buzzes the phone
+ * (where the browser can), and screen readers say it: a phone left on a table must not keep it
+ * to itself. The count of open requests shows in the page title and on the home-screen icon.
+ */
+function useCallsForHelp(station: Station, entries: RosterEntry[]) {
+  const [opened] = useState(() => Date.now());
+  const told = useRef(new Set<string>());
+  const [said, setSaid] = useState('');
+  const open = entries.filter((e) => e.open).length;
+  const calls = entries.filter((e) => e.open && !e.coming && e.latest.src !== station.id && e.latest.at >= opened);
+  const ids = calls.map((e) => `${e.latest.src}:${e.latest.msgId}`);
+  useEffect(() => {
+    const fresh = calls.filter((_, i) => !told.current.has(ids[i]));
+    if (!fresh.length) return;
+    for (const id of ids) told.current.add(id);
+    if ('vibrate' in navigator) navigator.vibrate([300, 150, 300]);
+    setSaid(fresh.map((e) => `${STATUS_TEXT[e.latest.body.status]}: ${e.latest.body.about ?? who(station, e.latest.src, e.latest.body.nick)}`).join('. '));
+  }, [ids.join()]);
+  useEffect(() => {
+    document.title = open ? `(${open}) Resonance` : 'Resonance';
+    if ('setAppBadge' in navigator) void (open ? navigator.setAppBadge(open) : navigator.clearAppBadge()).catch(() => undefined);
+  }, [open]);
+  return { open, said };
+}
+
 export function App({ station }: { station: Station }) {
   useStation(station);
   useAutoStart(station);
@@ -75,7 +103,7 @@ export function App({ station }: { station: Station }) {
   const tabs: Tab[] = wide ? ['feed', 'safety', 'people', 'settings'] : ['feed', 'safety', 'air', 'people', 'settings'];
   const current: Tab = !wide || tab !== 'air' ? tab : 'feed';
   const live = station.status === 'listening';
-  const open = station.journal.roster().filter((e) => e.open).length;
+  const { open, said } = useCallsForHelp(station, station.journal.roster());
 
   const messageNode = (id: number) => {
     setDst(id);
@@ -111,6 +139,10 @@ export function App({ station }: { station: Station }) {
           ))}
         </div>
       </nav>
+
+      <p class="sr-only" aria-live="assertive">
+        {said}
+      </p>
 
       <main class="main">
         <div class="left">

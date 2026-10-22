@@ -13,7 +13,7 @@ An offline mesh network made of sound, for when the phone network is down: a pow
 ## What it does
 
 - **Check in**: one tap says "I'm safe" or "I need help", with your GPS position if you allow it. Add what you need (trapped, injured, medicine, water…), where you are ("Floor 4, room 412"), or check in for someone without a phone.
-- **Safety list**: everyone's latest check-in, with requests nobody has answered yet at the top, longest waiting first. **On my way** and **Resolved** tell everyone who is handling what; asking again reopens a resolved request, and one with no news for a day is marked stale. Search by name, download a spreadsheet or print it for a shelter desk.
+- **Safety list**: everyone's latest check-in, with requests nobody has answered yet at the top, longest waiting first. **On my way** and **Resolved** tell everyone who is handling what; asking again reopens a resolved request, and one with no news for a day is marked stale. A new call for help buzzes the phone where the browser allows it (Android, not iPhone), and the page title counts open requests. Search by name, download a spreadsheet or print it for a shelter desk.
 - **Word to family outside**: add a family phone number or email to your check-ins. Every phone that hears it lists it; someone whose phone has signal taps **Send as text**, their own text or mail app opens with your message filled in, and once they tap **I sent it** everyone sees it was passed on.
 - **Notices**: "Drinking water at the school gym" stays pinned on every feed, and large on the beacon's screen, for as long as its author chose.
 - **Messages and contacts**: text, direct messages with receipts (and Send again), contact cards that say what you can help with, files up to 4 KB.
