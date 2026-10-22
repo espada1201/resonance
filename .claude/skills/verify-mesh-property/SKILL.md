@@ -34,10 +34,10 @@ Vitest 5.0.5 from package.json on Node 22; nothing else to install. Run the defa
 
 ## Does my change touch it?
 
-Sync commit: **98684ea** (`Joining a circle lists its older safety news; a full store keeps everyone's only check-in`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
+Sync commit: **169602d** (`A message the phone could not play is not taken for sent; at 8 kHz, say to drop the headset`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
 
 ```sh
-git diff 98684ea -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
+git diff 169602d -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
 ```
 
 Any output means rerun the check and follow "Keeping it in step".
@@ -48,7 +48,7 @@ Any output means rerun the check and follow "Keeping it in step".
 | `src/mesh/packet.ts` | `encodePacket`, `decodePacket`, `peekType` | runs the real code |
 | `src/mesh/payloads.ts` | `encodeBody`, `decodeBody` | runs the real code |
 | `src/mesh/bloom.ts` | `Bloom`, `sliceOf` (the HELLO summary) | runs the real code |
-| `src/mesh/radio.ts` | only `MAX_DEFER_MS`, through node.ts. `TxQueue` does not run: the explorer stands in for it, airing any waiting frame next and reporting each with `aired()` once | modelled |
+| `src/mesh/radio.ts` | only `MAX_DEFER_MS`, through node.ts. `TxQueue` does not run: the explorer stands in for it, airing any waiting frame next and reporting each with `aired()` once. A frame suspended audio cut short is not aired, so it is just a frame still waiting | modelled |
 | `src/station.ts` | does not run. Its calls are the explorer's steps: `tick()` at any moment, `hello()` up to the scenario's count, `channelBusy` true only on a busy tick | modelled |
 
 `MeshNode.answer` (file requests) and `MeshNode.hydrate` are not covered.
@@ -112,7 +112,7 @@ The two tests under `known finding` pin these counterexamples so the suite passe
 1. An error starting `harness:` is the explorer's fault, or a change in node.ts broke one of its three assumptions above. Fix `explorer.ts`, never node.ts.
 2. A failing `copies states exactly` test means copying a state lost something. Fix `copy()` or `fields()` in `explorer.ts`.
 3. `maxDepth cut the search short` means the bound stopped the search before it ran out of states. Raise that scenario's `maxDepth`.
-4. A counterexample was replayed on fresh, uncopied nodes before it was printed, so node.ts really does those steps in that order. Ask whether a device can: a frame waiting in the radio far longer than a real queue holds one (`TxQueue` defers a frame at most `MAX_DEFER_MS`, 25 s, and keeps 64; a queue of long frames can still hold one for minutes), or a node not ticking for a long time while others act (Station ticks every 200 ms). If a step needs what no device does, that is a modeling gap: narrow the explorer, say so in this skill, and keep the property as it is. Otherwise it is a real bug: report it with the steps, and do not weaken `airBudget` or change node.ts unless asked.
+4. A counterexample was replayed on fresh, uncopied nodes before it was printed, so node.ts really does those steps in that order. Ask whether a device can: a frame waiting in the radio far longer than a real queue holds one (`TxQueue` defers a frame at most `MAX_DEFER_MS`, 25 s, for busy air, and keeps 64; a queue of long frames can still hold one for minutes, and suspended audio on a locked phone holds every frame until it comes back, a cut-short frame going again first in its rank), or a node not ticking for a long time while others act (Station ticks every 200 ms). If a step needs what no device does, that is a modeling gap: narrow the explorer, say so in this skill, and keep the property as it is. Otherwise it is a real bug: report it with the steps, and do not weaken `airBudget` or change node.ts unless asked.
 5. A failing `known finding` test: read the new counterexample. The same cause in other steps means update the pinned text with `npx vitest run src/mesh/flooding-bound.test.ts -u`. No violation means the finding is fixed: move that scenario into `holding` and delete the "Known finding" section here.
 
 ## Keeping it in step
