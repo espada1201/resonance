@@ -35,10 +35,20 @@ jobs:
           enableCrossOsArchive: true
           lookup-only: true
       - if: steps.cache.outputs.cache-hit != 'true'
+        name: Build the SDK with xtool
+        timeout-minutes: 40
         run: |
           curl -fsSL -o xtool.zip "https://github.com/xtool-org/xtool/releases/download/$XTOOL/xtool.app.zip"
           ditto -x -k xtool.zip .
-          xtool.app/Contents/MacOS/xtool sdk build "${{ steps.xcode.outputs.app }}" sdk --arch x86_64
+          # xtool's own downloads, fetched here so a stall shows up as a curl error, not a silent hang.
+          curl -fsSL -o oam.tar.gz https://github.com/xtool-org/OpenAppleMacros/releases/download/v1.4.1/OpenAppleMacrosServer-x86_64.tar.gz
+          curl -fsSL -o toolset.tar.gz https://github.com/xtool-org/darwin-tools-linux-llvm/releases/download/v1.1.0/toolset-x86_64.tar.gz
+          export XTL_OAM_TARBALL=$PWD/oam.tar.gz XTL_TOOLSET_TARBALL=$PWD/toolset.tar.gz
+          xtool.app/Contents/MacOS/xtool --help | head -5
+          (while sleep 60; do echo "[$(date +%T)] sdk: $(du -sh sdk 2>/dev/null | cut -f1)"; ps -o pid,pcpu,rss,etime,stat,command -p "$(pgrep -n xtool)" 2>/dev/null | tail -1; done) &
+          # A pseudo-terminal makes xtool print each line as it goes instead of holding it in a buffer.
+          script -q /dev/null xtool.app/Contents/MacOS/xtool sdk build "$(cd "${{ steps.xcode.outputs.app }}" && pwd -P)" sdk --arch x86_64
+          kill %1
           ls -la sdk
           du -sh sdk
       - if: steps.cache.outputs.cache-hit != 'true'
