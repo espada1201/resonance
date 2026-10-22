@@ -175,7 +175,7 @@ function AirStats({ station }: { station: Station }) {
   const goodput = t.rxSec > 0 ? `${Math.round(t.rxBits / t.rxSec)} bps` : '—';
   const last = station.air.find((e) => e.dir === 'rx');
   const cells: Array<[string, string, string?]> = [
-    ['Measured in', goodput, 'payload bits ÷ seconds on air, over every frame decoded'],
+    ['Measured in', goodput, 'payload bits divided by seconds on air, over every frame decoded'],
     ['Sent', t.txSec ? seconds(t.txSec) : '—', 'total time this device spent transmitting'],
     ['Tone SNR', last?.toneSnrDb !== undefined ? `${last.toneSnrDb.toFixed(0)} dB` : '—'],
     ['Heard', `${m.heard}`],
@@ -189,7 +189,7 @@ const DIR_TEXT: Record<AirEvent['dir'], string> = { rx: 'IN', tx: 'OUT', sync: '
 
 export function AirLog({ events, limit = 60 }: { events: AirEvent[]; limit?: number }) {
   if (!events.length) {
-    return <p class="empty small">Nothing on the air yet. Decoded frames, relays and failed attempts will show up here with honest numbers.</p>;
+    return <p class="empty small">Nothing on the air yet. Decoded frames, relays and failed attempts will show up here.</p>;
   }
   return (
     <ol class="airlog" aria-label="Air activity">

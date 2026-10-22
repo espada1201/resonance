@@ -6,8 +6,8 @@ import { fitInput } from './format';
 import { Compass, Lock, Relay, Upload } from './icons';
 
 const PROFILE_TEXT: Record<ProfileId, string> = {
-  audible: 'Chirps you can hear. Carries across a room or down a corridor, through walls with the volume up.',
-  fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s; in our tests a 4 KB photo crossed a room in about 3 minutes instead of 14.',
+  audible: 'Chirps you can hear. They carry across a room or down a corridor, and through walls with the volume up.',
+  fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s. In our tests, a 4 KB photo crossed a room in about 3 minutes instead of 14.',
   ultrasonic: 'Near the top of human hearing: quiet for most adults, short range, best for devices on the same table. Some speakers cannot play it.',
 };
 
@@ -40,7 +40,7 @@ export function Settings({ station }: { station: Station }) {
     try {
       await station.setPassphrase(pass.trim());
     } catch {
-      setPassError('This browser only encrypts on secure pages: open Resonance over https:// or on localhost.');
+      setPassError('This browser only encrypts on secure pages. Open Resonance over https:// or on localhost.');
     } finally {
       setDeriving(false);
     }
@@ -53,7 +53,7 @@ export function Settings({ station }: { station: Station }) {
       const n = await station.importRecording(await file.arrayBuffer());
       setImportMsg(n ? `Found ${n} packet${n > 1 ? 's' : ''}. New ones are in your feed.` : 'No Resonance packets found in that recording.');
     } catch {
-      setImportMsg('That file could not be decoded as audio.');
+      setImportMsg('This browser could not decode that file as audio.');
     }
   };
 
@@ -76,7 +76,7 @@ export function Settings({ station }: { station: Station }) {
               </span>
               {!station.playable(id) && (
                 <span class="hint-warn small">
-                  Not available right now: this device's audio runs too slow for these tones, as it does with a Bluetooth headset.
+                  Not available right now. This device's audio runs too slow for these tones, as it does with a Bluetooth headset.
                   {station.playable('audible') && ' Everything goes out in Audible instead.'} Disconnect the headset and reload to use this mode.
                 </span>
               )}
@@ -97,7 +97,7 @@ export function Settings({ station }: { station: Station }) {
           <strong>
             <Relay size={16} /> Relay messages for others
           </strong>
-          <span class="muted small">Your device repeats what it hears so messages reach people further away. It waits its turn and stays quiet when enough neighbours already repeated.</span>
+          <span class="muted small">Your device repeats what it hears, so messages reach people further away. It waits its turn and skips a message that enough neighbours have already repeated.</span>
         </span>
       </label>
 
@@ -107,7 +107,7 @@ export function Settings({ station }: { station: Station }) {
           <strong>
             <Compass size={16} /> Answer distance requests
           </strong>
-          <span class="muted small">Lets someone nearby use Find to measure how far away you are by timing chirps. Useful for being found; turn off if you would rather not be.</span>
+          <span class="muted small">Lets someone nearby use Find to measure how far away you are by timing chirps. It helps people find you. Turn it off if you would rather not be found.</span>
         </span>
       </label>
 
@@ -121,7 +121,7 @@ export function Settings({ station }: { station: Station }) {
             {show ? 'Hide' : 'Show'}
           </button>
           <button type="submit" class="ghost small" disabled={deriving || pass.trim() === s.passphrase}>
-            {deriving ? 'Deriving…' : 'Apply'}
+            {deriving ? 'Applying…' : 'Apply'}
           </button>
         </div>
         {guessable(pass.trim()) && (
@@ -134,9 +134,9 @@ export function Settings({ station }: { station: Station }) {
         )}
         <span class="muted small">
           {sealed ? 'Your messages, check-ins, contacts and files are sealed with AES-256-GCM. ' : 'Messages are open. '}
-          Everyone who types the same passphrase can read sealed messages, including ones this device heard before you typed it; others relay them but
-          see only “sealed”. Not hidden: which device sent what kind of packet, how big, when and to whom, and your nickname in hellos. Stored on this
-          device only.
+          Everyone who types the same passphrase can read sealed messages, including ones this device heard before you typed it. Others relay them but
+          see only "sealed". Not hidden: which device sent what kind of packet, how big, when and to whom, and your nickname in hellos. The passphrase
+          stays on this device.
         </span>
       </form>
 
@@ -147,7 +147,7 @@ export function Settings({ station }: { station: Station }) {
           <input type="file" accept="audio/*,.wav,.m4a,.mp3,.ogg,.webm" class="sr-only" onChange={(e) => void importFile((e.target as HTMLInputElement).files?.[0])} />
         </label>
         <span class="muted small">
-          A voice memo or any full-range recording that caught Resonance chirps. Phone calls, voicemail and walkie-talkies cut the tones it needs. {importMsg}
+          Choose a voice memo or any full-range recording that caught Resonance chirps. Phone calls, voicemail and walkie-talkies cut the tones it needs. {importMsg}
         </span>
       </div>
 
@@ -157,16 +157,16 @@ export function Settings({ station }: { station: Station }) {
           <Relay size={16} /> Open beacon mode
         </a>
         <span class="muted small">
-          A full-screen relay that keeps listening, repeats everything, keeps check-ins and notices for three days and hands what it holds to every
-          phone that comes within earshot.
+          Beacon mode is a full-screen relay. It keeps listening, repeats everything, keeps check-ins and notices for three days, and hands what it
+          holds to every phone that comes within earshot.
         </span>
       </div>
 
       <div class="field">
         <span class="label">Ready before an outage</span>
         <span class="muted small">
-          Open Resonance once while you still have internet, then add it to your home screen: it opens with no network, and the browser keeps its data
-          (Safari deletes the data of sites you have not opened for seven days).{' '}
+          Open Resonance once while you still have internet, then add it to your home screen. After that, it opens even with no network, and the
+          browser keeps its data (Safari deletes the data of sites you have not opened for seven days).{' '}
           {kept === true ? 'This browser has promised to keep it.' : kept === false ? 'This browser may clear it when space runs low.' : ''}
         </span>
         {kept === false && (

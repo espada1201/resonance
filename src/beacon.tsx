@@ -94,8 +94,8 @@ function Beacon() {
           <section class="gate">
             <h2>Leave this device here as a relay.</h2>
             <p class="lede">
-              It listens in all three modes, repeats every message it hears, keeps the newest 300 packets (check-ins and notices for three days,
-              the rest for 12 hours) and hands them to any phone that comes within earshot. Plug it in, turn the volume up, keep the lid open.
+              It listens in all three modes and repeats every message it hears. It keeps the newest 300 packets (check-ins and notices for three
+              days, the rest for 12 hours) and hands them to any phone that comes within earshot. Plug it in, turn the volume up and keep the lid open.
             </p>
             {station.status === 'error' && <p class="error" role="alert">{station.error}</p>}
             <button

@@ -25,7 +25,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
         <span class="label">This device</span>
         <p class="node-id">#{nodeHex(station.id)}</p>
         <p class="muted small">
-          {station.settings.nick ? `Known as “${station.settings.nick}”. ` : 'No nickname yet. Set one in Settings. '}
+          {station.settings.nick ? `Known as "${station.settings.nick}". ` : 'No nickname yet. Set one in Settings. '}
           {station.mesh.config.relay ? 'Relaying for others.' : 'Not relaying for others.'}
         </p>
       </section>
@@ -34,7 +34,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
 
       <h2 class="label">Heard directly</h2>
       {ns.length === 0 ? (
-        <p class="empty small">Nobody heard directly yet. Devices announce themselves every few minutes, and beacons every minute.</p>
+        <p class="empty small">Nobody heard directly yet. Devices say hello every few minutes, beacons every minute.</p>
       ) : (
         <ul class="nodes">
           {ns.map((n) => (
@@ -67,8 +67,8 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
         </ul>
       )}
       <p class="muted small">
-        Direct messages still travel through the crowd, but only the addressee shows them, and they send back a receipt. Without a receipt the sender
-        retries twice.
+        Other devices still relay direct messages, but only the recipient's device shows them and sends back a receipt. With no receipt, the sender
+        tries twice more.
       </p>
     </div>
   );

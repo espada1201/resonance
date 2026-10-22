@@ -69,7 +69,7 @@ function Delivery({ station, item }: { station: Station; item: FeedItem }) {
           <Cross size={14} /> no answer after 3 tries
         </span>
       ) : (
-        <span class="delivery">no receipt: the app was closed while waiting</span>
+        <span class="delivery">no receipt before the app closed</span>
       )}
       <button type="button" class="ghost small" disabled={station.status !== 'listening'} onClick={() => station.resend(item).catch((e: Error) => setErr(e.message))}>
         Send again
@@ -189,7 +189,7 @@ function FileView({ station, item }: { station: Station; item: FeedItem }) {
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [data]);
-  if (!f) return <p class="muted">File details are gone.</p>;
+  if (!f) return <p class="muted">This device no longer keeps this file.</p>;
   const got = received(f);
   const name = f.meta?.name ?? 'Incoming file';
   const shown = data && f.meta ? preview(f.meta.mime, data) : null;
@@ -398,9 +398,9 @@ export function Feed({ station }: { station: Station }) {
     return (
       <div class="empty">
         {notices}
-        <p class="empty-title">The room is quiet.</p>
+        <p class="empty-title">No messages yet.</p>
         <p>
-          Messages from any device within earshot land here, including ones that hopped through other phones on the way. Say something below
+          Messages from any device within earshot appear here, including ones that other phones passed on. Say something below
           {station.transport.kind === 'simulated' ? (
             <>
               , or open{' '}

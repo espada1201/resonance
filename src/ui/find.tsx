@@ -45,8 +45,9 @@ export function FindPanel({ station }: { station: Station }) {
       </p>
       <Sparkline values={readings} />
       <p class="muted small">
-        {f.note || `${phase}. ${readings.length} reading${readings.length === 1 ? '' : 's'}.`} Distance comes from timing chirps sent back and forth
-        between the two devices: sound covers about a metre every 3 milliseconds. It needs no GPS and works indoors. Walk, watch the number fall.
+        {f.note || `${phase}. ${readings.length} reading${readings.length === 1 ? '' : 's'}.`} Find measures the distance by timing chirps sent back and
+        forth between the two devices. Sound covers about a metre every 3 milliseconds. Find needs no GPS and works indoors. As you walk towards them,
+        the number goes down.
       </p>
     </section>
   );

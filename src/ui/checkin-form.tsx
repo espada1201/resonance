@@ -63,8 +63,8 @@ export async function checkInFix(station: Station, missed: (why: string) => void
 
 /** Why a draft cannot go yet, or null. */
 export function draftProblem(d: CheckInDraft): string | null {
-  if (d.forSomeone && !d.about.trim()) return 'Whom is this check-in for? Type their name.';
-  if (d.outside.trim() && !parseOutside(d.outside)) return 'The outside contact must be a phone number or an email address.';
+  if (d.forSomeone && !d.about.trim()) return 'Who is this check-in for? Type their name.';
+  if (d.outside.trim() && !parseOutside(d.outside)) return 'For family outside, type a phone number or an email address.';
   return null;
 }
 

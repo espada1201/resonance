@@ -31,8 +31,8 @@ function Gate({ station }: { station: Station }) {
       <p class="label">Offline mesh · made of sound</p>
       <h2 id="gate-title">Messages that travel through the air between the devices people already carry.</h2>
       <p class="lede">
-        Resonance turns speakers and microphones into a radio. No internet, no cell signal, no pairing, no accounts. Every device that hears a
-        message repeats it, so it hops across a crowd, down a stairwell, through a building.
+        Resonance sends messages as sound, from one device's speaker to another's microphone. It needs no internet, no cell signal, no pairing
+        and no accounts. Every device that hears a message repeats it, so it hops through a crowd or a building.
       </p>
       {station.status === 'error' && (
         <p class="error" role="alert">
@@ -51,8 +51,8 @@ function Gate({ station }: { station: Station }) {
         )}
       </div>
       <p class="muted small">
-        Your browser will ask for the microphone. Sound is decoded on this device and never recorded or uploaded. Echo cancellation is switched
-        off on purpose: it would erase the chirps.
+        Your browser will ask for the microphone. Resonance decodes sound on this device and never records or uploads it. It turns off echo
+        cancellation, which would erase the chirps.
       </p>
       <dl class="gate-modes" aria-label="Three ways to send">
         {MODES.map(([id, name, range]) => (

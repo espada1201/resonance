@@ -91,7 +91,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
     try {
       let blob: Blob = file;
       if (file.type.startsWith('image/') && file.size > MAX_FILE_BYTES) blob = await shrinkImage(file, MAX_FILE_BYTES - 200);
-      if (blob.size > MAX_FILE_BYTES) throw new Error(`Files must be under ${bytes(MAX_FILE_BYTES)}. Sound is slow: this is a lifeline, not a cloud drive.`);
+      if (blob.size > MAX_FILE_BYTES) throw new Error(`Sound is slow, so files must be ${bytes(MAX_FILE_BYTES)} or smaller.`);
       const data = new Uint8Array(await blob.arrayBuffer());
       const mime = blob.type || file.type || 'application/octet-stream';
       const base = file.name.replace(/\.[^.]+$/, '');
@@ -209,7 +209,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
               {picked.name} · {bytes(picked.data.length)}
             </span>
           ) : (
-            <span class="muted small">Up to {bytes(MAX_FILE_BYTES)}. Photos are shrunk automatically.</span>
+            <span class="muted small">Up to {bytes(MAX_FILE_BYTES)}. Resonance shrinks photos to fit.</span>
           )}
         </div>
       )}
@@ -229,7 +229,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         </label>
         <span class="budget small">
           {(mode === 'text' || mode === 'contact') && <span class={room < 0 ? 'over' : ''}>{room} bytes left · </span>}
-          {eta > 0 && (mode === 'file' ? <>about {seconds(eta)} to send</> : <>≈ {seconds(eta)} on air</>)}
+          {eta > 0 && (mode === 'file' ? <>about {seconds(eta)} to send</> : <>about {seconds(eta)} on air</>)}
           {sealed && (
             <span class="sealed-note">
               {' '}

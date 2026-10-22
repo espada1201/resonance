@@ -137,7 +137,7 @@ function CheckInCard({ station }: { station: Station }) {
       {sent && <p role="status">{sentText(station, sent.about)}</p>}
       <p class="muted small">
         One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
-        {place && ` It says you are at “${place}”.`}
+        {place && ` It says you are at "${place}".`}
         {outside && ` Whoever gets signal first can tell ${outside}.`}
       </p>
       <details class="more" onToggle={(e) => setDetailed(e.currentTarget.open)}>
@@ -246,7 +246,7 @@ export function Safety({ station }: { station: Station }) {
         {entries.length === 0 ? (
           <p class="empty small">No check-ins heard yet.</p>
         ) : shown.length === 0 ? (
-          <p class="empty small">Nobody matches “{query}”.</p>
+          <p class="empty small">Nobody matches "{query}".</p>
         ) : (
           <RosterList
             entries={shown}
@@ -269,7 +269,10 @@ export function Safety({ station }: { station: Station }) {
           <h2 class="label" id="courier-title">
             Pass on to family outside
           </h2>
-          <p class="muted small">Got signal? Your own text or mail app opens with the message filled in; nothing goes until you tap Send there.</p>
+          <p class="muted small">
+            If your phone has signal, tap Send as text or Send as email. Your own text or mail app opens with the message filled in, and nothing goes
+            until you tap Send there.
+          </p>
           <CourierList
             parcels={parcels}
             self={station.id}
@@ -308,7 +311,7 @@ export function Safety({ station }: { station: Station }) {
           </>
         ) : (
           <div class="empty">
-            <p>Share your position to see who is where. GPS works with no internet; nothing leaves this device unless you check in.</p>
+            <p>Use your position to see who is where. GPS works with no internet; nothing leaves this device unless you check in.</p>
             <button type="button" class="ghost" onClick={() => void findMe()}>
               <Pin size={16} /> Use my position
             </button>

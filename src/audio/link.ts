@@ -87,7 +87,7 @@ export class AirLink {
         return 'No microphone was found. Connect or switch on a microphone, then try again.';
       case 'NotReadableError':
       case 'AbortError':
-        return 'The microphone is busy: another app or tab is using it, perhaps a call or a recording. Close it, then try again.';
+        return 'The microphone is busy. Another app or tab is using it, perhaps a call or a recording. Close it, then try again.';
     }
     return `${err instanceof Error ? err.message : String(err)} Check that this page may use the microphone, then try again.`;
   }
