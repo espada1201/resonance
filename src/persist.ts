@@ -1,8 +1,10 @@
+import type { FeedItem } from './journal';
 import type { SavedFiles } from './mesh/files';
 import type { StoredPacket } from './mesh/node';
-import type { FeedItem, Settings } from './station';
+import type { SafetySnapshot } from './roster';
+import type { Settings } from './station';
 
-// What the station keeps between visits: six JSON strings under resonance:v1:<role>:, written
+// What the station keeps between visits: seven JSON strings under resonance:v1:<role>:, written
 // and read through one schema. Storage holds strings, so bytes are saved as base64.
 
 const KEY = 'resonance:v1:';
@@ -11,14 +13,19 @@ export interface Saved extends SavedFiles {
   identity: { id: number };
   /** Partial: a save from an older version may lack newer settings. */
   settings: Partial<Settings>;
+  /** Check-ins, replies and notices: three days, 600 of each. */
+  safety: SafetySnapshot;
   /** Newest first. */
   feed: FeedItem[];
   /** The mesh store: each packet's bytes, and when it was first heard. */
   store: Array<{ b: string; t: number }>;
 }
 
-/** The order the parts are written in: if storage fills up part-way, the first ones are kept. */
-const PARTS: Array<keyof Saved> = ['identity', 'settings', 'feed', 'store', 'files', 'chunks'];
+/**
+ * The order the parts are written in: if storage fills up part-way, the first ones are kept, so who
+ * needs help outlives the chat. Listing them as keys makes the build fail when a part is left out.
+ */
+const PARTS = Object.keys({ identity: 1, settings: 1, safety: 1, feed: 1, store: 1, files: 1, chunks: 1 } satisfies Record<keyof Saved, 1>) as Array<keyof Saved>;
 
 export const toB64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
 export const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));

@@ -3,11 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type Saved, SavedState, fromB64, loadStore, safeStorage, saveStore, toB64 } from './persist';
 import { MemoryStorage } from './testing';
 
-const KEYS = ['identity', 'settings', 'feed', 'store', 'files', 'chunks'] as const;
+const KEYS = ['identity', 'settings', 'safety', 'feed', 'store', 'files', 'chunks'] as const;
 const P = 'resonance:v1:phone:';
 
-/** The station test's scripted afternoon, as six strings, and the parts they hold. */
-const fixture = JSON.parse(readFileSync(new URL('./station.fixture.json', import.meta.url), 'utf8')) as Record<string, string>;
+/** The station test's scripted afternoon (saved before there was a safety log, so with an empty one), as seven strings, and the parts they hold. */
+const fixture = {
+  ...(JSON.parse(readFileSync(new URL('./station.fixture.json', import.meta.url), 'utf8')) as Record<string, string>),
+  [P + 'safety']: '{"checkins":[],"replies":[],"notices":[]}',
+};
 const parts = () => Object.fromEntries(KEYS.map((k) => [k, JSON.parse(fixture[P + k])])) as unknown as Saved;
 
 afterEach(() => {
@@ -65,7 +68,7 @@ describe('saved state', () => {
       setItem(k, v);
     });
     expect(() => new SavedState(storage, 'phone').save(parts())).not.toThrow();
-    expect(Object.keys(storage.dump())).toEqual([P + 'identity', P + 'settings', P + 'feed']);
+    expect(Object.keys(storage.dump())).toEqual([P + 'identity', P + 'settings', P + 'safety', P + 'feed']);
   });
 });
 

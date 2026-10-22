@@ -113,7 +113,7 @@ export class Journal {
     this.feed = (saved.feed ?? []).map((i) => (i.delivery === 'sending' ? { ...i, delivery: 'unknown' } : i));
     this.log = new SafetyLog();
     if (saved.safety) this.log.restore(saved.safety);
-    else for (const { src, msgId, at, hops, encrypted, body } of this.feed) if (body) this.log.add({ src, msgId, at, hops, encrypted, body });
+    else for (const { src, msgId, at, hops, encrypted, body } of [...this.feed].reverse()) if (body) this.log.add({ src, msgId, at, hops, encrypted, body });
     this.log.prune(this.clock.now());
   }
 
