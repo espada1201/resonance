@@ -439,6 +439,27 @@ describe('how long news lasts', () => {
     n.tick();
     expect(relayed.filter((id) => id === 7)).toEqual([7]);
   });
+
+  it('a full store drops chat and file chunks before check-ins', () => {
+    // A few photos must not push out who asked for help.
+    let t = 0;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined });
+    n.config.storeLimit = 5;
+    n.receive(farCheckIn(1));
+    t += 1000;
+    n.receive(farCheckIn(2));
+    for (let msgId = 10; msgId < 16; msgId++) {
+      t += 1000;
+      n.receive(farAway(msgId));
+    }
+    expect([...n.store.keys()].sort()).toEqual(['99:1', '99:13', '99:14', '99:15', '99:2']);
+    // Only lasting news left: the oldest goes.
+    for (let msgId = 20; msgId < 25; msgId++) {
+      t += 1000;
+      n.receive(farCheckIn(msgId));
+    }
+    expect([...n.store.keys()].sort()).toEqual(['99:20', '99:21', '99:22', '99:23', '99:24']);
+  });
 });
 
 describe('HELLO summaries', () => {
@@ -523,6 +544,62 @@ describe('HELLO summaries', () => {
       expect(w.tx.filter((t) => t.reason === 'carry').length).toBeLessThanOrEqual(3);
     });
   }
+
+  /** A beacon holding `count` settled packets and a phone with nothing, both not relaying. */
+  function beaconAndNewcomer(count: number) {
+    const w = new World();
+    const [b, p] = ['B', 'P'].map((n, i) => w.add(n, i + 1));
+    for (const n of [b, p]) n.config.relay = false;
+    for (let msgId = 1000; msgId < 1000 + count; msgId++) {
+      b.receive(farAway(msgId));
+      w.t += 1000;
+    }
+    w.t += 5 * 60_000;
+    w.link('BP');
+    const carries = () => w.tx.filter((t) => t.reason === 'carry').length;
+    return { w, b, p, carries };
+  }
+
+  it('hands a newcomer everything it lacks while the air is free, not just three packets', () => {
+    const { w, p, carries } = beaconAndNewcomer(40);
+    p.hello('p', 'phone');
+    w.run(2 * 60_000);
+    // Until its next hello shows our pushes reach it, a newcomer gets the newest 15.
+    expect(p.store.size).toBe(15);
+    w.run(3 * 60_000);
+    p.hello('p', 'phone');
+    w.run(4 * 60_000);
+    expect(p.store.size).toBe(40);
+    expect(carries()).toBe(40);
+  });
+
+  it('pushes what a newcomer missed again at its next hellos', () => {
+    const { w, p, carries } = beaconAndNewcomer(6);
+    const lost = new Set([1001, 1004]);
+    w.drop = (from, _to, packet) => from === 'B' && lost.delete(packet.msgId);
+    p.hello('p', 'phone');
+    w.run(60_000);
+    expect(p.store.size).toBe(4);
+    // A summary wrongly claims a packet about 1% of the time; the next one, salted afresh, will not.
+    for (let k = 0; k < 2; k++) {
+      w.run(4 * 60_000);
+      p.hello('p', 'phone');
+      w.run(60_000);
+    }
+    expect(p.store.size).toBe(6);
+    expect(carries()).toBe(8);
+  });
+
+  it('feeds a neighbour that cannot hear it no more than a newcomer, then three per hello', () => {
+    const { w, p, carries } = beaconAndNewcomer(60);
+    w.drop = (from) => from === 'B';
+    for (let k = 0; k < 7; k++) {
+      p.hello('p', 'phone');
+      w.run(5 * 60_000);
+    }
+    expect(p.store.size).toBe(0);
+    expect(carries()).toBeLessThanOrEqual(15 + 6 * 3);
+  });
 
   it('two beacons holding the same 200 packets stay quiet for an hour', () => {
     // A summary only fits ~40 ids, so HELLOs take turns covering slices of the store.
