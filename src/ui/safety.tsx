@@ -211,7 +211,8 @@ export function Safety({ station }: { station: Station }) {
       status: STATUS_TEXT,
       need: NEED_TEXT,
     });
-    download(new Blob([csv], { type: 'text/csv' }), `resonance-check-ins-${new Date().toISOString().slice(0, 16).replace(':', '')}.csv`);
+    // Without a byte-order mark, Excel reads the file in the local code page and garbles accents.
+    download(new Blob(['\uFEFF', csv], { type: 'text/csv' }), `resonance-check-ins-${new Date().toISOString().slice(0, 16).replace(':', '')}.csv`);
   };
 
   return (

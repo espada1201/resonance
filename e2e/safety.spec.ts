@@ -197,7 +197,8 @@ test('the safety list downloads as a spreadsheet, people without a phone include
   await expect(checkInRow(b, 'María López')).toBeVisible();
   const [download] = await Promise.all([b.waitForEvent('download'), b.getByRole('button', { name: 'Spreadsheet' }).click()]);
   const csv = await readFile((await download.path())!, 'utf8');
-  expect(csv.split('\r\n')[0]).toBe('Name,Reported by,Status,Request,Needs,Place,Note,Latitude,Longitude,Accuracy (m),Sent (UTC),Hops,Replies,Outside contact');
+  // The byte-order mark tells Excel the file is UTF-8; without it, María reads as MarÃ­a.
+  expect(csv.split('\r\n')[0]).toBe('\uFEFFName,Reported by,Status,Request,Needs,Place,Note,Latitude,Longitude,Accuracy (m),Sent (UTC),Hops,Replies,Outside contact');
   expect(csv).toContain('María López,Ana,Safe,');
   await proof(b, 'spreadsheet');
 });
