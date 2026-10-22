@@ -131,6 +131,7 @@ type Tone = 'off' | 'idle' | 'rx' | 'tx' | 'warn';
 function stateLine(s: Station, compact: boolean): { text: string; tone: Tone } {
   if (s.status === 'error') return { text: compact ? 'Stopped' : 'Not listening', tone: 'warn' };
   if (s.status !== 'listening') return { text: s.status === 'starting' ? 'Starting…' : 'Not listening', tone: 'off' };
+  if (s.suspended) return { text: compact ? 'Tap to resume sound' : `Sound paused by this device · tap to resume${s.radio.length ? ` · ${s.radio.length} waiting` : ''}`, tone: 'warn' };
   if (s.transmitting) return { text: compact ? `Sending ${seconds(s.transmitting.seconds)}` : `Transmitting · ${seconds(s.transmitting.seconds)}`, tone: 'tx' };
   if (s.receiving) return { text: compact ? 'Receiving…' : `Receiving ${PROFILE_NAME[s.receiving]} frame…`, tone: 'rx' };
   if (s.radio.length) return { text: compact ? `${s.radio.length} queued` : `Waiting for clear air · ${s.radio.length} queued`, tone: 'idle' };

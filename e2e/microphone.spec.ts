@@ -1,5 +1,5 @@
 import { FAKE_MIC_PROFILES, FAKE_MIC_SENDER, FAKE_MIC_WAV, fakeMicBytes, fakeMicText } from './fake-mic';
-import { airRow, expect, feedItem, openTab, proof, test } from './helpers';
+import { airRow, expect, feedItem, openTab, proof, sendText, test } from './helpers';
 
 // The real capture path: getUserMedia -> AudioWorklet -> demodulator worker -> mesh -> feed.
 // Chromium's fake capture device plays a recording rendered by the app's own modulator (see
@@ -52,6 +52,45 @@ test('a second tab of the same browser is sent to the first, and listens once th
   await first.close();
   await second.getByRole('button', { name: 'Start listening' }).click();
   await expect(second.getByRole('tab', { name: 'Feed' })).toBeVisible();
+});
+
+test('a phone that pauses its sound says so, holds what you send, and a tap brings it back', async ({ page }) => {
+  // What a locked screen or a call does to a page's audio: suspends it, and refuses it back until it is over.
+  await page.addInitScript(() => {
+    const Real = AudioContext;
+    let held = false;
+    const w = window as unknown as { lockScreen(): Promise<void>; unlockScreen(): void };
+    window.AudioContext = class extends Real {
+      constructor(options?: AudioContextOptions) {
+        super(options);
+        w.lockScreen = () => ((held = true), this.suspend());
+        w.unlockScreen = () => void (held = false);
+      }
+      resume() {
+        return held ? Promise.resolve() : super.resume();
+      }
+    };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Start listening' }).click();
+  await openTab(page, 'Settings');
+  await page.getByRole('checkbox', { name: /Relay messages for others/ }).uncheck();
+  const line = page.getByRole('region', { name: 'Air', exact: true }).getByRole('status');
+  await expect(line).not.toHaveText(/Starting/);
+
+  await page.evaluate(() => (window as unknown as { lockScreen(): Promise<void> }).lockScreen());
+  await expect(line).toHaveText(/^Sound paused by this device · tap to resume/);
+  await sendText(page, 'Sent while the screen was locked');
+  const item = feedItem(page, 'Sent while the screen was locked');
+  await expect(item).toContainText('waiting to go on air…');
+  await expect(line).toHaveText(/ · \d+ waiting$/);
+  await proof(page, 'sound-paused');
+
+  await page.evaluate(() => (window as unknown as { unlockScreen(): void }).unlockScreen());
+  await line.click();
+  await expect(line).not.toHaveText(/Sound paused/);
+  await expect(item).not.toContainText('waiting to go on air');
+  await expect(airRow(page, 'OUT', 'message')).toBeVisible();
 });
 
 test('a refused microphone says where to allow it again, and can be tried again', async ({ page }) => {
