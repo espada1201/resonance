@@ -141,5 +141,7 @@ test('a tiny file crosses the air in chunks and reassembles byte for byte', asyn
   const [download] = await Promise.all([b.waitForEvent('download'), save.click()]);
   expect(download.suggestedFilename()).toBe('shelters.txt');
   expect((await readFile(await download.path())).equals(content)).toBe(true);
+  // Only a picture is shown as itself. Anything else stays a download, so a web page someone sends never runs as this app.
+  expect(await save.evaluate(async (link: HTMLAnchorElement) => (await (await fetch(link.href)).blob()).type)).toBe('application/octet-stream');
   await proof(b, 'file');
 });
