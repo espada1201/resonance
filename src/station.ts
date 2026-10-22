@@ -544,8 +544,7 @@ export class Station {
     const plain = p?.encrypted && (await open(circle, p));
     const body = p && plain && decodeBody(p.type, plain);
     if (!body) return;
-    // The store keeps no hop count: as far as we know it was passed along, so its age goes by its author's clock.
-    const arrived = meta ?? { ...met(p), at: stored.firstHeard, hops: 1 };
+    const arrived = meta ?? { ...met(p), at: stored.firstHeard, hops: stored.hops };
     if (meta || body.kind === 'file') this.record(arrived, p, body);
     else if (isContent(body) || body.kind === 'reply') this.journal.addToLog(arrived, body);
   }

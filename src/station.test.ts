@@ -306,7 +306,12 @@ describe('saved state', () => {
     await afternoon(storage);
     const old = parsed(fixture());
     const own = (e: { b: string }) => decodePacket(fromB64(e.b))!.src === old[IDENTITY].id;
-    const store = old[STORE].map((e: { b: string }) => (own(e) ? { ...e, q: 1 } : e));
+    // Cal's check-in came relayed once; the rest were heard first-hand.
+    const hops = (e: { b: string }) => {
+      const p = decodePacket(fromB64(e.b))!;
+      return p.src === CAL && p.msgId === 102 ? 1 : 0;
+    };
+    const store = old[STORE].map((e: { b: string }) => ({ ...e, h: hops(e), ...(own(e) && { q: 1 }) }));
     expect(store.filter(own)).toHaveLength(6);
     expect(parsed(storage.dump())).toEqual({ ...old, [SETTINGS]: { ...old[SETTINGS], place: '', outside: '' }, [SAFETY]: safetyLog(), [STORE]: store });
   });
@@ -335,6 +340,8 @@ describe('saved state', () => {
       [FEED]: saved[FEED].replace('"delivery":"sending"', '"delivery":"unknown"'),
       [SETTINGS]: saved[SETTINGS].replace(/}$/, ',"place":"","outside":""}'),
       [SAFETY]: JSON.stringify(safetyLog()),
+      // A save from before hop counts were kept: as far as we know, each packet was passed along.
+      [STORE]: JSON.stringify(JSON.parse(saved[STORE]).map((e: object) => ({ ...e, h: 1 }))),
     });
 
     // The circle is joined again from the saved passphrase, and the file's chunks can be handed on.

@@ -81,19 +81,23 @@ describe('codecs', () => {
     expect(fromB64('')).toEqual(new Uint8Array());
   });
 
-  it("the store keeps each packet's bytes, when it was first heard and whether it still waits to go on air; after a reload nothing has been pushed", () => {
+  it("the store keeps each packet's bytes, when and over how many hops it was first heard and whether it still waits to go on air; after a reload nothing has been pushed", () => {
     const stored = saveStore([
-      { bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, lastPushed: 9000 },
-      { bytes: Uint8Array.of(4), firstHeard: 6000, lastPushed: -Infinity, queued: true },
+      { bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, hops: 2, lastPushed: 9000 },
+      { bytes: Uint8Array.of(4), firstHeard: 6000, hops: 0, lastPushed: -Infinity, queued: true },
     ]);
     expect(stored).toEqual([
-      { b: 'AQID', t: 5000 },
-      { b: 'BA==', t: 6000, q: 1 },
+      { b: 'AQID', t: 5000, h: 2 },
+      { b: 'BA==', t: 6000, h: 0, q: 1 },
     ]);
     expect(loadStore(stored)).toEqual([
-      { bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, lastPushed: -Infinity, queued: false },
-      { bytes: Uint8Array.of(4), firstHeard: 6000, lastPushed: -Infinity, queued: true },
+      { bytes: Uint8Array.of(1, 2, 3), firstHeard: 5000, hops: 2, lastPushed: -Infinity, queued: false },
+      { bytes: Uint8Array.of(4), firstHeard: 6000, hops: 0, lastPushed: -Infinity, queued: true },
     ]);
+  });
+
+  it('a store saved before hop counts were kept reads its packets as passed along', () => {
+    expect(loadStore([{ b: 'AQID', t: 5000 }])[0].hops).toBe(1);
   });
 });
 

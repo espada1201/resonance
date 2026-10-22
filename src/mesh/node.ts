@@ -50,6 +50,8 @@ const DEFAULT_CONFIG: MeshConfig = {
 export interface StoredPacket {
   bytes: Uint8Array;
   firstHeard: number;
+  /** Its hop count when first heard: `bytes` keeps it at 0. */
+  hops: number;
   lastPushed: number;
   /** One of ours that has not been on air yet. */
   queued?: boolean;
@@ -147,7 +149,7 @@ function supersededCheckIn(lasting: Array<[string, StoredPacket]>) {
 function readable(s: StoredPacket): Heard | null {
   const p = decodePacket(s.bytes)!;
   const body = p.encrypted ? null : decodeBody(p.type, p.body);
-  return body && { src: p.src, msgId: p.msgId, at: s.firstHeard, hops: 0, encrypted: false, body };
+  return body && { src: p.src, msgId: p.msgId, at: s.firstHeard, hops: s.hops, encrypted: false, body };
 }
 
 export class MeshNode {
@@ -483,7 +485,7 @@ export class MeshNode {
   private remember(p: Packet, queued = false) {
     const k = storeKey(p);
     if (this.store.has(k)) return;
-    this.store.set(k, { bytes: encodePacket({ ...p, hops: 0, attempt: 0 }), firstHeard: this.clock.now(), lastPushed: -Infinity, queued });
+    this.store.set(k, { bytes: encodePacket({ ...p, hops: 0, attempt: 0 }), firstHeard: this.clock.now(), hops: p.hops, lastPushed: -Infinity, queued });
     if (this.store.size > this.config.storeLimit) this.store.delete(this.leastNeeded());
   }
 
