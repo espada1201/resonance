@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
-import { checkInRow, expect, feedItem, joinAir, openTab, proof, sendText, setNickname, test } from './helpers';
+import { checkInRow, expect, feedItem, joinAir, nodeId, openTab, proof, sendText, setNickname, test } from './helpers';
 
 // Several tabs of one browser context share a simulated room (BroadcastChannel + noise), so
 // every frame below is really modulated, mixed and demodulated, just not played aloud.
@@ -17,6 +17,44 @@ test('two stations trade messages over the air', async ({ context }) => {
   await sendText(b, 'On my way, bringing a torch');
   await expect(feedItem(a, 'On my way, bringing a torch')).toContainText('heard directly');
   await proof(a, 'messages');
+});
+
+test('a direct message shows only to its addressee and comes back delivered', async ({ context }) => {
+  const [a, b, c] = await Promise.all([0, 1, 2].map(() => context.newPage()));
+  for (const p of [a, b, c]) await joinAir(p);
+  const text = 'Can you bring the first aid kit to room 412?';
+
+  await openTab(a, 'People');
+  await a.getByRole('button', { name: `Message #${await nodeId(b)} directly` }).click();
+  await sendText(a, text);
+  await expect(feedItem(b, text)).toContainText('direct to you');
+  await expect(feedItem(a, text)).toContainText('delivered');
+  // The bystander heard and relayed the same frames, but the message is not for it.
+  await expect(c.getByText(text)).toHaveCount(0);
+  await proof(a, 'direct');
+});
+
+test('a contact card arrives and saves as a vCard', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b);
+
+  await a.getByRole('radio', { name: 'Contact', exact: true }).click();
+  await a.getByLabel('Name', { exact: true }).fill('Dr Okafor');
+  await a.getByLabel('Phone', { exact: true }).fill('+44 20 7946 0000');
+  await a.getByLabel('Contact note').fill('Medic, east gate');
+  await a.getByRole('button', { name: 'Send', exact: true }).click();
+
+  const card = feedItem(b, 'Dr Okafor');
+  await expect(card.getByRole('link', { name: '+44 20 7946 0000' })).toHaveAttribute('href', 'tel:+442079460000');
+  await expect(card).toContainText('Medic, east gate');
+  const [download] = await Promise.all([b.waitForEvent('download'), card.getByRole('button', { name: 'Save contact' }).click()]);
+  expect(download.suggestedFilename()).toBe('Dr Okafor.vcf');
+  const vcard = await readFile(await download.path(), 'utf8');
+  expect(vcard).toContain('FN:Dr Okafor\r\n');
+  expect(vcard).toContain('TEL:+44 20 7946 0000\r\n');
+  await proof(b, 'contact');
 });
 
 test.describe('check-ins', () => {

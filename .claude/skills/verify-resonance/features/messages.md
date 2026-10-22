@@ -6,7 +6,7 @@ Anyone in earshot can post a message that every station shows, and send a messag
 
 - `message-broadcast` a message reaches every station in earshot and says it was heard directly.
 - `message-direct` a message to one neighbour shows only there and comes back `delivered`.
-- `message-contact` a contact card arrives with name, phone and what its owner can help with, and saves as a vCard.
+- `message-contact` a contact card arrives with name, phone and note, and saves as a vCard.
 
 ## How to get to it (user POV)
 
@@ -19,8 +19,8 @@ Anyone in earshot can post a message that every station shows, and send a messag
 Preconditions: none beyond the baseline.
 
 - **Broadcast.** Run `verify.sh drive e2e/messaging.spec.ts 'two stations trade messages'`. Each station's feed shows the other's text with `heard directly`.
-- **Direct and receipt.** No journey yet. Report `message-direct` as not verified.
-- **Contact card.** No journey yet. Report `message-contact` as not verified.
+- **Direct and receipt.** Run `verify.sh drive e2e/messaging.spec.ts 'a direct message shows only'`. The addressee shows it `direct to you`, the sender's item reads `delivered`, and a third station that relayed it never shows the text.
+- **Contact card.** Run `verify.sh drive e2e/messaging.spec.ts 'a contact card arrives'`. The receiver's card links the phone as `tel:+442079460000`, and `Save contact` downloads `Dr Okafor.vcf` with the name and number.
 
 ## Gotchas
 

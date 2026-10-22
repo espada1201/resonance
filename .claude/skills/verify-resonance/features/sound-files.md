@@ -16,7 +16,7 @@ Any packet can leave as a WAV file that any speaker can play to the mesh, and a 
 
 Preconditions: none beyond the baseline.
 
-- **Export and import.** No journey yet. Report both sub-features as not verified.
+- **Export and import.** Run `verify.sh drive e2e/sound-files.spec.ts`. The sender downloads `resonance-<id>-<msg>.wav`, closes, and a new station that never heard the message decodes the file: `Found 1 packet. New ones are in your feed.`, and the message is in its feed.
 
 ## Gotchas
 
