@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
-import { checkInRow, expect, feedItem, joinAir, openTab, sendText, setNickname, test } from './helpers';
+import { checkInRow, expect, feedItem, joinAir, openTab, proof, sendText, setNickname, test } from './helpers';
 
 // Several tabs of one browser context share a simulated room (BroadcastChannel + noise), so
 // every frame below is really modulated, mixed and demodulated, just not played aloud.
@@ -16,6 +16,7 @@ test('two stations trade messages over the air', async ({ context }) => {
 
   await sendText(b, 'On my way, bringing a torch');
   await expect(feedItem(a, 'On my way, bringing a torch')).toContainText('heard directly');
+  await proof(a, 'messages');
 });
 
 test.describe('check-ins', () => {
@@ -47,6 +48,7 @@ test.describe('check-ins', () => {
     const item = feedItem(b, 'Ana');
     await expect(item).toContainText('Safe');
     await expect(item).toContainText('300 m N of you · ±8 m');
+    await proof(b, 'check-in');
   });
 });
 
@@ -73,6 +75,7 @@ test('a circle passphrase seals messages from everyone outside it', async ({ con
     await expect(feedItem(outsider, 'Sealed for a circle you are not in')).toBeVisible();
     await expect(outsider.getByText(secret)).toHaveCount(0);
   }
+  await proof(c, 'sealed');
 });
 
 test('a tiny file crosses the air in chunks and reassembles byte for byte', async ({ context }) => {
@@ -100,4 +103,5 @@ test('a tiny file crosses the air in chunks and reassembles byte for byte', asyn
   const [download] = await Promise.all([b.waitForEvent('download'), save.click()]);
   expect(download.suggestedFilename()).toBe('shelters.txt');
   expect((await readFile(await download.path())).equals(content)).toBe(true);
+  await proof(b, 'file');
 });

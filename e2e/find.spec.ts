@@ -1,4 +1,4 @@
-import { expect, joinAir, nodeId, openTab, test } from './helpers';
+import { expect, joinAir, nodeId, openTab, proof, test } from './helpers';
 
 // Find mode times chirps both ways between two devices. The simulated room delays each tab's
 // sound by distance / 343 m/s, so two tabs standing 3.2 m apart should read about 3.2 m.
@@ -18,4 +18,5 @@ test('Find measures the distance to a neighbour by sound', async ({ context }) =
   const readout = a.getByRole('region', { name: /^Distance to / }).getByText(/^[\d.]+\s*m$/);
   // Metres to two decimals: anything from 3.00 to 3.40 passes.
   await expect(readout).toHaveText(/^3\.([0-3]\d|40)\s*m$/, { timeout: 45_000 });
+  await proof(a, 'distance');
 });

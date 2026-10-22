@@ -1,5 +1,5 @@
 import { FAKE_MIC_PROFILES, FAKE_MIC_SENDER, FAKE_MIC_WAV, fakeMicBytes, fakeMicText } from './fake-mic';
-import { airRow, expect, feedItem, openTab, test } from './helpers';
+import { airRow, expect, feedItem, openTab, proof, test } from './helpers';
 
 // The real capture path: getUserMedia -> AudioWorklet -> demodulator worker -> mesh -> feed.
 // Chromium's fake capture device plays a recording rendered by the app's own modulator (see
@@ -36,5 +36,6 @@ for (const profile of FAKE_MIC_PROFILES) {
     await expect(item).toContainText('heard directly');
     const modeAndSize = new RegExp(`${MODE_LABEL[profile]} · ${fakeMicBytes(profile)} B\\b`);
     await expect(airRow(page, 'IN', `message from ${process.env[FAKE_MIC_SENDER]}`, modeAndSize)).toBeVisible();
+    await proof(page, `microphone-${profile}`);
   });
 }
