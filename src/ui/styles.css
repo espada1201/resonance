@@ -563,12 +563,13 @@ input[type='radio'] {
   overflow-x: auto;
   scrollbar-width: none;
 }
+/* All five kinds fit a 390 px phone; a narrower screen scrolls them. */
 .seg button {
   min-height: 32px;
   font-size: 13px;
   border-color: transparent;
   color: var(--muted);
-  padding: 0 10px;
+  padding: 0 8px;
 }
 .seg button[aria-checked='true'] {
   color: var(--text);
