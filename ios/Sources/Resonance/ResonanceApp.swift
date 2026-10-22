@@ -6,7 +6,7 @@ import WebKit
 @main
 struct ResonanceApp: App {
     @Environment(\.scenePhase) private var phase
-    private let server = LocalServer(root: Bundle.module.url(forResource: "Web", withExtension: nil)!)
+    private let server = LocalServer(root: webApp)
 
     init() {
         // The modem wants the raw microphone and the loudspeaker, not the earpiece, and must not stop other audio.
@@ -26,6 +26,13 @@ struct ResonanceApp: App {
         }
     }
 }
+
+/// xtool builds the app as a Swift package; the TestFlight build uses an Xcode project instead.
+#if SWIFT_PACKAGE
+private let webApp = Bundle.module.url(forResource: "Web", withExtension: nil)!
+#else
+private let webApp = Bundle.main.url(forResource: "Web", withExtension: nil)!
+#endif
 
 struct ResonanceView: UIViewRepresentable {
     let url: URL

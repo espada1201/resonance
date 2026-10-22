@@ -139,3 +139,62 @@ jobs:
             screenshot.png
             smoke.log
           retention-days: 14
+
+  # App Store Connect accepts only apps built by Xcode, so the TestFlight build compiles the same
+  # sources with Xcode on the Mac. It always archives, which proves it builds; it signs and uploads
+  # only once the App Store Connect key is saved as repository secrets.
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY: ${{ secrets.ASC_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci && npm run ios:web
+      - name: Make the Xcode project
+        working-directory: ios
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)"
+          mkdir -p build/Assets.xcassets/AppIcon.appiconset
+          cp Resources/AppIcon.png build/Assets.xcassets/AppIcon.appiconset/
+          echo '{"images":[{"filename":"AppIcon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}' > build/Assets.xcassets/AppIcon.appiconset/Contents.json
+          echo '{"info":{"author":"xcode","version":1}}' > build/Assets.xcassets/Contents.json
+          # xtool fills in these keys itself; an Xcode build takes them from its settings.
+          cp Info.plist build/Info.plist
+          for kv in CFBundleIdentifier='$(PRODUCT_BUNDLE_IDENTIFIER)' CFBundleExecutable='$(EXECUTABLE_NAME)' CFBundleName='$(PRODUCT_NAME)' \
+            CFBundlePackageType=APPL CFBundleVersion='$(CURRENT_PROJECT_VERSION)'; do
+            /usr/libexec/PlistBuddy -c "Add :${kv%%=*} string ${kv#*=}" build/Info.plist
+          done
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString \$(MARKETING_VERSION)" -c "Add :LSRequiresIPhoneOS bool true" build/Info.plist
+          command -v xcodegen || brew install xcodegen
+          xcodegen generate
+      - name: Archive with Xcode
+        run: |
+          xcodebuild archive -project ios/Resonance.xcodeproj -scheme Resonance -destination generic/platform=iOS \
+            -archivePath "$RUNNER_TEMP/Resonance.xcarchive" CODE_SIGNING_ALLOWED=NO CURRENT_PROJECT_VERSION=$GITHUB_RUN_NUMBER -quiet
+          /usr/libexec/PlistBuddy -c Print "$RUNNER_TEMP/Resonance.xcarchive/Products/Applications/Resonance.app/Info.plist"
+      - name: Sign with Apple and upload to TestFlight
+        if: env.ASC_KEY_ID != '' && env.ASC_ISSUER_ID != '' && env.ASC_KEY != '' && env.APPLE_TEAM_ID != ''
+        run: |
+          key="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY" > "$key"
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Resonance.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" \
+            -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates \
+            -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          rm -f "$key"
