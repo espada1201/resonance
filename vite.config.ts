@@ -13,7 +13,8 @@ function offline(): Plugin {
       const version = createHash('sha256').update(files.join()).digest('hex').slice(0, 12);
       const source = `const CACHE = 'resonance-${version}';
 const FILES = ${JSON.stringify(['./', ...files])};
-self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())));
+// cache: 'reload' skips the browser's HTTP cache: a page it still held from before a deploy would point at assets the deploy removed.
+self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())));
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
