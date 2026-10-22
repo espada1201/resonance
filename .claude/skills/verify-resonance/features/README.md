@@ -27,6 +27,7 @@ Each feature file starts with an H1 title and one paragraph on the user-visible 
 
 ## Features
 
+- [Getting on the air](./start.md): the microphone, or simulated air in two tabs.
 - [Messages](./messages.md): broadcast and direct messages, receipts, contact cards.
 - [Check-ins](./check-ins.md): "I'm safe" and "I need help" with a GPS fix, the list of who checked in.
 - [Safety list and replies](./safety-list.md): needs and place, "On my way", someone without a phone, search and spreadsheet.

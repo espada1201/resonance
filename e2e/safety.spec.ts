@@ -116,15 +116,6 @@ test('People rates each neighbour signal in plain words', async ({ context }) =>
   await proof(b, 'signal');
 });
 
-test('"Try it in two tabs" opens a second tab on simulated air', async ({ context, page }) => {
-  await page.goto('/');
-  const [second] = await Promise.all([context.waitForEvent('page'), page.getByRole('link', { name: 'Try it in two tabs, no microphone' }).click()]);
-  await expect(page).toHaveURL(/air=sim/);
-  await expect(second).toHaveURL(/air=sim/);
-  for (const p of [page, second]) await expect(p.getByText('Simulated air').or(p.getByText('Sim', { exact: true })).first()).toBeVisible();
-  await proof(second, 'two-tabs');
-});
-
 test('a sealed message heard before joining the circle opens once you join', async ({ context }) => {
   const a = await context.newPage();
   await joinAir(a);
