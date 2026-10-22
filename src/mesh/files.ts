@@ -1,8 +1,8 @@
 import type { Body, FileMeta } from './payloads';
 
 // Tiny files ride as numbered chunks. Chunk 0 carries only the name/type/size; the rest carry
-// data. The author, or any beacon that holds a chunk, answers a request for it, so files heal
-// across the mesh.
+// data. Anyone holding a chunk can answer a request for it (the holder nearest the asker goes
+// first), so files heal across the mesh.
 
 export const MAX_FILE_BYTES = 4096;
 export const CHUNK_BYTES = 160;

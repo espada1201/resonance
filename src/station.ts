@@ -71,6 +71,10 @@ const FILE_PATIENCE_MS: [number, number] = [20_000, 35_000];
 /** Automatic asks per file; after that the feed's "Ask for missing" button is left. */
 const AUTO_ASKS = 3;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
+/** A neighbour who just turned up gets a hello back, unless we sent one this recently. */
+const GREET_GAP_MS = 30_000;
+/** File requests go one relay deep: far enough to reach a holder, near enough to keep the air quiet. */
+const FILE_REQUEST_TTL = 2;
 const KEY = 'resonance:v1:';
 const TYPE_LABEL: Record<number, string> = { 1: 'message', 2: 'check-in', 3: 'contact', 4: 'file chunk', 5: 'ack', 6: 'hello', 7: 'file request', 8: 'ranging' };
 
@@ -114,6 +118,7 @@ export class Station {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private unmute: ReturnType<typeof setTimeout> | null = null;
   private fileWaits = new Map<string, { due: number; asks: number }>();
+  private lastHello = 0;
   private frameInFlight: DecodedFrame | null = null;
   private readonly prefix: string;
 
@@ -141,6 +146,9 @@ export class Station {
       deliver: (p) => void this.onDeliver(p),
       delivery: (msgId, ok) => this.onDelivery(msgId, ok),
       channelBusy: () => this.busy,
+      // A receipt says "read": never for a message sealed for a circle we are not in.
+      readable: (p) => !p.encrypted || p.channel === this.circle?.channel,
+      met: () => this.greet(),
     });
     this.mesh.config.relay = this.settings.relay;
     if (role === 'beacon') this.mesh.config.backoffMs = [400, 2500];
@@ -211,9 +219,8 @@ export class Station {
         void this.radio.tick();
         this.chaseFiles();
       }, 200);
-      const hello = () => this.mesh.hello(this.settings.nick, this.role);
-      setTimeout(hello, 1500 + Math.random() * 3000);
-      setInterval(hello, HELLO_MS[this.role] * (0.85 + Math.random() * 0.3));
+      setTimeout(() => this.hello(), 1500 + Math.random() * 3000);
+      setInterval(() => this.hello(), HELLO_MS[this.role] * (0.85 + Math.random() * 0.3));
     } catch (err) {
       this.status = 'error';
       this.error = err instanceof Error ? err.message : String(err);
@@ -221,6 +228,21 @@ export class Station {
       this.worker = null;
     }
     this.changed();
+  }
+
+  private hello() {
+    this.lastHello = Date.now();
+    this.mesh.hello(this.settings.nick, this.role);
+  }
+
+  /**
+   * Someone new is in earshot. Saying hello back tells them what we hold, so whatever they carry
+   * that we lack comes over now, not at their next scheduled hello minutes later.
+   */
+  private greet() {
+    if (Date.now() - this.lastHello < GREET_GAP_MS) return;
+    this.lastHello = Date.now();
+    setTimeout(() => this.hello(), 1000 + Math.random() * 3000);
   }
 
   /** Phones stop the microphone when the screen locks, so a listening station keeps it on. */
@@ -357,7 +379,7 @@ export class Station {
     return airtimeSec(PROFILES[this.settings.profile], Math.min(MAX_PAYLOAD, n));
   }
 
-  async send(body: Body, opts: { dst?: number; sealed?: boolean } = {}) {
+  async send(body: Body, opts: { dst?: number; sealed?: boolean; ttl?: number } = {}) {
     const dst = opts.dst ?? BROADCAST;
     const sealed = (opts.sealed ?? !!this.circle) && !!this.circle;
     const plain = encodeBody(body);
@@ -367,7 +389,7 @@ export class Station {
       ackRequested: dst !== BROADCAST,
       msgId: randomU32(),
       dst,
-      ttl: DEFAULT_TTL,
+      ttl: opts.ttl ?? DEFAULT_TTL,
       channel: sealed ? this.circle!.channel : 0,
       body: plain,
     };
@@ -408,7 +430,7 @@ export class Station {
   requestMissing(key: string) {
     const f = this.files.get(key);
     if (!f) return;
-    return this.send({ kind: 'filereq', fileSrc: f.src, fileId: f.fileId, missing: missing(f) }, { sealed: false });
+    return this.send({ kind: 'filereq', fileSrc: f.src, fileId: f.fileId, missing: missing(f) }, { sealed: false, ttl: FILE_REQUEST_TTL });
   }
 
   /** Heard progress on someone else's unfinished file: give it time before asking for the rest. */
@@ -466,7 +488,7 @@ export class Station {
       // Someone already asked for a file we are missing too: their answer may fill our gaps.
       const k = fileKey(body.fileSrc, body.fileId);
       if (this.fileWaits.has(k)) this.expectMore(k);
-      this.answerFileRequest(body.fileSrc, body.fileId, body.missing);
+      this.answerFileRequest(body.fileSrc, body.fileId, body.missing, p.hops);
     } else if (body.kind === 'range') {
       void this.ranger.onPacket(p, body, frame);
     } else if (body.kind === 'text' || body.kind === 'checkin' || body.kind === 'contact') {
@@ -475,14 +497,13 @@ export class Station {
     this.changed();
   }
 
-  private answerFileRequest(fileSrc: number, fileId: number, want: number[]) {
-    // The author and beacons answer; everyone else lets them, to keep the air quiet.
-    if (fileSrc !== this.id && this.role !== 'beacon') return;
+  /** Anyone holding a requested chunk may answer; the mesh lets the holder nearest the asker go first. */
+  private answerFileRequest(fileSrc: number, fileId: number, want: number[], hops: number) {
     const ids = this.chunkIds.get(fileKey(fileSrc, fileId));
     if (!ids) return;
     for (const i of want.slice(0, 8)) {
       const msgId = ids.get(i);
-      if (msgId !== undefined) this.mesh.resend(fileSrc, msgId);
+      if (msgId !== undefined) this.mesh.answer(fileSrc, msgId, hops);
     }
   }
 

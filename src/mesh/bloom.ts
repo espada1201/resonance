@@ -14,6 +14,9 @@ function fmix32(h: number) {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
+/** Which of `parts` slices an id falls in. HELLOs summarise one slice at a time, so a summary always fits. */
+export const sliceOf = (id: number, parts: number) => fmix32(id ^ 0x5bd1e995) % Math.max(1, parts);
+
 export class Bloom {
   constructor(
     readonly hashes: number,

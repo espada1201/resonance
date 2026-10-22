@@ -13,8 +13,11 @@ interface RadioIO {
 }
 
 const SENSE_BACKOFF_MS: [number, number] = [250, 1500];
-/** Longest the queue defers to a busy channel: carrier sense can be fooled, and silence forever is worse. */
-const MAX_DEFER_MS = 12_000;
+/**
+ * Longest the queue defers to a busy channel: past the longest frame (20.3 s), since talking into
+ * a frame loses both; but carrier sense can be fooled, and silence forever is worse.
+ */
+const MAX_DEFER_MS = 25_000;
 const QUEUE_LIMIT = 64;
 
 export class TxQueue {

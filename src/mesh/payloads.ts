@@ -18,8 +18,8 @@ export type Body =
   | { kind: 'contact'; ts: number; name: string; phone: string; note: string }
   | { kind: 'file'; fileId: number; index: number; total: number; meta?: FileMeta; data: Uint8Array }
   | { kind: 'ack'; msgId: number; attempt: number }
-  /** `hashes` and `bits` are a Bloom filter of the newest message ids the sender holds (see bloom.ts). */
-  | { kind: 'hello'; role: 'phone' | 'beacon'; nick: string; hashes: number; bits: Uint8Array }
+  /** `hashes` and `bits` are a Bloom filter of the message ids the sender holds in slice `part` of `parts` (see bloom.ts). */
+  | { kind: 'hello'; role: 'phone' | 'beacon'; nick: string; hashes: number; part: number; parts: number; bits: Uint8Array }
   | { kind: 'filereq'; fileSrc: number; fileId: number; missing: number[] }
   | { kind: 'range'; phase: 'request' | 'report'; session: number; intervalUs: number };
 
@@ -146,7 +146,7 @@ export function encodeBody(body: Body): Uint8Array {
     case 'ack':
       return w.u32(body.msgId).u8(body.attempt).done();
     case 'hello':
-      return w.u8(body.role === 'beacon' ? 1 : 0).str(body.nick, MAX_NICK).u8(body.hashes).raw(body.bits).done();
+      return w.u8(body.role === 'beacon' ? 1 : 0).str(body.nick, MAX_NICK).u8(body.hashes).u8(body.part).u8(body.parts).raw(body.bits).done();
     case 'filereq': {
       w.u24(body.fileSrc).u16(body.fileId);
       const mask = new Uint8Array(32);
@@ -186,7 +186,7 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
       case PacketType.Hello: {
         const role = r.u8() ? 'beacon' : 'phone';
         const nick = r.str();
-        return { kind: 'hello', role, nick, hashes: r.u8(), bits: r.rest() };
+        return { kind: 'hello', role, nick, hashes: r.u8(), part: r.u8(), parts: r.u8(), bits: r.rest() };
       }
       case PacketType.FileRequest: {
         const fileSrc = r.u24();

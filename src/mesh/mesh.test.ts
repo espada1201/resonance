@@ -69,6 +69,10 @@ class World {
 
 const text = (s: string, nick = 'ana'): Body => ({ kind: 'text', ts: 1_700_000_000, nick, text: s });
 
+/** A broadcast from node 99, somewhere out of earshot, as a neighbour relayed it. */
+const farAway = (msgId: number) =>
+  encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId, src: 99, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(text(`#${msgId}`)) });
+
 function send(node: MeshNode, body: Body, extra: Partial<Packet> = {}) {
   return node.originate({
     type: typeOf[body.kind],
@@ -109,8 +113,8 @@ describe('packet + payload codecs', () => {
     { kind: 'file', fileId: 513, index: 0, total: 4, meta: { name: 'map.png', mime: 'image/png', size: 600 }, data: Uint8Array.of(9, 9) },
     { kind: 'file', fileId: 513, index: 3, total: 4, data: Uint8Array.of(1, 2, 3) },
     { kind: 'ack', msgId: 0xfffffffe, attempt: 1 },
-    { kind: 'hello', role: 'beacon', nick: 'roof', hashes: 7, bits: Uint8Array.of(1, 0, 255) },
-    { kind: 'hello', role: 'phone', nick: '', hashes: 0, bits: new Uint8Array() },
+    { kind: 'hello', role: 'beacon', nick: 'roof', hashes: 7, part: 2, parts: 5, bits: Uint8Array.of(1, 0, 255) },
+    { kind: 'hello', role: 'phone', nick: '', hashes: 0, part: 0, parts: 1, bits: new Uint8Array() },
     { kind: 'filereq', fileSrc: 0xabcdef, fileId: 9, missing: [0, 5, 63, 200] },
     { kind: 'range', phase: 'request', session: 0, intervalUs: 0 },
     { kind: 'range', phase: 'report', session: 0xffff, intervalUs: 1234567 },
@@ -188,18 +192,55 @@ describe('mesh flooding', () => {
     expect(retries.find((s) => s.p.msgId === direct.msgId)!.at).toBeGreaterThanOrEqual(105_000);
   });
 
-  it('answers a burst of identical file requests with one resend', () => {
-    // Several neighbours missing the same chunk tend to ask at once; the author resends it once.
+  it('answers a burst of identical file requests once, and never for a frame still queued', () => {
+    // Several neighbours missing the same chunk tend to ask at once. A chunk still waiting in our
+    // own transmit queue is not missing, just not sent yet.
     let t = 0;
-    const reasons: string[] = [];
-    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: (_b, reason) => void reasons.push(reason), deliver: () => undefined });
+    const out: Array<{ reason: string; bytes: Uint8Array }> = [];
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: (bytes, reason) => void out.push({ reason, bytes }), deliver: () => undefined });
     const p = send(n, text('chunk'));
-    expect(n.resend(1, p.msgId)).toBe(true);
+    expect(n.answer(1, p.msgId)).toBe(false);
+    n.aired(out[0].bytes);
+    expect(n.answer(1, p.msgId)).toBe(true);
     t += 3_000;
-    expect(n.resend(1, p.msgId)).toBe(false);
+    expect(n.answer(1, p.msgId)).toBe(false);
     t += 20_000;
-    expect(n.resend(1, p.msgId)).toBe(true);
-    expect(reasons).toEqual(['origin', 'carry', 'carry']);
+    expect(n.answer(1, p.msgId)).toBe(true);
+    for (; t < 40_000; t += 500) n.tick();
+    const answers = out.filter((o) => o.reason === 'answer').map((o) => decodePacket(o.bytes)!);
+    expect(answers.map((a) => a.msgId)).toEqual([p.msgId, p.msgId]);
+  });
+
+  it('heals a chunk two hops away: the holder nearest the asker answers, and one answer is enough', () => {
+    const w = new World();
+    const [a, b] = ['A', 'B', 'C'].map((n, i) => w.add(n, i + 1));
+    w.link('AB', 'BC');
+    w.drop = (from, to, p) => to === 'C' && p.type === PacketType.Text && p.attempt === 0 && p.hops === 1 && from === 'B' && w.t < 30_000;
+    const p = send(a, text('chunk for C'));
+    w.run(30_000);
+    expect(w.inbox.get('C')).toHaveLength(0);
+    // C asks. B heard the request directly; A, holding it too, only through B's relay.
+    w.t += 20_000;
+    expect(a.answer(1, p.msgId, 1)).toBe(true);
+    expect(b.answer(1, p.msgId, 0)).toBe(true);
+    w.run(30_000);
+    expect(w.inbox.get('C')).toHaveLength(1);
+    expect(w.tx.filter((t) => t.reason === 'answer').map((t) => t.from)).toEqual(['B']);
+  });
+
+  it('an answer crosses a relay that is missing the packet too', () => {
+    const w = new World();
+    const [a] = ['A', 'B', 'C'].map((n, i) => w.add(n, i + 1));
+    w.link('AB', 'BC');
+    // Nothing A sends itself gets through; what it sends on request (one hop deep) does.
+    w.drop = (from, _to, p) => from === 'A' && p.hops === 0;
+    const p = send(a, text('chunk for B and C'));
+    w.run(40_000);
+    expect(w.inbox.get('B')).toHaveLength(0);
+    expect(a.answer(1, p.msgId, 1)).toBe(true);
+    w.run(30_000);
+    expect(w.inbox.get('B')).toHaveLength(1);
+    expect(w.inbox.get('C')).toHaveLength(1);
   });
 
   it('stops at the TTL', () => {
@@ -233,6 +274,24 @@ describe('mesh flooding', () => {
     expect(w.inbox.get('C')).toHaveLength(1);
     expect(w.inbox.get('B')).toHaveLength(0);
     expect(w.deliveries).toEqual([['A', p.msgId, true]]);
+  });
+
+  it('acknowledges each attempt once, however many copies of it arrive', () => {
+    let acks = 0;
+    const n = new MeshNode(3, { now: () => 0, random: () => 0.5 }, { transmit: (b) => void (decodePacket(b)!.type === PacketType.Ack && acks++), deliver: () => undefined });
+    const dm = { type: PacketType.Text, encrypted: false, ackRequested: true, msgId: 77, src: 1, dst: 3, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(text('hi C')) };
+    for (const hops of [1, 2, 1]) n.receive(encodePacket({ ...dm, hops }));
+    expect(acks).toBe(1);
+    n.receive(encodePacket({ ...dm, attempt: 1 }));
+    expect(acks).toBe(2);
+  });
+
+  it('does not acknowledge a direct message it cannot read', () => {
+    let acks = 0;
+    const n = new MeshNode(3, { now: () => 0, random: () => 0.5 }, { transmit: (b) => void (decodePacket(b)!.type === PacketType.Ack && acks++), deliver: () => undefined, readable: (p) => !p.encrypted });
+    const dm = { type: PacketType.Text, encrypted: true, ackRequested: true, msgId: 78, src: 1, dst: 3, ttl: 5, hops: 1, attempt: 0, channel: 9, body: Uint8Array.of(1, 2, 3) };
+    n.receive(encodePacket(dm));
+    expect(acks).toBe(0);
   });
 
   it('retries a lost direct message with a new attempt number', () => {
@@ -272,6 +331,8 @@ describe('mesh flooding', () => {
     expect(w.inbox.get('C')!.map((p) => decodeBody(p.type, p.body)?.kind)).toEqual(['checkin']);
     expect(b.stats.carried).toBe(1);
     expect(b.neighbors.get(3)?.nick).toBe('cal');
+    // C heard B carry A's message, not A: A must not show up as someone C can hear.
+    expect(c.neighbors.has(1)).toBe(false);
   });
 });
 
@@ -310,11 +371,9 @@ describe('HELLO summaries', () => {
     const [a, b] = ['A', 'B'].map((n, i) => w.add(n, i + 1));
     for (const n of [a, b]) n.config.relay = false;
     // Both heard 30 broadcasts from far away, a second apart, but B missed two old ones.
-    const ids = Array.from({ length: 30 }, (_, i) => 1000 + i);
-    for (const msgId of ids) {
-      const bytes = encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId, src: 99, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(text(`#${msgId}`)) });
-      a.receive(bytes);
-      if (msgId !== 1003 && msgId !== 1010) b.receive(bytes);
+    for (let msgId = 1000; msgId < 1030; msgId++) {
+      a.receive(farAway(msgId));
+      if (msgId !== 1003 && msgId !== 1010) b.receive(farAway(msgId));
       w.t += 1000;
     }
     w.link('AB');
@@ -323,6 +382,58 @@ describe('HELLO summaries', () => {
     const carried = w.tx.filter((t) => t.reason === 'carry').map((t) => t.packet.msgId);
     expect(carried.sort()).toEqual([1003, 1010]);
     expect(b.store.size).toBe(30);
+  });
+
+  it('two beacons holding the same 200 packets stay quiet for an hour', () => {
+    // A summary only fits ~40 ids, so HELLOs take turns covering slices of the store.
+    const w = new World();
+    const [a, b] = ['A', 'B'].map((n, i) => w.add(n, i + 1));
+    for (const n of [a, b]) n.config.relay = false;
+    for (let msgId = 1000; msgId < 1200; msgId++) {
+      a.receive(farAway(msgId));
+      b.receive(farAway(msgId));
+      w.t += 1000;
+    }
+    w.link('AB');
+    for (let minute = 0; minute < 60; minute++) {
+      a.hello('a', 'beacon');
+      b.hello('b', 'beacon');
+      w.run(60_000);
+    }
+    expect(w.tx.filter((t) => t.reason === 'carry')).toHaveLength(0);
+  });
+
+  it('finds the gaps anywhere in a 200-packet store within a few HELLOs', () => {
+    const w = new World();
+    const [a, b] = ['A', 'B'].map((n, i) => w.add(n, i + 1));
+    for (const n of [a, b]) n.config.relay = false;
+    const lost = [1004, 1077, 1150];
+    for (let msgId = 1000; msgId < 1200; msgId++) {
+      a.receive(farAway(msgId));
+      if (!lost.includes(msgId)) b.receive(farAway(msgId));
+      w.t += 1000;
+    }
+    w.link('AB');
+    for (let k = 0; k < 6; k++) {
+      b.hello('b', 'phone');
+      w.run(30_000);
+    }
+    expect(w.tx.filter((t) => t.reason === 'carry').map((t) => t.packet.msgId).sort()).toEqual(lost);
+    expect(b.store.size).toBe(200);
+  });
+
+  it('greets a neighbour it has not heard for a while, once', () => {
+    let t = 0;
+    let greetings = 0;
+    const n = new MeshNode(1, { now: () => t, random: () => 0.5 }, { transmit: () => undefined, deliver: () => undefined, met: () => greetings++ });
+    const hello = (msgId: number) => encodePacket({ type: PacketType.Hello, encrypted: false, ackRequested: false, msgId, src: 5, dst: BROADCAST, ttl: 1, hops: 0, attempt: 0, channel: 0, body: encodeBody({ kind: 'hello', role: 'beacon', nick: 'hall', hashes: 0, part: 0, parts: 1, bits: new Uint8Array() }) });
+    n.receive(hello(1));
+    t += 60_000;
+    n.receive(hello(2));
+    expect(greetings).toBe(1);
+    t += 30 * 60_000;
+    n.receive(hello(3));
+    expect(greetings).toBe(2);
   });
 });
 
@@ -354,17 +465,18 @@ describe('transmit queue', () => {
     expect(q.length).toBe(64);
   });
 
-  it('stops deferring after 12 s of busy air, and reports each finished frame', async () => {
+  it('waits out the longest frame, then stops deferring, and reports each finished frame', async () => {
     // Carrier sense can be fooled (a fridge, a stuck decoder); staying silent forever is worse.
+    // But a real frame lasts up to 20.3 s, and talking into it loses both frames.
     let t = 0;
     let finished = 0;
     const sent: number[] = [];
     const q = new TxQueue({ busy: () => true, send: async (b) => void sent.push(b[0]), finished: () => finished++ }, { now: () => t, random: () => 0.5 });
     q.enqueue(Uint8Array.of(7));
-    for (; t < 11_500; t += 500) await q.tick();
+    for (; t < 24_000; t += 500) await q.tick();
     expect(sent).toEqual([]);
     expect(finished).toBe(0);
-    for (; t < 13_000; t += 500) await q.tick();
+    for (; t < 26_500; t += 500) await q.tick();
     expect(sent).toEqual([7]);
     expect(finished).toBe(1);
     expect(q.length).toBe(0);
