@@ -13,17 +13,17 @@ An offline mesh network made of sound, for when the phone network is down: a pow
 ## What it does
 
 - **Check in**: one tap says "I'm safe" or "I need help", with your GPS position if you allow it. Add what you need (trapped, injured, medicine, water…), where you are ("Floor 4, room 412"), or check in for someone without a phone.
-- **Safety list**: everyone's latest check-in, with requests nobody has answered yet at the top, longest waiting first. **On my way** and **Resolved** tell everyone who is handling what; a request with no news for a day is marked stale. Search by name, download a spreadsheet or print it for a shelter desk.
-- **Word to family outside**: add a family phone number or email to your check-ins. The first phone in the crowd that gets signal opens its own text or mail app with your message filled in, and everyone sees it was passed on.
+- **Safety list**: everyone's latest check-in, with requests nobody has answered yet at the top, longest waiting first. **On my way** and **Resolved** tell everyone who is handling what; asking again reopens a resolved request, and one with no news for a day is marked stale. Search by name, download a spreadsheet or print it for a shelter desk.
+- **Word to family outside**: add a family phone number or email to your check-ins. Every phone that hears it lists it; someone whose phone has signal taps **Send as text**, their own text or mail app opens with your message filled in, and once they tap **I sent it** everyone sees it was passed on.
 - **Notices**: "Drinking water at the school gym" stays pinned on every feed, and large on the beacon's screen, for as long as its author chose.
 - **Messages and contacts**: text, direct messages with receipts (and Send again), contact cards that say what you can help with, files up to 4 KB.
-- **Private circles**: a shared passphrase seals what you write (AES-256-GCM, PBKDF2 with 600,000 rounds). Still visible: which device sent what kind of packet, how big, to whom and when, and your nickname in hellos.
+- **Private circles**: a shared passphrase seals what you write (AES-256-GCM, PBKDF2 with 600,000 rounds). Still visible: which device sent what kind of packet, how big, to whom and when, your nickname in hellos, and which file pieces you ask for. Anyone can measure how far away you are with Find unless you turn off **Answer distance requests**, and the passphrase is kept in this browser's storage.
 - **Find**: two phones measure the distance between them by timing chirps.
 - **Signal check**: People rates each neighbour as a strong, fair or weak signal; Air shows every frame arrive, decode and get relayed.
 - **Sound files**: save a packet as a WAV to play from any speaker near a Resonance device, or decode packets from a recording.
 - **Works offline**: after the first visit the app is cached; add it to the home screen so the browser keeps its data.
 
-Each device keeps up to 300 packets: messages for 12 hours, check-ins, replies and notices for 3 days. When it is full, chat and file pieces make room first, but check-ins, replies and notices take 240 places at most, so a file being sent still fits.
+Each device keeps up to 300 packets: messages for 12 hours, check-ins, replies and notices for 3 days. When it is full, chat and file pieces make room first, until check-ins, replies and notices hold more than 240 places: then the oldest of those goes, so a file being sent always fits.
 
 ## Three modes, measured
 
@@ -33,7 +33,7 @@ Each device keeps up to 300 packets: messages for 12 hours, check-ins, replies a
 | Fast | 1.5–6.4 kHz | 3,900 bit/s | 1.2 s | devices close together in a quiet room |
 | Near-ultrasonic | 17.5–19.1 kHz | 160 bit/s | 20.3 s | quiet, same table |
 
-You pick the mode you send in; every device listens in all three at once. Check-ins and replies go out ahead of chat and files. In simulated rooms, Audible and Near-ultrasonic still decode with three people talking 10 dB louder than the chirps; Fast copes with talk up to 5 dB louder, and fails in a room whose echo is nearly as loud as the sound itself.
+You pick the mode you send in; every device listens in all three at once. Check-ins and replies go out ahead of chat and files. Measured in simulated rooms (`RESONANCE_SWEEP=12 npm test`; the default run checks talk 5 dB louder), Audible and Near-ultrasonic still decode 9 frames in 10 with three people talking 10 dB louder than the chirps; Fast copes with talk up to 5 dB louder, and fails in a room whose echo is nearly as loud as the sound itself.
 
 ## How it works
 
@@ -53,7 +53,7 @@ Browsers only allow the microphone on https pages or on localhost, so phones nee
 - A phone listens and relays only while Resonance is open on screen; a locked phone is deaf. A message "rides in a pocket" only if its carrier opens Resonance again at the other end. Beacons do the remembering.
 - Sound is slow and shared: in our tests a 4 KB photo took about 3 minutes in Fast and 14 in Audible.
 - Many phones play little above 17 kHz. A Bluetooth headset holds a phone's audio to call quality, too slow for Near-ultrasonic: Resonance then sends in Audible.
-- Anyone in earshot can post under any name: nothing proves who sent a check-in.
+- Anyone in earshot can post under any name: nothing proves who sent a check-in, reply, notice or contact card, so a false "I'm safe" or **Resolved** is possible (asking again reopens a request). Anyone loud enough can also drown out the room.
 - Phone calls, voicemail and walkie-talkies cut the tones Resonance uses, so sound files do not survive them. A walkie-talkie mode was left out for that reason; licence-free FRS radios may also send data for only one second in thirty.
 
 MIT licence.
