@@ -34,10 +34,10 @@ Vitest 5.0.5 from package.json on Node 22; nothing else to install. Run the defa
 
 ## Does my change touch it?
 
-Sync commit: **c16fd68** (`Say in code what comments explained: named shares, tries and states`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
+Sync commit: **98684ea** (`Joining a circle lists its older safety news; a full store keeps everyone's only check-in`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
 
 ```sh
-git diff c16fd68 -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
+git diff 98684ea -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
 ```
 
 Any output means rerun the check and follow "Keeping it in step".
