@@ -1,6 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
-import { checkInRow, expect, feedItem, joinAir, openTab, sendText, test } from './helpers';
+import { PacketType } from '../src/mesh/packet';
+import { nowSec } from '../src/mesh/payloads';
+import { checkInRow, expect, feedItem, joinAir, openTab, playPacket, sendText, test } from './helpers';
 
 const SCREENS = fileURLToPath(new URL('.out/screens/', import.meta.url));
 
@@ -22,6 +24,14 @@ function spills(page: Page) {
       .filter((el) => el instanceof HTMLElement && el.clientWidth > 1 && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis')
       .map((el) => `${el.scrollWidth} > ${el.clientWidth}: ${el.outerHTML.slice(0, 100)}`),
   );
+}
+
+/** A message body as a phone writes one (time, nickname with its length, text), but with any nickname: phones cut theirs to 16 bytes. */
+function messageFrom(nick: string, text: string) {
+  const enc = new TextEncoder();
+  const ts = new DataView(new ArrayBuffer(4));
+  ts.setUint32(0, nowSec());
+  return Uint8Array.from([...new Uint8Array(ts.buffer), enc.encode(nick).length, ...enc.encode(nick), ...enc.encode(text)]);
 }
 
 for (const layout of LAYOUTS) {
@@ -58,6 +68,15 @@ for (const layout of LAYOUTS) {
         expect(width, `${tab} tab must not scroll sideways`).toBeLessThanOrEqual(layout.width);
         expect(await spills(b), `${tab} tab: nothing sticks out past the screen edge`).toEqual([]);
       }
+    });
+
+    test('a nickname longer than any phone sends stays inside its card', async ({ page }) => {
+      await joinAir(page);
+      const text = 'Played into the room by a stranger';
+      await playPacket(page, PacketType.Text, messageFrom('W'.repeat(100), text));
+      await expect(feedItem(page, text)).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), 'the feed must not scroll sideways').toBeLessThanOrEqual(layout.width);
+      expect(await spills(page), 'nothing sticks out past the screen edge').toEqual([]);
     });
   });
 }

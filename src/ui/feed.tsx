@@ -29,8 +29,8 @@ export function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-function vcard(name: string, phone: string, note: string) {
-  const esc = (s: string) => s.replace(/[\\,;]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
+export function vcard(name: string, phone: string, note: string) {
+  const esc = (s: string) => s.replace(/[\\,;]/g, (c) => `\\${c}`).replace(/\r\n?|\n/g, '\\n');
   // vCard 3.0 requires N as well as FN; the whole name goes in as the given name.
   return new Blob([`BEGIN:VCARD\r\nVERSION:3.0\r\nN:;${esc(name)};;;\r\nFN:${esc(name)}\r\nTEL:${esc(phone)}\r\nNOTE:${esc(note)}\r\nEND:VCARD\r\n`], { type: 'text/vcard' });
 }
@@ -81,19 +81,36 @@ function Delivery({ station, item }: { station: Station; item: FeedItem }) {
   );
 }
 
+export function saveSound(station: Station, item: FeedItem) {
+  const blob = station.exportWav(item);
+  if (!blob) throw new Error('This device no longer keeps this packet, so it cannot be saved as sound.');
+  download(blob, `resonance-${nodeHex(item.src)}-${item.msgId.toString(16)}.wav`);
+}
+
 function SoundFileButton({ station, item }: { station: Station; item: FeedItem }) {
+  const [err, setErr] = useState('');
   return (
-    <button
-      type="button"
-      class="ghost small"
-      title="Save this packet as a sound file. Play it from any speaker near a Resonance device (phone calls and walkie-talkies cut the tones it needs)."
-      onClick={() => {
-        const blob = station.exportWav(item);
-        if (blob) download(blob, `resonance-${nodeHex(item.src)}-${item.msgId.toString(16)}.wav`);
-      }}
-    >
-      <WaveFile size={14} /> Sound file
-    </button>
+    <>
+      <button
+        type="button"
+        class="ghost small"
+        title="Save this packet as a sound file. Play it from any speaker near a Resonance device (phone calls and walkie-talkies cut the tones it needs)."
+        onClick={() => {
+          try {
+            saveSound(station, item);
+          } catch (e) {
+            setErr((e as Error).message);
+          }
+        }}
+      >
+        <WaveFile size={14} /> Sound file
+      </button>
+      {err && (
+        <span class="error small" role="alert">
+          {err}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -102,6 +119,63 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
  * SVG, stays a plain download: opened from this app's address, it could read the circle passphrase.
  */
 const PICTURES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/** A picture with more pixels or a longer side is not drawn: a file of a few bytes can ask the browser for a gigabyte. */
+const PREVIEW_PIXELS = 1920 * 1080;
+const PREVIEW_SIDE = 4096;
+
+/** How the feed shows a received file: drawn, named too large to draw, or (null) only offered as a download. */
+export function preview(mime: string, data: Uint8Array): 'picture' | 'too large' | null {
+  const size = PICTURES.has(mime) ? pictureSize(data) : null;
+  if (!size) return null;
+  const [w, h] = size;
+  return w * h > PREVIEW_PIXELS || Math.max(w, h) > PREVIEW_SIDE ? 'too large' : 'picture';
+}
+
+/** The size a browser decodes a PNG, JPEG, GIF or WebP to, from its header, whatever type the file claims. */
+function pictureSize(b: Uint8Array): [number, number] | null {
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const is = (at: number, s: string) => String.fromCharCode(...b.subarray(at, at + s.length)) === s;
+  const u24 = (at: number) => v.getUint16(at, true) | (v.getUint8(at + 2) << 16);
+  try {
+    if (is(0, '\x89PNG\r\n\x1a\n') && is(12, 'IHDR')) return [v.getUint32(16), v.getUint32(20)];
+    if (is(0, '\xff\xd8')) return jpegSize(v);
+    if (is(0, 'GIF8')) return gifSize(v);
+    if (!is(0, 'RIFF')) return null;
+    if (is(8, 'WEBPVP8 ')) return [v.getUint16(26, true) & 0x3fff, v.getUint16(28, true) & 0x3fff];
+    if (is(8, 'WEBPVP8L')) return [(v.getUint16(21, true) & 0x3fff) + 1, ((v.getUint32(21, true) >>> 14) & 0x3fff) + 1];
+    if (is(8, 'WEBPVP8X')) return [u24(24) + 1, u24(27) + 1];
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** A JPEG's size is in its first frame header: a marker from C0 to CF, but for C4, C8 and CC. */
+function jpegSize(v: DataView): [number, number] | null {
+  for (let at = 2; v.getUint8(at) === 0xff; ) {
+    const marker = v.getUint8(at + 1);
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return [v.getUint16(at + 7), v.getUint16(at + 5)];
+    if (marker === 0xff) at++;
+    else if (marker === 0xc4 || marker === 0xcc || marker >= 0xdb) at += 2 + v.getUint16(at + 2);
+    else return null;
+  }
+  return null;
+}
+
+/** Browsers grow a GIF to hold its first frame, wherever that frame says it is. */
+function gifSize(v: DataView): [number, number] | null {
+  const flags = v.getUint8(10);
+  let at = 13 + (flags & 0x80 ? 3 << ((flags & 7) + 1) : 0);
+  while (v.getUint8(at) === 0x21) {
+    at += 2;
+    while (v.getUint8(at)) at += v.getUint8(at) + 1;
+    at++;
+  }
+  if (v.getUint8(at) !== 0x2c) return null;
+  const [x, y, w, h] = [1, 3, 5, 7].map((i) => v.getUint16(at + i, true));
+  return [Math.max(v.getUint16(6, true), x + w), Math.max(v.getUint16(8, true), y + h)];
+}
 
 function FileView({ station, item }: { station: Station; item: FeedItem }) {
   const f = station.files.get(item.fileKey!);
@@ -116,7 +190,7 @@ function FileView({ station, item }: { station: Station; item: FeedItem }) {
   if (!f) return <p class="muted">File details are gone.</p>;
   const got = received(f);
   const name = f.meta?.name ?? 'Incoming file';
-  const isImage = PICTURES.has(f.meta?.mime ?? '');
+  const shown = data && f.meta ? preview(f.meta.mime, data) : null;
   return (
     <div class="file">
       <div class="file-row">
@@ -133,7 +207,8 @@ function FileView({ station, item }: { station: Station; item: FeedItem }) {
           <span style={{ width: `${(got / f.total) * 100}%` }} />
         </div>
       )}
-      {url && isImage && <img class="file-preview" src={url} alt={name} />}
+      {url && shown === 'picture' && <img class="file-preview" src={url} alt={name} />}
+      {shown === 'too large' && <p class="muted small">Too large to preview.</p>}
       <div class="actions">
         {url && (
           <a class="button ghost small" href={url} download={name}>

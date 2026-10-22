@@ -38,7 +38,7 @@ Each feature file in `features/` names its journey as a Playwright spec and test
 .claude/skills/verify-resonance/verify.sh drive e2e/messaging.spec.ts 'two stations trade messages'
 ```
 
-Playwright reuses the running instance (`E2E_PORT`), so it does not rebuild. Locate elements by role and accessible name, as the specs do. The app labels every control for that. Shared steps live in `e2e/helpers.ts`: `joinAir` (open a station and wait for its first hello to clear the air), `sendText`, `openTab`, `feedItem`, `checkInRow`, `airRow`, `stat`, `nodeId`.
+Playwright reuses the running instance (`E2E_PORT`), so it does not rebuild. Locate elements by role and accessible name, as the specs do. The app labels every control for that. Shared steps live in `e2e/helpers.ts`: `joinAir` (open a station and wait for its first hello to clear the air), `sendText`, `openTab`, `feedItem`, `checkInRow`, `airRow`, `stat`, `nodeId`, and `playPacket` (play a packet built byte by byte into a page's simulated room, as a stranger in earshot could).
 
 To prove behaviour that no journey covers yet, add a test to the feature's spec and drive that. The proof then stays as a regression test.
 

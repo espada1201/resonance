@@ -1,6 +1,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { type Page, test as base, expect } from '@playwright/test';
+import { BROADCAST, type PacketType, encodePacket, randomNodeId, randomU32 } from '../src/mesh/packet';
+import { modulate } from '../src/modem/modulator';
+import { PROFILES } from '../src/modem/profiles';
 
 /** Any console error or uncaught exception in any page or worker of the test fails it. */
 export const test = base.extend<{ watchErrors: void }>({
@@ -94,4 +97,17 @@ export async function setNickname(page: Page, nick: string) {
   await openTab(page, 'Settings');
   await page.getByLabel('Nickname').fill(nick);
   await openTab(page, 'Feed');
+}
+
+/**
+ * Plays a packet into the page's simulated room, as anyone in earshot could: its body is bytes, so
+ * it can say what no Resonance phone sends. The room's channel in that page hears it, as a
+ * BroadcastChannel hears every other one of its name.
+ */
+export async function playPacket(page: Page, type: PacketType, body: Uint8Array, src = randomNodeId()) {
+  const packet = encodePacket({ type, encrypted: false, ackRequested: false, msgId: randomU32(), src, dst: BROADCAST, ttl: 5, hops: 0, attempt: 0, channel: 0, body });
+  const wave = [...modulate(packet, PROFILES.fast, 48000)];
+  await page.evaluate((wave) => {
+    new BroadcastChannel('resonance-air').postMessage({ wave: Float32Array.from(wave), gain: 1, at: performance.timeOrigin + performance.now(), x: 0, y: 0 });
+  }, wave);
 }

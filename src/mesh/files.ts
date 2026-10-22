@@ -8,6 +8,7 @@ import type { Body, FileMeta } from './payloads';
 
 export const MAX_FILE_BYTES = 4096;
 export const CHUNK_BYTES = 160;
+export const MAX_CHUNKS = Math.ceil(MAX_FILE_BYTES / CHUNK_BYTES) + 1;
 /** File requests go one relay deep: far enough to reach a holder, near enough to keep the air quiet. */
 export const FILE_REQUEST_TTL = 2;
 /**

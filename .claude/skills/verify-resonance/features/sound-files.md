@@ -21,3 +21,4 @@ Preconditions: none beyond the baseline.
 ## Gotchas
 
 - Phone calls, voicemail and walkie-talkies cut the tones, so a WAV sent through them will not decode.
+- A device keeps packets for a while (messages 12 hours, check-ins, replies and notices 3 days, 300 at most), and the feed shows older items. On an item whose packet is gone, `Sound file` says `This device no longer keeps this packet, so it cannot be saved as sound.` No journey ages a packet out; a unit test in `src/ui/feed.test.ts` covers it.

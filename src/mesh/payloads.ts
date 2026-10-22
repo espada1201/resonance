@@ -1,3 +1,4 @@
+import { MAX_CHUNKS, MAX_FILE_BYTES } from './files';
 import { PacketType } from './packet';
 
 // Compact binary bodies. Every byte costs ~32 ms of airtime in the audible mode, so strings are
@@ -125,8 +126,8 @@ class Reader {
   i32() {
     return this.u32() | 0;
   }
-  str() {
-    return new TextDecoder().decode(this.raw(this.u8()));
+  str(max: number) {
+    return fitUtf8(new TextDecoder().decode(this.raw(this.u8())), max);
   }
   raw(n: number) {
     if (this.o + n > this.b.length) throw new RangeError('truncated');
@@ -157,6 +158,8 @@ export const MAX_CONTACT_PHONE = 24;
 export const MAX_PLACE = 32;
 /** A phone number or an email address. */
 export const MAX_OUTSIDE = 40;
+const MAX_FILE_NAME = 48;
+const MAX_MIME = 40;
 export const nowSec = () => Math.floor(Date.now() / 1000);
 
 export function encodeBody(body: Body): Uint8Array {
@@ -189,7 +192,7 @@ export function encodeBody(body: Body): Uint8Array {
       w.u16(body.fileId).u8(body.index).u8(body.total);
       if (body.index === 0) {
         const m = body.meta ?? { name: 'file', mime: '', size: 0 };
-        w.str(m.name, 48).str(m.mime, 40).u16(m.size);
+        w.str(m.name, MAX_FILE_NAME).str(m.mime, MAX_MIME).u16(m.size);
       }
       return w.raw(body.data).done();
     case 'ack':
@@ -214,38 +217,40 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
   try {
     switch (type) {
       case PacketType.Text:
-        return { kind: 'text', ts: r.u32(), nick: r.str(), text: r.text() };
+        return { kind: 'text', ts: r.u32(), nick: r.str(MAX_NICK), text: r.text() };
       case PacketType.CheckIn: {
         const ts = r.u32();
-        const status = STATUSES[r.u8()] ?? 'safe';
+        const status = STATUSES[r.u8()];
+        if (!status) return null;
         const flags = r.u8();
         const geo = flags & 1 ? { lat: r.i32() / 1e5, lon: r.i32() / 1e5, accuracyM: r.u16() } : undefined;
         const needs = flags & 2 ? fromBits(NEEDS, r.u8()) : undefined;
-        const place = flags & 4 ? r.str() : undefined;
-        const about = flags & 8 ? r.str() : undefined;
-        const outside = flags & 16 ? r.str() : undefined;
-        return { kind: 'checkin', ts, status, geo, needs, place, about, outside, nick: r.str(), note: r.text() };
+        const place = flags & 4 ? r.str(MAX_PLACE) : undefined;
+        const about = flags & 8 ? r.str(MAX_CONTACT_NAME) : undefined;
+        const outside = flags & 16 ? r.str(MAX_OUTSIDE) : undefined;
+        return { kind: 'checkin', ts, status, geo, needs, place, about, outside, nick: r.str(MAX_NICK), note: r.text() };
       }
       case PacketType.Contact:
-        return { kind: 'contact', ts: r.u32(), name: r.str(), phone: r.str(), skills: fromBits(SKILLS, r.u8()), note: r.text() };
+        return { kind: 'contact', ts: r.u32(), name: r.str(MAX_CONTACT_NAME), phone: r.str(MAX_CONTACT_PHONE), skills: fromBits(SKILLS, r.u8()), note: r.text() };
       case PacketType.Reply: {
-        const reply = { kind: 'reply' as const, ts: r.u32(), what: REPLIES[r.u8()], src: r.u24(), msgId: r.u32(), nick: r.str() };
+        const reply = { kind: 'reply' as const, ts: r.u32(), what: REPLIES[r.u8()], src: r.u24(), msgId: r.u32(), nick: r.str(MAX_NICK) };
         return reply.what ? reply : null;
       }
       case PacketType.Notice:
-        return { kind: 'notice', ts: r.u32(), topic: TOPICS[r.u8()] ?? 'info', hours: r.u8(), nick: r.str(), place: r.str(), text: r.text() };
+        return { kind: 'notice', ts: r.u32(), topic: TOPICS[r.u8()] ?? 'info', hours: r.u8(), nick: r.str(MAX_NICK), place: r.str(MAX_PLACE), text: r.text() };
       case PacketType.FileChunk: {
         const fileId = r.u16();
         const index = r.u8();
         const total = r.u8();
-        const meta = index === 0 ? { name: r.str(), mime: r.str(), size: r.u16() } : undefined;
+        const meta = index === 0 ? { name: r.str(MAX_FILE_NAME), mime: r.str(MAX_MIME), size: r.u16() } : undefined;
+        if (total > MAX_CHUNKS || (meta && meta.size > MAX_FILE_BYTES)) return null;
         return { kind: 'file', fileId, index, total, meta, data: r.rest() };
       }
       case PacketType.Ack:
         return { kind: 'ack', msgId: r.u32(), attempt: r.u8() };
       case PacketType.Hello: {
         const role = r.u8() ? 'beacon' : 'phone';
-        const nick = r.str();
+        const nick = r.str(MAX_NICK);
         return { kind: 'hello', role, nick, hashes: r.u8(), part: r.u8(), parts: r.u8(), bits: r.rest() };
       }
       case PacketType.FileRequest: {

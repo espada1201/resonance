@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { rng } from '../modem/channel-sim';
 import { Bloom, MAX_BLOOM_IDS } from './bloom';
 import { deriveCircle, open, seal } from './crypto';
+import { MAX_FILE_BYTES, chunkFile } from './files';
 import { HELLO_SLICE, MeshNode } from './node';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket } from './packet';
-import { type Body, decodeBody, encodeBody, typeOf } from './payloads';
+import { type Body, MAX_CONTACT_NAME, MAX_NICK, MAX_OUTSIDE, MAX_PLACE, STATUSES, decodeBody, encodeBody, typeOf } from './payloads';
 import { TxQueue } from './radio';
 
 const AIRTIME = 2000;
@@ -142,6 +143,34 @@ describe('packet + payload codecs', () => {
   it('cuts long nicknames on a character boundary', () => {
     const b = decodeBody(PacketType.Text, encodeBody(text('x', '🌊🌊🌊🌊🌊'))) as Extract<Body, { kind: 'text' }>;
     expect(b.nick).toBe('🌊🌊🌊🌊');
+  });
+
+  it('cuts name fields that arrive longer than any sender writes to the length a sender writes', () => {
+    const long = [50, ...new TextEncoder().encode('W'.repeat(50))];
+    const cut = (max: number) => 'W'.repeat(max);
+    expect(decodeBody(PacketType.Text, Uint8Array.from([0, 0, 0, 1, ...long]))).toEqual({ kind: 'text', ts: 1, nick: cut(MAX_NICK), text: '' });
+    expect(decodeBody(PacketType.Hello, Uint8Array.from([0, ...long, 0, 0, 1]))).toMatchObject({ nick: cut(MAX_NICK) });
+    expect(decodeBody(PacketType.CheckIn, Uint8Array.from([0, 0, 0, 1, 0, 4 | 8 | 16, ...long, ...long, ...long, ...long]))).toMatchObject({
+      place: cut(MAX_PLACE),
+      about: cut(MAX_CONTACT_NAME),
+      outside: cut(MAX_OUTSIDE),
+      nick: cut(MAX_NICK),
+    });
+  });
+
+  it('refuses a piece of a file bigger than any sender sends, or cut into more pieces', () => {
+    const chunks = chunkFile(1, { name: 'big.bin', mime: '' }, new Uint8Array(MAX_FILE_BYTES));
+    const [first, last] = [chunks[0], chunks.at(-1)!];
+    expect(decodeBody(PacketType.FileChunk, encodeBody(first))).toEqual(first);
+    expect(decodeBody(PacketType.FileChunk, encodeBody(last))).toEqual(last);
+    expect(decodeBody(PacketType.FileChunk, encodeBody({ ...first, meta: { ...first.meta!, size: MAX_FILE_BYTES + 1 } }))).toBeNull();
+    expect(decodeBody(PacketType.FileChunk, encodeBody({ ...last, total: last.total + 1 }))).toBeNull();
+  });
+
+  it('refuses a check-in whose status it does not know, rather than reading it as safe', () => {
+    const body = encodeBody({ kind: 'checkin', ts: 1, nick: 'bo', status: 'help', note: '' });
+    body[4] = STATUSES.length;
+    expect(decodeBody(PacketType.CheckIn, body)).toBeNull();
   });
 });
 

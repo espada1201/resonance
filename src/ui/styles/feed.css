@@ -103,6 +103,7 @@
   flex-wrap: wrap;
 }
 .status-line > span,
+.who,
 .card,
 .people li,
 .nodes li {
