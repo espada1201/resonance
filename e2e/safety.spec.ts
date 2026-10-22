@@ -59,6 +59,8 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await page.getByRole('button', { name: 'I need help' }).click();
   await expect(checkInRow(page, 'You')).toContainText('Waiting for help', { timeout: 8_000 });
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
+  // Its rows hold nothing to tab to, so the log itself takes focus for the keyboard to scroll it.
+  await expect(page.getByRole('region', { name: 'Air log' })).toHaveAttribute('tabindex', '0');
   await proof(page, 'help-without-fix');
 });
 

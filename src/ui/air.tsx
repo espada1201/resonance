@@ -224,7 +224,7 @@ export function AirPanel({ station, announce = false }: { station: Station; anno
       {station.status === 'listening' && <LinkDoctor station={station} />}
       <Waterfall station={station} />
       <AirStats station={station} />
-      <div class="air-log-wrap">
+      <div class="air-log-wrap" tabIndex={station.air.length ? 0 : undefined} role="region" aria-label="Air log">
         <AirLog events={station.air} />
       </div>
     </section>
