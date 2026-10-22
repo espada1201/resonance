@@ -109,6 +109,8 @@ export class AirLink {
 
   /** Starts the decoder, then the microphone and speaker; then tells the decoder the sample rate, or refuses one too slow for every mode. */
   async start(volume: number) {
+    // A rate from a refused start (a headset since unplugged) says nothing about this one.
+    this.sampleRate = 0;
     try {
       this.spawn();
       this.sampleRate = await this.transport.start((chunk) => this.post({ type: 'samples', data: chunk }, [chunk.buffer]));
