@@ -1,0 +1,132 @@
+name: iPhone app
+
+# Builds the native iPhone app with xtool, with no Mac of our own: GitHub's Mac machine turns its
+# Xcode into the iOS SDK, a Linux machine builds the .ipa with xtool, and a simulated iPhone opens it.
+on:
+  push:
+    paths: [ios/**, src/**, public/**, '*.html', package.json, package-lock.json, vite.config.ts, .github/workflows/ios.yml]
+  workflow_dispatch:
+
+env:
+  XTOOL: 1.22.2
+
+jobs:
+  sdk:
+    runs-on: macos-26
+    timeout-minutes: 60
+    outputs:
+      key: ${{ steps.xcode.outputs.key }}
+      xcode: ${{ steps.xcode.outputs.app }}
+    steps:
+      - id: xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          app=$(ls -d /Applications/Xcode_*.app | grep -iv beta | sort -V | tail -1)
+          version=$(defaults read "$app/Contents/Info" CFBundleShortVersionString)
+          echo "Using $app ($version)"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "key=darwin-sdk-xtool$XTOOL-xcode$version-x86_64" >> "$GITHUB_OUTPUT"
+      # The SDK is Apple's: it stays in this repository's private cache, never in a public download.
+      - id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: sdk
+          key: ${{ steps.xcode.outputs.key }}
+          enableCrossOsArchive: true
+          lookup-only: true
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o xtool.zip "https://github.com/xtool-org/xtool/releases/download/$XTOOL/xtool.app.zip"
+          ditto -x -k xtool.zip .
+          xtool.app/Contents/MacOS/xtool sdk build "${{ steps.xcode.outputs.app }}" sdk --arch x86_64
+          ls -la sdk
+          du -sh sdk
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: sdk
+          key: ${{ steps.xcode.outputs.key }}
+          enableCrossOsArchive: true
+
+  ipa:
+    needs: sdk
+    runs-on: ubuntu-24.04
+    container: swift:6.4-noble
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: apt-get update && apt-get install -y --no-install-recommends curl zstd
+      - uses: actions/cache/restore@v4
+        with:
+          path: sdk
+          key: ${{ needs.sdk.outputs.key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+      - name: Install xtool and the iOS SDK
+        run: |
+          curl -fsSL -o xtool.AppImage "https://github.com/xtool-org/xtool/releases/download/$XTOOL/xtool-x86_64.AppImage"
+          chmod +x xtool.AppImage
+          ./xtool.AppImage --appimage-extract > /dev/null
+          ln -s "$PWD/squashfs-root/AppRun" /usr/local/bin/xtool
+          swift --version
+          xtool sdk install sdk/darwin.xtoolsdk
+          xtool sdk status
+      - run: npm ci && npm run ios:web
+      - name: Build Resonance.ipa with xtool
+        working-directory: ios
+        run: |
+          xtool dev build --ipa --configuration release
+          find xtool -maxdepth 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Resonance-ipa-unsigned
+          path: ios/xtool/*.ipa
+          retention-days: 14
+
+  simulator:
+    needs: sdk
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci && npm run ios:web
+      - run: |
+          sudo xcode-select -s "${{ needs.sdk.outputs.xcode }}"
+          curl -fsSL -o xtool.zip "https://github.com/xtool-org/xtool/releases/download/$XTOOL/xtool.app.zip"
+          ditto -x -k xtool.zip "$RUNNER_TEMP"
+      - name: Build for the simulator with xtool
+        working-directory: ios
+        run: |
+          "$RUNNER_TEMP/xtool.app/Contents/MacOS/xtool" dev build --triple arm64-apple-ios17.0-simulator
+          app=$(find xtool -maxdepth 1 -name '*.app' | head -1)
+          codesign --force --deep --sign - "$app"
+          echo "APP=$PWD/$app" >> "$GITHUB_ENV"
+      - name: Open it on a simulated iPhone
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print([x['udid'] for r in sorted(d, reverse=True) if 'iOS' in r for x in d[r] if x['name'].startswith('iPhone')][0])")
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$APP"
+          (timeout 120 xcrun simctl launch --console-pty "$udid" io.github.espada1201.resonance -smoke > smoke.log 2>&1 || true) &
+          for i in $(seq 1 90); do grep -q RESONANCE-SMOKE smoke.log && break; sleep 1; done
+          sleep 3
+          xcrun simctl io "$udid" screenshot screenshot.png
+          cat smoke.log
+          grep RESONANCE-SMOKE smoke.log | grep -q '"secure":true'
+          grep RESONANCE-SMOKE smoke.log | grep -q '"crypto":true'
+          grep RESONANCE-SMOKE smoke.log | grep -q '"microphone":"function"'
+          grep RESONANCE-SMOKE smoke.log | grep -q '"worklet":"function"'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-screenshot
+          path: |
+            screenshot.png
+            smoke.log
+          retention-days: 14
