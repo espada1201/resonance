@@ -81,6 +81,7 @@ function Radar({ me, people, heading, name }: { me: Geo; people: RosterEntry[]; 
 
 function sentText(station: Station, about: string | undefined) {
   const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
+  if (mine && station.queued(mine.latest)) return 'Waiting to go on air…';
   if (!mine || !asking(mine.latest.body.status)) return 'Sent.';
   const answer = mine.replies.at(-1);
   return answer ? `Sent. ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.` : 'Sent. Nobody has answered yet.';

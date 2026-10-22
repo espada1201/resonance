@@ -105,6 +105,7 @@ test('the big help button sends the details open beside it, then says whether an
   await expect(mine).toContainText('Trapped');
   await expect(mine).toContainText('Leg stuck under a beam');
   await expect(a.getByLabel('Note')).toBeEmpty();
+  await expect(a.getByText('Waiting to go on air…')).toBeVisible();
   await expect(a.getByText('Sent. Nobody has answered yet.')).toBeVisible();
 
   await openTab(b, 'Safety');

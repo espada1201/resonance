@@ -41,7 +41,7 @@ function room(opts: { failStart?: Error } = {}) {
     },
     play(wave, fs) {
       note(`play ${(wave.length / fs) * 1000} ms`);
-      return new Promise((r) => setTimeout(r, (wave.length / fs) * 1000));
+      return new Promise((r) => setTimeout(() => r(true), (wave.length / fs) * 1000));
     },
     setVolume: (v) => void volume.push(v),
   };

@@ -4,6 +4,7 @@ import type { AirTransport } from './audio/transport';
 import type { FeedItem } from './journal';
 import { SEAL_OVERHEAD } from './mesh/crypto';
 import { chunkFile, fileKey, missing } from './mesh/files';
+import { storeKey } from './mesh/node';
 import { BROADCAST, type Packet, PacketType, decodePacket, encodePacket, nodeHex } from './mesh/packet';
 import { type Body, decodeBody, encodeBody, nowSec, typeOf } from './mesh/payloads';
 import { rng } from './modem/channel-sim';
@@ -18,7 +19,7 @@ import { MemoryStorage, StubWorker } from './testing';
 // Characterization tests: they pin what the station does today, so that its collaborators can
 // be moved out of it without changing a packet on air, a byte in storage or a line in the log.
 
-const air: AirTransport = { kind: 'simulated', start: async () => 48000, play: async () => undefined, setVolume() {} };
+const air: AirTransport = { kind: 'simulated', start: async () => 48000, play: async () => true, setVolume() {} };
 
 const BEN = 0x2b2b2b;
 const CAL = 0x3c3c3c;
@@ -72,11 +73,16 @@ async function listening(opts: { failStart?: Error; storage?: Storage; rate?: nu
   log = [];
   const plays: Array<{ at: number; ms: number }> = [];
   const volume: number[] = [];
+  /** The phone suspends its audio while the screen is locked. */
+  const audio = { suspended: false };
   let workersAtStart = 0;
   let mic: (chunk: Float32Array) => void = () => undefined;
   const transport: AirTransport = {
     kind: 'simulated',
     captureDelayMs: 250,
+    get suspended() {
+      return audio.suspended;
+    },
     async start(onSamples) {
       workersAtStart = workers.length;
       if (opts.failStart) throw opts.failStart;
@@ -87,7 +93,8 @@ async function listening(opts: { failStart?: Error; storage?: Storage; rate?: nu
       const p = { at: ms(), ms: Math.round((wave.length / fs) * 1000) };
       plays.push(p);
       log.push(`${p.at} play`);
-      return new Promise((r) => setTimeout(r, p.ms));
+      // A sound that audio was suspended under stopped short: it did not play.
+      return new Promise((r) => setTimeout(() => r(!audio.suspended), p.ms));
     },
     setVolume: (v) => void volume.push(v),
   };
@@ -95,7 +102,7 @@ async function listening(opts: { failStart?: Error; storage?: Storage; rate?: nu
   await s.start();
   const worker = () => workers.at(-1)!;
   const sent = (w = worker()) => w.posted.map((p) => p.m);
-  return { s, plays, volume, worker, sent, mic: (c: Float32Array) => mic(c), workersAtStart: () => workersAtStart };
+  return { s, plays, volume, audio, worker, sent, mic: (c: Float32Array) => mic(c), workersAtStart: () => workersAtStart };
 }
 
 /** Ticks of the station's 200 ms interval fall on whole multiples of 200 ms from start. */
@@ -811,6 +818,40 @@ describe('decoder worker and mute', () => {
   });
 });
 
+describe('audio the phone suspends', () => {
+  it('a check-in cut short by a locked screen is not taken for sent: it waits, says so, and goes on air once when audio is back', async () => {
+    const { s, plays, audio } = await listening();
+    await vi.advanceTimersByTimeAsync(20_000);
+    const out = outbox(s);
+    await s.say({ kind: 'checkin', status: 'help', note: 'Trapped, floor 4' });
+    const [item] = s.journal.feed;
+    // The next tick puts it on air, and the screen locks before it ends.
+    await vi.advanceTimersByTimeAsync(200);
+    expect(plays).toHaveLength(2);
+    audio.suspended = true;
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    // Still to go, as a reload reads the store, and no repeat timer started.
+    expect(s.mesh.store.get(storeKey(item))?.queued).toBe(true);
+    expect(out.filter((o) => o.p.type === PacketType.CheckIn)).toHaveLength(1);
+    // What the feed and the check-in card read.
+    expect(s.queued(item)).toBe(true);
+    // Ten minutes locked, and not one more try at the speaker.
+    expect(plays).toHaveLength(2);
+
+    // Back on screen, audio runs again: the check-in goes on air at the next tick, once.
+    audio.suspended = false;
+    await vi.advanceTimersByTimeAsync(10_000);
+    const checkIns = s.air.filter((e) => e.dir === 'tx' && e.label === 'check-in');
+    expect(checkIns.map((e) => e.at - T0)).toEqual([620_400, 20_200]);
+    expect(s.queued(item)).toBe(false);
+    // Its repeat timer runs from then: nobody echoed it, so it goes once more 20 to 28 s on.
+    await vi.advanceTimersByTimeAsync(30_000);
+    const repeats = out.filter((o) => o.p.type === PacketType.CheckIn && o.p.attempt > 0);
+    expect(repeats).toHaveLength(1);
+    expect(repeats[0].at - 620_400).toBeGreaterThan(20_000);
+  });
+});
+
 describe('transmit mode', () => {
   it('sends in Audible while the audio runs too slow for the chosen mode, as a Bluetooth headset makes it', async () => {
     const { s } = await listening({ rate: 16_000 });
@@ -822,5 +863,18 @@ describe('transmit mode', () => {
     expect(tx.map((e) => e.label)).toContain('message');
     expect(tx.every((e) => e.profile === 'audible')).toBe(true);
     expect(s.budget({ kind: 'text', text: 'Anyone on floor 3?' }).seconds).toBeLessThan(5);
+  });
+
+  it('sends nothing while the audio runs too slow for every mode, as a Bluetooth headset on its call codec makes it, and says what to do', async () => {
+    const { s, plays, worker } = await listening({ rate: 8000 });
+    expect((['audible', 'fast', 'ultrasonic'] as const).map((id) => s.playable(id))).toEqual([false, false, false]);
+    expect(s.status).toBe('error');
+    expect(s.error).toBe(
+      "This device's audio runs too slow for Resonance's tones, as it does with a Bluetooth headset. Disconnect the headset to use the device's own microphone and speaker, then try again.",
+    );
+    expect(worker().terminated).toBe(true);
+    await s.say({ kind: 'checkin', status: 'help', note: 'Trapped, floor 4' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(plays).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@ A call for help carries what is needed and where. Every station lists each perso
 ## Sub-features
 
 - `safety-request` a check-in asking for help reaches the other station with its needs and place, and its row reads `Waiting for help`. The status choices read `Safe`, `Needs help`, `Needs medical help` and `Sheltering`.
-- `safety-big-button` with `More detail` open, the big `I need help` sends what the form says (needs, note), and under the buttons reads `Sent. Nobody has answered yet.` until someone answers, then `Sent. Ben is on the way.`
+- `safety-big-button` with `More detail` open, the big `I need help` sends what the form says (needs, note), and under the buttons reads `Waiting to go on air…` until it has played, `Sent. Nobody has answered yet.` until someone answers, then `Sent. Ben is on the way.`
 - `safety-reply` `On my way` reads `You are on the way` on the responder's row and `Ben is on the way` on the asker's, whose own row never says `heard directly`. The asker's next `I'm safe` closes the request.
 - `safety-first-screen` on a 390 x 844 phone, the first person in the list is on the first screen, above the cards for family outside.
 - `safety-someone-else` a check-in for someone without a phone is listed under their name, `reported by` the sender.
@@ -24,7 +24,7 @@ A call for help carries what is needed and where. Every station lists each perso
 Preconditions: none beyond the baseline.
 
 - **Request and answer.** Run `verify.sh drive e2e/safety.spec.ts 'a call for help'`. While Ben reads the feed, his page title turns `(1) Resonance`, his phone buzzes once and screen readers hear `Needs help: Ana`; the title is `Resonance` again once she is safe. Ben's row for Ana shows `Waiting for help`, `Trapped` and `Floor 4, room 412`. After `On my way`, Ana's own row shows `Ben is on the way` and not `heard directly`. Ben's `Resolved` asks `Resolved for everyone?` with `Not yet` focused; `Not yet` leaves `Help on the way`, and `Yes, resolved` shows `Resolved` on Ana's row. After her `I'm safe`, Ben's row shows `Safe` and no longer `Waiting for help`.
-- **Big button with the form open.** Run `verify.sh drive e2e/safety.spec.ts 'the big help button'`. Both stations' rows for Ana show `Trapped` and `Leg stuck under a beam`, her form is empty again, and under her buttons `Sent. Nobody has answered yet.` becomes `Sent. Ben is on the way.`
+- **Big button with the form open.** Run `verify.sh drive e2e/safety.spec.ts 'the big help button'`. Both stations' rows for Ana show `Trapped` and `Leg stuck under a beam`, her form is empty again, and under her buttons `Waiting to go on air…` becomes `Sent. Nobody has answered yet.`, then `Sent. Ben is on the way.`
 - **First screen on a phone.** Run `verify.sh drive e2e/safety.spec.ts 'who needs help is on the first screen'`. With two cards for family outside, Ben's open request is wholly on Ana's first screen.
 - **Someone without a phone, search and spreadsheet.** Run `verify.sh drive e2e/safety.spec.ts 'the safety list downloads'`. The other station lists `María López` `reported by Ana`, the search `maria` still finds her, and the CSV holds `María López,Ana,Safe,`.
 

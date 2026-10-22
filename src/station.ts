@@ -141,6 +141,7 @@ export class Station {
     this.radio = new TxQueue(
       {
         busy: () => this.link.busy,
+        suspended: () => this.link.suspended,
         send: (b) => this.sendFrame(b),
         finished: (b) => {
           this.mesh.aired(b);
@@ -301,10 +302,11 @@ export class Station {
     const fs = this.link.rate;
     const p = decodePacket(bytes);
     const label = p ? `${PACKET_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
-    await this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
+    const played = await this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
     // We were deaf while sending. Listen for a moment before the queue may send again, so carrier
     // sense can hear a neighbour who started meanwhile.
     await new Promise((r) => setTimeout(r, this.link.muteTailMs + LISTEN_AFTER_SEND_MS));
+    return played;
   }
 
   private playWave(wave: Float32Array, profile: ProfileId, label: string, bytes?: number) {
@@ -353,6 +355,11 @@ export class Station {
     // Only once it went: a send refused loses nothing.
     this.journal.drop(item.id);
     this.changed();
+  }
+
+  /** Whether something we said is still to go on air: it waits for clear air, or for this device's audio to come back. */
+  queued(said: { src: number; msgId: number }) {
+    return this.mesh.store.get(storeKey(said))?.queued ?? false;
   }
 
   /** Bytes left in the packet (below 0: over by that many) and seconds on air, for the draft as it would go now. */

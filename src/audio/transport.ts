@@ -6,10 +6,12 @@ export interface AirTransport {
   readonly kind: 'mic' | 'simulated';
   /** How far capture runs behind real time, beyond normal audio latency. */
   readonly captureDelayMs?: number;
+  /** True while the device has suspended its audio (a locked screen, a call): nothing played now would be heard. */
+  readonly suspended?: boolean;
   /** Starts capture; resolves with the capture sample rate. */
   start(onSamples: (chunk: Float32Array) => void): Promise<number>;
-  /** Plays a waveform rendered at `sampleRate`; resolves when it has finished. */
-  play(wave: Float32Array, sampleRate: number): Promise<void>;
+  /** Plays a waveform rendered at `sampleRate`; resolves once it has finished, or with false if suspended audio cut it short. */
+  play(wave: Float32Array, sampleRate: number): Promise<boolean>;
   setVolume(v: number): void;
 }
 
@@ -31,9 +33,13 @@ const CANNOT = {
   insecure: 'The microphone needs an https:// page.',
   unsupported: 'This browser lacks microphone capture or audio worklets.',
   elsewhere: 'Another page of this browser is listening.',
+  slow: 'The audio runs too slow for any mode.',
 };
 
-/** MicTransport.start's refusal: on a page that cannot listen at all (before it asks for anything), or while another page of this browser listens. */
+/**
+ * MicTransport.start's refusal: on a page that cannot listen at all (before it asks for anything), or while another page of
+ * this browser listens. AirLink.start's: audio running too slow for any mode.
+ */
 export class CannotListen extends Error {
   constructor(readonly lack: keyof typeof CANNOT) {
     super(CANNOT[lack]);
@@ -114,26 +120,32 @@ export class MicTransport implements AirTransport {
     return ctx.sampleRate;
   }
 
-  async play(wave: Float32Array, sampleRate: number): Promise<void> {
+  get suspended() {
+    return this.ctx !== null && this.ctx.state !== 'running';
+  }
+
+  async play(wave: Float32Array, sampleRate: number): Promise<boolean> {
     const ctx = this.ctx;
     if (!ctx || !this.gain) throw new Error('audio is not running');
     if (ctx.state !== 'running') await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 1000))]).catch(() => undefined);
+    // Audio that did not come back would hold the sound and play it late, out of turn.
+    if (ctx.state !== 'running') return false;
     const buf = ctx.createBuffer(1, wave.length, sampleRate);
     buf.copyToChannel(wave as Float32Array<ArrayBuffer>, 0);
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.gain);
-    await new Promise<void>((resolve) => {
+    return new Promise((resolve) => {
       // A suspended context never ends a sound. Give up on it rather than hold the queue, and cut
       // it loose so it cannot play late, with every other abandoned frame, when audio wakes.
       const timer = setTimeout(() => {
         src.onended = null;
         src.disconnect();
-        resolve();
+        resolve(false);
       }, (wave.length / sampleRate) * 1000 + 3000);
       src.onended = () => {
         clearTimeout(timer);
-        resolve();
+        resolve(true);
       };
       src.start();
     });
@@ -226,12 +238,12 @@ export class SimulatedAir implements AirTransport {
     return SIM_RATE;
   }
 
-  play(wave: Float32Array, sampleRate: number): Promise<void> {
+  play(wave: Float32Array, sampleRate: number): Promise<boolean> {
     if (sampleRate !== SIM_RATE) throw new Error('simulated air runs at 48 kHz');
     const at = wallMs();
     this.channel?.postMessage({ wave, gain: this.volume, at, x: this.x, y: this.y });
     this.schedule(wave, at, SELF_M, this.volume);
-    return new Promise((r) => setTimeout(r, (wave.length / SIM_RATE) * 1000));
+    return new Promise((r) => setTimeout(() => r(true), (wave.length / SIM_RATE) * 1000));
   }
 
   setVolume(v: number) {

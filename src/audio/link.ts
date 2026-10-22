@@ -1,4 +1,4 @@
-import type { ProfileId } from '../modem/profiles';
+import { PROFILES, type ProfileId, playableAt } from '../modem/profiles';
 import type { DecodedFrame } from '../modem/receiver';
 import type { FromWorker, ToWorker } from './protocol';
 import { type AirTransport, CannotListen } from './transport';
@@ -68,6 +68,9 @@ export class AirLink {
           'This browser cannot listen for Resonance. Open the page in an up-to-date Chrome, Edge, Firefox, Samsung Internet or Safari ' +
           '(on iPhone and iPad, iOS 15.4 or later). If it opened inside another app, open it in your browser instead.',
         elsewhere: 'Resonance is already listening in another tab or window of this browser. Use that one, or close it, then try again.',
+        slow:
+          "This device's audio runs too slow for Resonance's tones, as it does with a Bluetooth headset. Disconnect the headset to use " +
+          "the device's own microphone and speaker, then try again.",
       }[err.lack];
     }
     switch (err instanceof Error ? err.name : '') {
@@ -92,16 +95,24 @@ export class AirLink {
     return 150 + (this.transport.captureDelayMs ?? 0);
   }
 
+  /** The device has suspended its audio: nothing played now would be heard. */
+  get suspended() {
+    return this.transport.suspended ?? false;
+  }
+
   onSpectrum(fn: (s: Spectrum) => void) {
     this.spectrumListeners.add(fn);
     return () => void this.spectrumListeners.delete(fn);
   }
 
-  /** Starts the decoder, then the microphone and speaker; then tells the decoder the sample rate. */
+  /** Starts the decoder, then the microphone and speaker; then tells the decoder the sample rate, or refuses one too slow for every mode. */
   async start(volume: number) {
     try {
       this.spawn();
       this.sampleRate = await this.transport.start((chunk) => this.post({ type: 'samples', data: chunk }, [chunk.buffer]));
+      // At 8 kHz (a headset on its narrowband call codec) every mode has tones above half the rate, which fold down onto the
+      // others: nothing could be heard, and what we sent would be noise.
+      if (!Object.values(PROFILES).some((p) => playableAt(p, this.sampleRate))) throw new CannotListen('slow');
       this.transport.setVolume(volume);
       this.post({ type: 'init', sampleRate: this.sampleRate });
     } catch (err) {
@@ -116,8 +127,8 @@ export class AirLink {
   }
 
   /**
-   * Plays a wave rendered at the link's rate, muting the decoder until its sound has passed.
-   * `started` runs once `transmitting` is set and before the decoder is muted.
+   * Plays a wave rendered at the link's rate, muting the decoder until its sound has passed; false
+   * if suspended audio cut it short. `started` runs once `transmitting` is set and before the decoder is muted.
    */
   async play(wave: Float32Array, profile: ProfileId, started: (seconds: number) => void) {
     const seconds = wave.length / this.rate;
@@ -127,7 +138,7 @@ export class AirLink {
     if (this.unmute) clearTimeout(this.unmute);
     this.post({ type: 'mute', on: true });
     try {
-      await this.transport.play(wave, this.rate);
+      return await this.transport.play(wave, this.rate);
     } finally {
       this.transmitting = null;
       this.unmute = setTimeout(() => {

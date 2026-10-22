@@ -897,7 +897,7 @@ describe('transmit queue', () => {
     let t = 0;
     let busy = true;
     const sent: number[] = [];
-    const q = new TxQueue({ busy: () => busy, send: async (b) => void sent.push(b[0]) }, { now: () => t, random: () => 0.5 });
+    const q = new TxQueue({ busy: () => busy, send: async (b) => (sent.push(b[0]), true) }, { now: () => t, random: () => 0.5 });
     q.enqueue(Uint8Array.of(1));
     q.enqueue(Uint8Array.of(2));
     q.enqueue(Uint8Array.of(0), true);
@@ -921,7 +921,7 @@ describe('transmit queue', () => {
     // "I need help" must not wait behind a photo: a 4 KB file is minutes of audible airtime.
     let t = 0;
     const sent: string[] = [];
-    const q = new TxQueue({ busy: () => false, send: async (b) => void sent.push(tag(b)) }, { now: () => t, random: () => 0.5 });
+    const q = new TxQueue({ busy: () => false, send: async (b) => (sent.push(tag(b)), true) }, { now: () => t, random: () => 0.5 });
     q.enqueue(framed(PacketType.FileChunk, 1));
     q.enqueue(framed(PacketType.FileChunk, 2));
     q.enqueue(framed(PacketType.Text, 3));
@@ -938,7 +938,7 @@ describe('transmit queue', () => {
     let finish = () => undefined as void;
     const sent: string[] = [];
     const q = new TxQueue(
-      { busy: () => false, send: (b) => new Promise<void>((r) => ((finish = r), sent.push(tag(b)))) },
+      { busy: () => false, send: (b) => new Promise<boolean>((r) => ((finish = () => r(true)), sent.push(tag(b)))) },
       { now: () => t, random: () => 0.5 },
     );
     for (let i = 1; i <= 3; i++) q.enqueue(framed(PacketType.FileChunk, i));
@@ -955,9 +955,47 @@ describe('transmit queue', () => {
     expect(sent).toEqual(['FileChunk1', 'CheckIn9', 'FileChunk2', 'FileChunk3']);
   });
 
+  it('puts a frame that suspended audio cut short back in its place in line, and starts nothing until audio is back', async () => {
+    let t = 0;
+    let suspended = false;
+    let playing = (_played: boolean) => undefined as void;
+    const sent: string[] = [];
+    const finished: string[] = [];
+    const q = new TxQueue(
+      {
+        busy: () => false,
+        suspended: () => suspended,
+        send: (b) => new Promise<boolean>((r) => ((playing = r), sent.push(tag(b)))),
+        finished: (b) => void finished.push(tag(b)),
+      },
+      { now: () => t, random: () => 0.5 },
+    );
+    q.enqueue(framed(PacketType.FileChunk, 1));
+    q.enqueue(framed(PacketType.FileChunk, 2));
+    const onAir = q.tick();
+    // The screen locks partway through, while a receipt and a check-in come in.
+    suspended = true;
+    q.enqueue(framed(PacketType.Ack, 3), true);
+    q.enqueue(framed(PacketType.CheckIn, 4));
+    playing(false);
+    await onAir;
+    for (t = 1000; t < 60_000; t += 200) void q.tick();
+    expect(finished).toEqual([]);
+    expect(sent).toEqual(['FileChunk1']);
+    expect(q.length).toBe(4);
+    suspended = false;
+    for (; t < 70_000; t += 1000) {
+      const next = q.tick();
+      playing(true);
+      await next;
+    }
+    expect(sent).toEqual(['FileChunk1', 'Ack3', 'CheckIn4', 'FileChunk1', 'FileChunk2']);
+    expect(finished).toEqual(['Ack3', 'CheckIn4', 'FileChunk1', 'FileChunk2']);
+  });
+
   it('drops the least important frames when full', () => {
     const done: string[] = [];
-    const q = new TxQueue({ busy: () => false, send: async () => undefined, finished: (b) => void done.push(tag(b)) }, { now: () => 0, random: () => 0.5 });
+    const q = new TxQueue({ busy: () => false, send: async () => true, finished: (b) => void done.push(tag(b)) }, { now: () => 0, random: () => 0.5 });
     for (let i = 0; i < 64; i++) q.enqueue(framed(PacketType.FileChunk, i));
     q.enqueue(framed(PacketType.CheckIn, 100));
     expect(done).toEqual(['FileChunk63']);
@@ -966,7 +1004,7 @@ describe('transmit queue', () => {
 
   it('reports the frames a full queue drops, so their retry timers still start', () => {
     const done: number[] = [];
-    const q = new TxQueue({ busy: () => false, send: async () => undefined, finished: (b) => void done.push(b[0]) }, { now: () => 0, random: () => 0.5 });
+    const q = new TxQueue({ busy: () => false, send: async () => true, finished: (b) => void done.push(b[0]) }, { now: () => 0, random: () => 0.5 });
     for (let i = 0; i < 66; i++) q.enqueue(Uint8Array.of(i));
     expect(done).toEqual([64, 65]);
     expect(q.length).toBe(64);
@@ -982,7 +1020,7 @@ describe('transmit queue', () => {
       for (let s = 0; s < 150_000; s += 20_300 + 700 + r() * 600) frames.push([s, s + 20_300]);
       const busyAt = (x: number) => frames.some(([a, b]) => x >= a && x < b);
       let startedAt = -1;
-      const q = new TxQueue({ busy: () => busyAt(t), send: async () => void (startedAt = t) }, { now: () => t, random: r });
+      const q = new TxQueue({ busy: () => busyAt(t), send: async () => ((startedAt = t), true) }, { now: () => t, random: r });
       t = 100 + r() * 200;
       q.enqueue(Uint8Array.of(1));
       for (; startedAt < 0 && t < 200_000; t += 200) await q.tick();
@@ -997,7 +1035,7 @@ describe('transmit queue', () => {
     let t = 0;
     let finished = 0;
     const sent: number[] = [];
-    const q = new TxQueue({ busy: () => true, send: async (b) => void sent.push(b[0]), finished: () => finished++ }, { now: () => t, random: () => 0.5 });
+    const q = new TxQueue({ busy: () => true, send: async (b) => (sent.push(b[0]), true), finished: () => finished++ }, { now: () => t, random: () => 0.5 });
     q.enqueue(Uint8Array.of(7));
     for (; t < 24_000; t += 500) await q.tick();
     expect(sent).toEqual([]);

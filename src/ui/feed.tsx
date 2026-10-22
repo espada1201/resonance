@@ -57,6 +57,7 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
 
 function Delivery({ station, item }: { station: Station; item: FeedItem }) {
   const [err, setErr] = useState('');
+  if (station.queued(item)) return <span class="delivery">waiting to go on air…</span>;
   const state = item.delivery;
   if (!state) return null;
   if (state === 'acked') return <span class="delivery ok"><Check size={14} /> delivered</span>;
@@ -333,7 +334,16 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
   }
   if (b.kind === 'notice') {
     return (
-      <Item {...shell} kind={`notice t-${b.topic}`} actions={sound}>
+      <Item
+        {...shell}
+        kind={`notice t-${b.topic}`}
+        actions={
+          <>
+            {delivery}
+            {sound}
+          </>
+        }
+      >
         <span class="topic">{TOPIC_TEXT[b.topic]}</span>
         <p class="notice-text">{b.text}</p>
         <p class="muted small">

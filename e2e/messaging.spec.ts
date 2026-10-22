@@ -27,6 +27,8 @@ test('a direct message shows only to its addressee and comes back delivered', as
   await openTab(a, 'People');
   await a.getByRole('button', { name: `Message #${await nodeId(b)} directly` }).click();
   await sendText(a, text);
+  // Its frame takes a few seconds to play.
+  await expect(feedItem(a, text)).toContainText('waiting to go on air…');
   await expect(feedItem(b, text)).toContainText('direct to you');
   await expect(feedItem(a, text)).toContainText('delivered');
   await expect(c.getByText(text)).toHaveCount(0);

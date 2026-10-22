@@ -7,8 +7,10 @@ import { PacketType, peekType } from './packet';
 interface RadioIO {
   /** True while the receiver hears another transmission. */
   busy(): boolean;
-  /** Plays one frame; resolves when it has finished on air. */
-  send(bytes: Uint8Array): Promise<void>;
+  /** True while the device has suspended its audio (a locked screen, a call). */
+  suspended?(): boolean;
+  /** Plays one frame; resolves once it has finished on air, or with false if suspended audio cut it short. */
+  send(bytes: Uint8Array): Promise<boolean>;
   /** The queue is done with a frame: it finished on air, or a full queue dropped it. */
   finished?(bytes: Uint8Array): void;
 }
@@ -54,8 +56,12 @@ export class TxQueue {
   /** Queues a frame behind everything at least as important; a full queue drops the least important. */
   enqueue(bytes: Uint8Array, urgent = false) {
     const rank = urgent ? 0 : SAFETY_NEWS.has(peekType(bytes)) ? 1 : 2;
-    const behind = this.queue.findIndex((q) => q.rank > rank);
-    this.queue.splice(behind < 0 ? this.queue.length : behind, 0, { bytes, rank });
+    this.insert({ bytes, rank }, this.queue.findIndex((q) => q.rank > rank));
+  }
+
+  /** Puts a frame in line before the one at `at` (-1: last); a full queue drops the least important. */
+  private insert(frame: Queued, at: number) {
+    this.queue.splice(at < 0 ? this.queue.length : at, 0, frame);
     for (const dropped of this.queue.splice(QUEUE_LIMIT)) this.io.finished?.(dropped.bytes);
   }
 
@@ -64,6 +70,8 @@ export class TxQueue {
     // The patience is for one unbroken stretch of busy air: any clear moment starts it afresh.
     if (!this.io.busy()) this.deferringSince = null;
     if (this.paused || this.sending || !this.queue.length || this.clock.now() < this.notBefore) return;
+    // Nobody would hear it. Asking each tick costs nothing, and the frame goes the tick after audio is back.
+    if (this.io.suspended?.()) return;
     const now = this.clock.now();
     if (this.io.busy() && now - (this.deferringSince ?? now) < MAX_DEFER_MS) {
       this.deferringSince ??= now;
@@ -73,15 +81,18 @@ export class TxQueue {
       return;
     }
     this.deferringSince = null;
-    const next = this.queue.shift()!.bytes;
+    const next = this.queue.shift()!;
     this.sending = true;
+    let cutShort = false;
     try {
-      await this.io.send(next);
+      cutShort = !(await this.io.send(next.bytes));
     } finally {
       this.sending = false;
       // A short random gap lets other nodes grab the channel between our frames.
       this.notBefore = this.clock.now() + 150 + this.clock.random() * 600;
-      this.io.finished?.(next);
+      // Nobody heard it whole: it goes again first of its rank, as if it had never left the line.
+      if (cutShort) this.insert(next, this.queue.findIndex((q) => q.rank >= next.rank));
+      else this.io.finished?.(next.bytes);
     }
   }
 }

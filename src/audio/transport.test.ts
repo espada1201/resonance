@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MicTransport } from './transport';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -21,6 +22,9 @@ function browser(opts: { fail?: 'microphone' | 'worklet'; otherPageListens?: boo
     },
   };
   const page = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+  /** A locked phone gives audio back to nobody: resume() never settles. */
+  const phone = { locked: false };
+  const sounds: Array<{ onended: (() => void) | null }> = [];
   let ctx: FakeContext | null = null;
   class FakeContext extends EventTarget {
     state = 'suspended';
@@ -39,6 +43,7 @@ function browser(opts: { fail?: 'microphone' | 'worklet'; otherPageListens?: boo
     }
     resume() {
       log.push('resume');
+      if (phone.locked) return new Promise<void>(() => undefined);
       this.state = 'running';
       return Promise.resolve();
     }
@@ -49,6 +54,18 @@ function browser(opts: { fail?: 'microphone' | 'worklet'; otherPageListens?: boo
     }
     createMediaStreamSource = () => ({ connect: () => undefined });
     createGain = () => ({ gain: { value: 1 }, connect: (n: unknown) => n });
+    createBuffer = () => ({ copyToChannel: () => undefined });
+    createBufferSource = () => {
+      const sound = {
+        buffer: null,
+        onended: null as (() => void) | null,
+        connect: (n: unknown) => n,
+        disconnect: () => void log.push('cut loose'),
+        start: () => void log.push('sound starts'),
+      };
+      sounds.push(sound);
+      return sound;
+    };
   }
   vi.stubGlobal('isSecureContext', true);
   vi.stubGlobal('AudioContext', FakeContext);
@@ -64,7 +81,7 @@ function browser(opts: { fail?: 'microphone' | 'worklet'; otherPageListens?: boo
       },
     },
   });
-  return { log, page, ctx: () => ctx! };
+  return { log, page, phone, ctx: () => ctx!, sound: () => sounds.at(-1)! };
 }
 
 describe('starting the microphone', () => {
@@ -131,5 +148,37 @@ describe('audio the phone took away', () => {
     // Running audio is left alone.
     page.dispatchEvent(new Event('keydown'));
     expect(resumes()).toBe(before + 3);
+  });
+
+  it('a sound that ends says it played; one cut short when the screen locks says it did not, and is cut loose so it cannot play late', async () => {
+    vi.useFakeTimers();
+    const { log, ctx, sound } = browser();
+    const mic = new MicTransport();
+    await mic.start(() => undefined);
+    const second = new Float32Array(44100);
+    const whole = mic.play(second, 44100);
+    sound().onended!();
+    await expect(whole).resolves.toBe(true);
+
+    const cut = mic.play(second, 44100);
+    // The phone suspends audio partway through, and a suspended sound never ends.
+    ctx().state = 'suspended';
+    expect(mic.suspended).toBe(true);
+    await vi.advanceTimersByTimeAsync(4000);
+    await expect(cut).resolves.toBe(false);
+    expect(log.slice(-2)).toEqual(['sound starts', 'cut loose']);
+  });
+
+  it('a sound asked for while the phone keeps audio suspended is not started, and says it did not play', async () => {
+    vi.useFakeTimers();
+    const { log, ctx, phone } = browser();
+    const mic = new MicTransport();
+    await mic.start(() => undefined);
+    phone.locked = true;
+    ctx().state = 'suspended';
+    const played = mic.play(new Float32Array(44100), 44100);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(played).resolves.toBe(false);
+    expect(log.at(-1)).toBe('resume');
   });
 });

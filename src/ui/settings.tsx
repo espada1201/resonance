@@ -76,8 +76,8 @@ export function Settings({ station }: { station: Station }) {
               </span>
               {!station.playable(id) && (
                 <span class="hint-warn small">
-                  Not available right now: this device's audio runs too slow for these tones, as it does with a Bluetooth headset. Everything goes
-                  out in Audible instead; disconnect the headset and reload to use this mode.
+                  Not available right now: this device's audio runs too slow for these tones, as it does with a Bluetooth headset.
+                  {station.playable('audible') && ' Everything goes out in Audible instead.'} Disconnect the headset and reload to use this mode.
                 </span>
               )}
             </span>
