@@ -15,7 +15,7 @@ let pings: PingDetector | null = null;
 let muted = false;
 /** What the receiver hears while muted. One buffer serves every chunk: the receiver copies what it is given. */
 let silence = new Float32Array(0);
-let recent = new Float32Array(2048);
+const recent = new Float32Array(2048);
 let sinceSpectrum = 0;
 let wasBusy = false;
 
@@ -48,9 +48,10 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   }
 };
 
+/** Keeps the last 2048 samples for the spectrum, in place: capture chunks are 2048 long. */
 function keepRecent(chunk: Float32Array) {
   if (chunk.length >= recent.length) {
-    recent = chunk.slice(chunk.length - recent.length);
+    recent.set(chunk.subarray(chunk.length - recent.length));
     return;
   }
   recent.copyWithin(0, chunk.length);
