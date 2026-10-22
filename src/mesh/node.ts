@@ -117,7 +117,7 @@ const CARRY_AIRED_MS = 60_000;
 /** Check-ins, the replies to them and notices: someone who turns up on day two still learns who checked in on day one. */
 const LASTING = new Set<PacketType | null>([PacketType.CheckIn, PacketType.Reply, PacketType.Notice]);
 
-const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
+export const storeKey = (p: Pick<Packet, 'src' | 'msgId'>) => `${p.src}:${p.msgId}`;
 const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
 
 export class MeshNode {
