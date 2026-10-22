@@ -36,6 +36,8 @@ export interface AirEvent {
   toneSnrDb?: number;
   corrected?: number;
   clockRatio?: number;
+  /** One of ours that paused sound cut short: it did not go out whole. */
+  cut?: boolean;
 }
 
 export interface Settings {
@@ -319,11 +321,17 @@ export class Station {
     return played;
   }
 
-  private playWave(wave: Float32Array, profile: ProfileId, label: string, bytes?: number) {
-    return this.link.play(wave, profile, (seconds) => {
-      this.logAir({ dir: 'tx', profile, label, bytes, airtimeSec: seconds });
+  private async playWave(wave: Float32Array, profile: ProfileId, label: string, bytes?: number) {
+    let id = 0;
+    const played = await this.link.play(wave, profile, (seconds) => {
+      id = this.logAir({ dir: 'tx', profile, label, bytes, airtimeSec: seconds });
       this.totals.txSec += seconds;
     });
+    if (!played) {
+      this.air = this.air.map((e) => (e.id === id ? { ...e, cut: true } : e));
+      this.changed();
+    }
+    return played;
   }
 
   /** Plays audio ahead of the queue once the speaker and the air are free (used by Find). */
@@ -342,6 +350,7 @@ export class Station {
   private logAir(e: Omit<AirEvent, 'id' | 'at'>) {
     this.air = [{ ...e, id: ++this.airSeq, at: Date.now() }, ...this.air].slice(0, 120);
     this.changed();
+    return this.airSeq;
   }
 
   // ---- sending -------------------------------------------------------------------------

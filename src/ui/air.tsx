@@ -206,6 +206,7 @@ export function AirLog({ events, limit = 60 }: { events: AirEvent[]; limit?: num
               {e.toneSnrDb !== undefined && ` · SNR ${e.toneSnrDb.toFixed(0)} dB`}
               {e.corrected ? ` · repaired ${e.corrected} B` : ''}
               {e.clockRatio !== undefined && Math.abs(e.clockRatio - 1) > 0.0002 ? ` · clock ${((e.clockRatio - 1) * 100).toFixed(2)}%` : ''}
+              {e.cut && ' · cut short: sound paused'}
             </span>
           </span>
           <time>{clock(e.at)}</time>

@@ -856,6 +856,8 @@ describe('audio the phone suspends', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const checkIns = s.air.filter((e) => e.dir === 'tx' && e.label === 'check-in');
     expect(checkIns.map((e) => e.at - T0)).toEqual([620_400, 20_200]);
+    // The air log says which try the locked screen cut short, so two rows do not read as two copies.
+    expect(checkIns.map((e) => e.cut ?? false)).toEqual([false, true]);
     expect(s.queued(item)).toBe(false);
     // Its repeat timer runs from then: nobody echoed it, so it goes once more 20 to 28 s on.
     await vi.advanceTimersByTimeAsync(30_000);
