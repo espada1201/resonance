@@ -114,7 +114,7 @@ function FileView({ station, item }: { station: Station; item: FeedItem }) {
   );
 }
 
-export function FeedItemView({ station, item, position }: { station: Station; item: FeedItem; position?: import('../mesh/payloads').Geo | null }) {
+function FeedItemView({ station, item, position }: { station: Station; item: FeedItem; position?: import('../mesh/payloads').Geo | null }) {
   if (item.locked) {
     return (
       <article class="item locked">
@@ -178,7 +178,7 @@ export function FeedItemView({ station, item, position }: { station: Station; it
   return (
     <article class={item.mine ? 'item text mine' : 'item text'}>
       <Meta station={station} item={item} />
-      <p class="text-body">{b.kind === 'text' ? b.text : ''}</p>
+      <p class="text-body">{b.text}</p>
       <div class="actions">
         <Delivery state={item.delivery} />
         <SoundFileButton station={station} item={item} />

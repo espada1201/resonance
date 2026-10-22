@@ -6,12 +6,12 @@ import { rsDecode, rsEncode } from './rs';
 // OFDM a byte rides on four adjacent carriers, so a notch in the room's response costs few bytes.
 
 export const MAX_PAYLOAD = 255;
-export const HEADER_NSYM = 6;
+const HEADER_NSYM = 6;
 export const HEADER_BYTES = 3 + HEADER_NSYM;
 const VERSION = 1;
 const MAX_BLOCK_DATA = 40;
 
-export interface Block {
+interface Block {
   k: number;
   nsym: number;
 }
@@ -29,7 +29,7 @@ export function decodeHeader(symbols: Uint8Array, confidence: Float64Array): num
   return len;
 }
 
-export function planBlocks(payloadLen: number): Block[] {
+function planBlocks(payloadLen: number): Block[] {
   const total = payloadLen + 4;
   const n = Math.ceil(total / MAX_BLOCK_DATA);
   const blocks: Block[] = [];
@@ -66,7 +66,7 @@ export function encodeBody(payload: Uint8Array): Uint8Array {
   return Uint8Array.from(interleaveOrder(blocks).map(([i, j]) => cws[i][j]));
 }
 
-export interface BodyResult {
+interface BodyResult {
   payload: Uint8Array;
   corrected: number;
 }

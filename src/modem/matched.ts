@@ -2,7 +2,7 @@ import { fft, nextPow2 } from './dsp';
 
 // Streaming normalised matched filtering, shared by frame sync and acoustic ranging.
 
-export interface Template {
+interface Template {
   re: Float64Array;
   im: Float64Array;
 }

@@ -16,8 +16,8 @@ import { Ranger } from './ranger';
 // The station is the whole app minus pixels: it owns the audio transport, the demodulator
 // worker, the mesh node, the transmit queue, encryption and persistence.
 
-export type Role = 'phone' | 'beacon';
-export type ContentBody = Extract<Body, { kind: 'text' | 'checkin' | 'contact' }>;
+type Role = 'phone' | 'beacon';
+type ContentBody = Extract<Body, { kind: 'text' | 'checkin' | 'contact' }>;
 
 export interface FeedItem {
   id: string;
@@ -48,7 +48,7 @@ export interface AirEvent {
   clockRatio?: number;
 }
 
-export interface Settings {
+interface Settings {
   nick: string;
   profile: ProfileId;
   relay: boolean;
@@ -58,13 +58,12 @@ export interface Settings {
   answerFind: boolean;
 }
 
-export interface Spectrum {
+interface Spectrum {
   bins: Float32Array;
-  peak: number;
   fs: number;
 }
 
-export const DEFAULT_TTL = 5;
+const DEFAULT_TTL = 5;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
 const KEY = 'resonance:v1:';
 const TYPE_LABEL: Record<number, string> = { 1: 'message', 2: 'check-in', 3: 'contact', 4: 'file chunk', 5: 'ack', 6: 'hello', 7: 'file request', 8: 'ranging' };
@@ -93,7 +92,7 @@ export class Station {
   transmitting: { profile: ProfileId; seconds: number; started: number } | null = null;
   sampleRate = 0;
   position: Geo | null = null;
-  totals = { rxBits: 0, rxSec: 0, txBits: 0, txSec: 0, lost: 0 };
+  totals = { rxBits: 0, rxSec: 0, txSec: 0, lost: 0 };
   readonly mesh: MeshNode;
   readonly radio: TxQueue;
   readonly ranger: Ranger;
@@ -104,7 +103,6 @@ export class Station {
   private workerBusy = false;
   private listeners = new Set<() => void>();
   private spectrumListeners = new Set<(s: Spectrum) => void>();
-  private timers: Array<ReturnType<typeof setInterval>> = [];
   private chunkIds = new Map<string, Map<number, number>>();
   private airSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -115,7 +113,6 @@ export class Station {
     readonly transport: AirTransport,
     readonly role: Role,
     private readonly storage: Storage | null = safeStorage(),
-    private readonly makeWorker: () => Worker = () => new Worker(new URL('./audio/rx-worker.ts', import.meta.url), { type: 'module' }),
   ) {
     this.prefix = `${KEY}${role}:`;
     const ident = load<{ id: number }>(storage, this.prefix + 'identity');
@@ -184,39 +181,26 @@ export class Station {
     this.error = '';
     this.changed();
     try {
-      this.worker = this.makeWorker();
+      this.worker = new Worker(new URL('./audio/rx-worker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (e: MessageEvent<FromWorker>) => this.onWorker(e.data);
       this.sampleRate = await this.transport.start((chunk) => this.toWorker({ type: 'samples', data: chunk }, [chunk.buffer]));
       this.transport.setVolume(this.settings.volume);
       this.toWorker({ type: 'init', sampleRate: this.sampleRate });
       this.status = 'listening';
       void this.keepAwake();
-      this.timers.push(
-        setInterval(() => {
-          this.mesh.tick();
-          void this.radio.tick();
-        }, 200),
-      );
+      setInterval(() => {
+        this.mesh.tick();
+        void this.radio.tick();
+      }, 200);
       const hello = () => this.mesh.hello(this.settings.nick, this.role);
       setTimeout(hello, 1500 + Math.random() * 3000);
-      this.timers.push(setInterval(hello, HELLO_MS[this.role] * (0.85 + Math.random() * 0.3)));
+      setInterval(hello, HELLO_MS[this.role] * (0.85 + Math.random() * 0.3));
     } catch (err) {
       this.status = 'error';
       this.error = err instanceof Error ? err.message : String(err);
       this.worker?.terminate();
       this.worker = null;
     }
-    this.changed();
-  }
-
-  stop() {
-    this.ranger.stop();
-    this.timers.forEach(clearInterval);
-    this.timers = [];
-    this.transport.stop();
-    this.worker?.terminate();
-    this.worker = null;
-    this.status = 'idle';
     this.changed();
   }
 
@@ -289,7 +273,6 @@ export class Station {
     const fs = this.sampleRate || 48000;
     const p = decodePacket(bytes);
     const label = p ? `${TYPE_LABEL[p.type]}${p.src === this.id ? '' : ` relayed for ${nodeHex(p.src)}`}` : 'frame';
-    this.totals.txBits += bytes.length * 8;
     return this.playWave(modulate(bytes, PROFILES[profile], fs), profile, label, bytes.length);
   }
 
@@ -337,8 +320,8 @@ export class Station {
   }
 
   /** Seconds a body would take on air with the current profile. */
-  estimateAirtime(body: Body, sealed = !!this.circle) {
-    const n = HEADER_LEN + encodeBody(body).length + (sealed ? SEAL_OVERHEAD : 0);
+  estimateAirtime(body: Body) {
+    const n = HEADER_LEN + encodeBody(body).length + (this.circle ? SEAL_OVERHEAD : 0);
     return airtimeSec(PROFILES[this.settings.profile], Math.min(MAX_PAYLOAD, n));
   }
 
@@ -383,7 +366,7 @@ export class Station {
     const fileId = randomU32() & 0xffff;
     const chunks = chunkFile(fileId, { name, mime }, data);
     const key = fileKey(this.id, fileId);
-    for (const c of chunks) addChunk(this.files, this.id, c, Date.now());
+    for (const c of chunks) addChunk(this.files, this.id, c);
     this.addFeed({ id: `file:${key}`, src: this.id, msgId: 0, at: Date.now(), hops: 0, mine: true, encrypted: !!this.circle, locked: false, dst: BROADCAST, fileKey: key });
     for (const c of chunks) await this.send(c);
     return key;
@@ -414,7 +397,7 @@ export class Station {
     if (!body) return;
     if (body.kind === 'file') {
       this.trackChunk(p.src, body.fileId, body.index, p.msgId);
-      const f = addChunk(this.files, p.src, body, Date.now());
+      const f = addChunk(this.files, p.src, body);
       const id = `file:${f.key}`;
       if (!this.feed.some((i) => i.id === id)) this.addFeed({ ...this.itemBase(p, false), id, fileKey: f.key });
     } else if (body.kind === 'filereq') {

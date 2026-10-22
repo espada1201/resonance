@@ -1,12 +1,13 @@
 import type { Body, FileMeta } from './payloads';
 
 // Tiny files ride as numbered chunks. Chunk 0 carries only the name/type/size; the rest carry
-// data. Any node that holds a chunk can answer a request for it, so files heal across the mesh.
+// data. The author, or any beacon that holds a chunk, answers a request for it, so files heal
+// across the mesh.
 
 export const MAX_FILE_BYTES = 4096;
 export const CHUNK_BYTES = 160;
 
-export type FileBody = Extract<Body, { kind: 'file' }>;
+type FileBody = Extract<Body, { kind: 'file' }>;
 
 export function chunkFile(fileId: number, meta: Omit<FileMeta, 'size'>, data: Uint8Array): FileBody[] {
   if (data.length > MAX_FILE_BYTES) throw new Error(`files are limited to ${MAX_FILE_BYTES} bytes`);
@@ -26,7 +27,6 @@ export interface FileState {
   total: number;
   meta?: FileMeta;
   chunks: Array<Uint8Array | undefined>;
-  firstSeen: number;
 }
 
 export const fileKey = (src: number, fileId: number) => `${src}:${fileId}`;
@@ -49,11 +49,11 @@ export function assemble(f: FileState): Uint8Array | null {
 }
 
 /** Adds a chunk to the file table; returns the file's state. */
-export function addChunk(files: Map<string, FileState>, src: number, c: FileBody, now: number): FileState {
+export function addChunk(files: Map<string, FileState>, src: number, c: FileBody): FileState {
   const key = fileKey(src, c.fileId);
   let f = files.get(key);
   if (!f || f.total !== c.total) {
-    f = { key, src, fileId: c.fileId, total: c.total, chunks: new Array(c.total), firstSeen: now };
+    f = { key, src, fileId: c.fileId, total: c.total, chunks: new Array(c.total) };
     files.set(key, f);
   }
   if (c.index < f.total) f.chunks[c.index] = c.data;

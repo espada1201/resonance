@@ -6,7 +6,7 @@ const RAMP_SEC = 0.002;
 const TAIL_SEC = 0.03;
 
 /** Real-valued linear chirp phase at time t (seconds from chirp start). */
-export const chirpPhase = (p: Profile, t: number) =>
+const chirpPhase = (p: Profile, t: number) =>
   2 * Math.PI * (p.chirpLowHz * t + ((p.chirpHighHz - p.chirpLowHz) * t * t) / (2 * p.chirpSec));
 
 function ramp(i: number, n: number, r: number): number {

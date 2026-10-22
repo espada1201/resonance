@@ -29,12 +29,11 @@ export class PingDetector {
   private len = 0;
 
   constructor(
-    readonly fs: number,
+    fs: number,
     private readonly onPing: (p: Peak) => void,
-    threshold = 0.25,
   ) {
     this.filter = new MatchedFilter(chirpTemplate(PING.startHz, PING.endHz, PING.sec, fs));
-    this.picker = new PeakPicker(threshold, this.filter.M, 0.003 * fs, 0.5);
+    this.picker = new PeakPicker(0.25, this.filter.M, 0.003 * fs, 0.5);
   }
 
   push(chunk: Float32Array) {

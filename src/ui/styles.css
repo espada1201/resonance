@@ -1029,8 +1029,7 @@ input[type='radio'] {
   align-items: center;
   gap: 6px;
 }
-.field > .button,
-.field > a.button {
+.field > .button {
   justify-self: start;
 }
 .row {

@@ -74,7 +74,7 @@ function syndromes(msg: Uint8Array, nsym: number): number[] {
   return s;
 }
 
-export interface RsResult {
+interface RsResult {
   data: Uint8Array;
   corrected: number;
 }

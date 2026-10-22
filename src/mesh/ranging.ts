@@ -4,10 +4,10 @@
 //   distance = c/2 · ((a2 − a1) − (b2 − b1)) + (speaker-to-mic gap of A + of B) / 2
 
 /** Speed of sound in dry air at 20 °C. */
-export const SPEED_OF_SOUND = 343;
+const SPEED_OF_SOUND = 343;
 /** Typical distance between a phone's or laptop's speaker and its own microphone. */
-export const SPEAKER_TO_MIC_M = 0.1;
+const SPEAKER_TO_MIC_M = 0.1;
 
-export function twoWayDistance(intervalA: number, intervalB: number, selfA = SPEAKER_TO_MIC_M, selfB = SPEAKER_TO_MIC_M, c = SPEED_OF_SOUND) {
-  return (c / 2) * (intervalA - intervalB) + (selfA + selfB) / 2;
+export function twoWayDistance(intervalA: number, intervalB: number, selfA = SPEAKER_TO_MIC_M, selfB = SPEAKER_TO_MIC_M) {
+  return (SPEED_OF_SOUND / 2) * (intervalA - intervalB) + (selfA + selfB) / 2;
 }

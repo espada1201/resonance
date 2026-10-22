@@ -1,11 +1,8 @@
-import type { JSX } from 'preact';
+type P = { size?: number };
 
-type P = { size?: number; title?: string } & JSX.SVGAttributes<SVGSVGElement>;
-
-function Svg({ size = 18, title, children, ...rest }: P & { children: preact.ComponentChildren }) {
+function Svg({ size = 18, children }: P & { children: preact.ComponentChildren }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden={title ? undefined : 'true'} role={title ? 'img' : undefined} {...rest}>
-      {title && <title>{title}</title>}
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       {children}
     </svg>
   );

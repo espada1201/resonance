@@ -14,7 +14,7 @@ export interface MeshClock {
   random(): number;
 }
 
-export interface MeshConfig {
+interface MeshConfig {
   relay: boolean;
   backoffMs: [number, number];
   suppressAfter: number;
@@ -27,7 +27,7 @@ export interface MeshConfig {
   echoTimeoutMs: number;
 }
 
-export const DEFAULT_CONFIG: MeshConfig = {
+const DEFAULT_CONFIG: MeshConfig = {
   relay: true,
   backoffMs: [600, 4000],
   suppressAfter: 2,
@@ -45,14 +45,14 @@ export interface StoredPacket {
   lastPushed: number;
 }
 
-export interface Neighbor {
+interface Neighbor {
   id: number;
   lastHeard: number;
   nick?: string;
   role?: 'phone' | 'beacon';
 }
 
-export interface MeshEvents {
+interface MeshEvents {
   /** Hand a finished packet to the radio. */
   transmit(bytes: Uint8Array, reason: 'origin' | 'relay' | 'carry' | 'ack' | 'retry'): void;
   /** A packet for this node (or everyone) arrived for the first time. */
@@ -82,7 +82,8 @@ const relayKey = (p: Packet) => `${p.src}:${p.msgId}:${p.attempt}`;
 export class MeshNode {
   readonly store = new Map<string, StoredPacket>();
   readonly neighbors = new Map<number, Neighbor>();
-  readonly stats = { heard: 0, delivered: 0, relayed: 0, suppressed: 0, carried: 0, duplicates: 0 };
+  readonly stats = { heard: 0, delivered: 0, relayed: 0, suppressed: 0, carried: 0 };
+  readonly config: MeshConfig = { ...DEFAULT_CONFIG };
   private readonly seen = new Map<string, number>();
   private readonly delivered = new Set<string>();
   private relays: PendingRelay[] = [];
@@ -93,7 +94,6 @@ export class MeshNode {
     readonly id: number,
     private readonly clock: MeshClock,
     private readonly events: MeshEvents,
-    readonly config: MeshConfig = { ...DEFAULT_CONFIG },
   ) {}
 
   /** Sends a packet this node authored. src/hops/attempt are filled in here. */
@@ -126,7 +126,6 @@ export class MeshNode {
 
     const rk = relayKey(p);
     if (this.seen.has(rk)) {
-      this.stats.duplicates++;
       for (const r of this.relays) if (r.key === rk) r.heard++;
       // A re-sent direct message we already have still deserves a fresh ACK.
       if (p.dst === this.id && p.ackRequested) this.sendAck(p);
@@ -247,10 +246,6 @@ export class MeshNode {
       this.events.transmit(encodePacket(again), 'retry');
     }
     for (const [k, s] of this.store) if (now - s.firstHeard > this.config.storeTtlMs) this.store.delete(k);
-  }
-
-  get pendingRelays() {
-    return this.relays.length;
   }
 
   /** Restores packets persisted from an earlier session. */

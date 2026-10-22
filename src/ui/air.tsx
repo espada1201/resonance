@@ -165,7 +165,7 @@ function TxProgress({ started, seconds: total }: { started: number; seconds: num
   );
 }
 
-export function AirStats({ station }: { station: Station }) {
+function AirStats({ station }: { station: Station }) {
   const t = station.totals;
   const m = station.mesh.stats;
   const goodput = t.rxSec > 0 ? `${Math.round(t.rxBits / t.rxSec)} bps` : '—';
@@ -204,7 +204,7 @@ export function AirLog({ events, limit = 60 }: { events: AirEvent[]; limit?: num
           <span class="what">
             {e.label}
             <span class="meta">
-              {e.profile === 'audible' ? 'audible' : 'quiet'}
+              {PROFILE_NAME[e.profile]}
               {e.bytes !== undefined && ` · ${e.bytes} B`}
               {e.airtimeSec !== undefined && ` · ${e.airtimeSec.toFixed(1)} s`}
               {e.bytes !== undefined && e.airtimeSec ? ` · ${Math.round((e.bytes * 8) / e.airtimeSec)} bps` : ''}

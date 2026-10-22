@@ -6,10 +6,9 @@
 //   11     ttl:3 | hops:3 | attempt:2     <- the only byte relays rewrite
 //   12     channel (0 = open channel, otherwise derived from the circle passphrase)
 
-export const VERSION = 1;
+const VERSION = 1;
 export const HEADER_LEN = 13;
 export const BROADCAST = 0xffffff;
-export const MAX_TTL = 7;
 
 export enum PacketType {
   Text = 1,

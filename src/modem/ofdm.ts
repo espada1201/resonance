@@ -20,7 +20,7 @@ const SLOPE_STEPS = 16;
 
 export const fftSize = (p: OfdmProfile) => Math.round(p.fftSec * OFDM_RATE);
 export const cpSize = (p: OfdmProfile) => Math.round(p.cpSec * OFDM_RATE);
-export const firstBin = (p: OfdmProfile) => Math.round(p.firstHz * p.fftSec);
+const firstBin = (p: OfdmProfile) => Math.round(p.firstHz * p.fftSec);
 /** Reference + header + body symbols in a frame carrying `len` payload bytes. */
 export const ofdmSymbols = (p: OfdmProfile, len: number) => 2 + Math.ceil(bodyBytes(len) / bytesPerSymbol(p));
 const headerCopies = (p: OfdmProfile) => Math.floor(bytesPerSymbol(p) / HEADER_BYTES);
@@ -35,7 +35,7 @@ export function carriersOf(p: OfdmProfile, m: number): number[] {
 }
 
 /** The symbol whose phases symbol m's carriers step from: the last time they sounded. */
-export const previousOf = (p: OfdmProfile, m: number) => Math.max(0, m - p.hopSets);
+const previousOf = (p: OfdmProfile, m: number) => Math.max(0, m - p.hopSets);
 
 /** Reference phases (radians): Schroeder's, which keep a flat multi-tone's peaks low. */
 const refPhase = (p: OfdmProfile, k: number) => (Math.PI * k * k) / p.carriers;
@@ -43,7 +43,7 @@ const refPhase = (p: OfdmProfile, k: number) => (Math.PI * k * k) / p.carriers;
 const dibit = (bytes: Uint8Array, j: number) => (bytes[j >> 2] >> (6 - 2 * (j & 3))) & 3;
 
 /** Quarter turns each carrier has stepped away from its reference phase, symbol by symbol. */
-export function frameQuarters(p: OfdmProfile, payload: Uint8Array): Uint8Array[] {
+function frameQuarters(p: OfdmProfile, payload: Uint8Array): Uint8Array[] {
   const B = bytesPerSymbol(p);
   const header = new Uint8Array(B);
   for (let c = 0; c < headerCopies(p); c++) header.set(encodeHeader(payload.length), c * HEADER_BYTES);
@@ -158,7 +158,7 @@ export function bodyOffset(p: OfdmProfile, ref: Spectrum): number {
 }
 
 /** The phase steps one symbol's carriers took since they last sounded: z = cur · conj(prev). */
-export interface Steps {
+interface Steps {
   ks: number[];
   re: Float64Array;
   im: Float64Array;
@@ -322,7 +322,7 @@ export function headerSteps(p: OfdmProfile, z: Steps): Steps {
   return { ks: z.ks.slice(0, n), re, im, span: z.span };
 }
 
-export interface ByteDecisions {
+interface ByteDecisions {
   bytes: Uint8Array;
   /** Per byte, 0..1: the worst of its four carriers' distance from a decision boundary, scaled down on faded carriers. */
   conf: Float64Array;

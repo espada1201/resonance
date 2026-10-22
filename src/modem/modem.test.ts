@@ -29,7 +29,7 @@ interface Channel {
   rxRate?: number;
 }
 
-/** Sends one random payload through a simulated channel; returns true when it decodes exactly. */
+/** Sends one random payload through a simulated channel; returns its frame if it decodes exactly, else null. */
 function trial(pid: ProfileId, ch: Channel, seed: number, len = 48) {
   const fs = 48000;
   const r = rng(seed);

@@ -1,7 +1,7 @@
 import { PacketType } from './packet';
 
-// Compact binary bodies. Every byte costs ~32 ms of airtime, so strings are length-prefixed
-// UTF-8, coordinates are fixed-point and timestamps are whole seconds.
+// Compact binary bodies. Every byte costs ~32 ms of airtime in the audible mode, so strings are
+// length-prefixed UTF-8, coordinates are fixed-point and timestamps are whole seconds.
 
 export type Status = 'safe' | 'help' | 'medical' | 'sheltering';
 export const STATUSES: Status[] = ['safe', 'help', 'medical', 'sheltering'];
@@ -106,7 +106,7 @@ class Reader {
 }
 
 /** UTF-8 encode, cutting at a character boundary so the result fits in `max` bytes. */
-export function truncateUtf8(s: string, max: number): Uint8Array {
+function truncateUtf8(s: string, max: number): Uint8Array {
   const enc = new TextEncoder();
   let b = enc.encode(s);
   if (b.length <= max) return b;

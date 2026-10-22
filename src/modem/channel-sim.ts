@@ -77,7 +77,7 @@ export function mix(totalLen: number, parts: Array<[number, Float32Array]>, nois
   return out;
 }
 
-/** 16-bit PCM mono WAV encoder (used to feed Chromium's fake microphone). */
+/** 16-bit PCM mono WAV encoder (sound-file exports, and the e2e suite's fake microphone). */
 export function wav(x: Float32Array, fs: number): Uint8Array {
   const buf = new ArrayBuffer(44 + x.length * 2);
   const v = new DataView(buf);

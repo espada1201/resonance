@@ -21,7 +21,7 @@ const fmt = (m: number) => (m < 10 ? m.toFixed(2) : m.toFixed(1));
 export function FindPanel({ station }: { station: Station }) {
   const f = station.ranger.find;
   if (!f) return null;
-  const readings = f.readings.map((r) => r.meters);
+  const readings = f.readings;
   const last = readings.at(-1);
   const prev = readings.slice(-4, -1);
   const base = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : null;

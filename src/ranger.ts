@@ -11,7 +11,7 @@ import type { DecodedFrame } from './modem/receiver';
 
 type RangeBody = Extract<Body, { kind: 'range' }>;
 
-export interface RangerIO {
+interface RangerIO {
   readonly id: number;
   sampleRate(): number;
   modulate(bytes: Uint8Array): Float32Array;
@@ -22,16 +22,11 @@ export interface RangerIO {
   changed(): void;
 }
 
-export interface Reading {
-  at: number;
-  meters: number;
-}
-
-export interface FindState {
+interface FindState {
   target: number;
   phase: 'pinging' | 'waiting' | 'resting';
-  readings: Reading[];
-  misses: number;
+  /** Distances in metres, oldest first. */
+  readings: number[];
   note: string;
 }
 
@@ -64,7 +59,7 @@ export class Ranger {
 
   start(target: number) {
     this.stop();
-    this.find = { target, phase: 'pinging', readings: [], misses: 0, note: 'Pinging…' };
+    this.find = { target, phase: 'pinging', readings: [], note: 'Pinging…' };
     void this.loop(++this.generation);
     this.io.changed();
   }
@@ -134,17 +129,14 @@ export class Ranger {
       this.waiter = null;
       if (!live()) return;
       if (!own || !r) {
-        f.misses++;
         if (own) f.note = 'No answer. Are they listening, in earshot, and answering distance requests?';
       } else {
         const theirs = this.loudestBetween(own.pos + 0.25 * fs, r.frameStart - 0.02 * fs);
         if (!theirs) {
-          f.misses++;
           f.note = 'Heard their report but missed their ping. Trying again.';
         } else {
           const meters = twoWayDistance((theirs.pos - own.pos) / fs, r.intervalUs / 1e6);
-          f.readings = [...f.readings.slice(-29), { at: Date.now(), meters: Math.max(0, meters) }];
-          f.misses = 0;
+          f.readings = [...f.readings.slice(-29), Math.max(0, meters)];
           f.note = '';
         }
       }

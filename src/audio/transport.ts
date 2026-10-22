@@ -11,7 +11,6 @@ export interface AirTransport {
   /** Plays a waveform rendered at `sampleRate`; resolves when it has finished. */
   play(wave: Float32Array, sampleRate: number): Promise<void>;
   setVolume(v: number): void;
-  stop(): void;
 }
 
 const CAPTURE_WORKLET = `
@@ -31,7 +30,6 @@ registerProcessor('resonance-capture', Capture);`;
 export class MicTransport implements AirTransport {
   readonly kind = 'mic';
   private ctx: AudioContext | null = null;
-  private stream: MediaStream | null = null;
   private gain: GainNode | null = null;
   private volume = 1;
 
@@ -40,7 +38,7 @@ export class MicTransport implements AirTransport {
       throw new Error('This browser cannot reach a microphone here. Open Resonance over https:// or on localhost.');
     }
     // Voice processing would treat our tones as noise and erase them.
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
     });
     const ctx = (this.ctx = new AudioContext({ latencyHint: 'interactive' }));
@@ -50,7 +48,7 @@ export class MicTransport implements AirTransport {
     URL.revokeObjectURL(url);
     const node = new AudioWorkletNode(ctx, 'resonance-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
     node.port.onmessage = (e: MessageEvent<Float32Array>) => onSamples(e.data);
-    ctx.createMediaStreamSource(this.stream).connect(node);
+    ctx.createMediaStreamSource(stream).connect(node);
     const sink = ctx.createGain();
     sink.gain.value = 0;
     node.connect(sink).connect(ctx.destination);
@@ -78,12 +76,6 @@ export class MicTransport implements AirTransport {
     this.volume = v;
     if (this.gain) this.gain.gain.value = v;
   }
-
-  stop() {
-    this.stream?.getTracks().forEach((t) => t.stop());
-    void this.ctx?.close();
-    this.ctx = null;
-  }
 }
 
 const SIM_RATE = 48000;
@@ -91,15 +83,13 @@ const TICK_MS = 40;
 const LATENCY_MS = 250;
 const SPEED_OF_SOUND = 343;
 const SELF_M = 0.1;
+const HISS_RMS = 0.01;
 const wallMs = () => performance.timeOrigin + performance.now();
 
 /** Loudness after `m` metres: spherical spreading plus a little air absorption (≈20 m range). */
 const attenuation = (m: number) => (0.6 * Math.exp(-m / 15)) / Math.max(1, m);
 
-export interface SimOptions {
-  room?: string;
-  /** Background hiss, RMS. */
-  noise?: number;
+interface SimOptions {
   /** Where this device stands in the simulated room, in metres. */
   x?: number;
   y?: number;
@@ -124,17 +114,12 @@ export class SimulatedAir implements AirTransport {
   readonly x: number;
   readonly y: number;
   private channel: BroadcastChannel | null = null;
-  private timer: ReturnType<typeof setInterval> | null = null;
   private scheduled: Scheduled[] = [];
   private volume = 1;
   private t0 = 0;
   private produced = 0;
-  private readonly room: string;
-  private readonly noise: number;
 
   constructor(opts: SimOptions = {}) {
-    this.room = opts.room ?? 'resonance-air';
-    this.noise = opts.noise ?? 0.01;
     this.x = opts.x ?? 0;
     this.y = opts.y ?? 0;
   }
@@ -149,19 +134,19 @@ export class SimulatedAir implements AirTransport {
   }
 
   async start(onSamples: (chunk: Float32Array) => void): Promise<number> {
-    this.channel = new BroadcastChannel(this.room);
+    this.channel = new BroadcastChannel('resonance-air');
     this.channel.onmessage = (e: MessageEvent<{ wave: Float32Array; gain: number; at: number; x: number; y: number }>) => {
       const m = e.data;
       this.schedule(m.wave, m.at, Math.hypot(m.x - this.x, m.y - this.y), m.gain);
     };
     this.t0 = wallMs();
-    this.timer = setInterval(() => {
+    setInterval(() => {
       const target = Math.floor(this.indexAt(wallMs() - LATENCY_MS));
       const n = Math.min(SIM_RATE, target - this.produced);
       if (n <= 0) return;
       const from = this.produced;
       const chunk = new Float32Array(n);
-      for (let i = 0; i < n; i++) chunk[i] = this.noise * gaussian(Math.random);
+      for (let i = 0; i < n; i++) chunk[i] = HISS_RMS * gaussian(Math.random);
       for (const s of this.scheduled) {
         const lo = Math.max(from, s.start);
         const hi = Math.min(from + n, s.start + s.wave.length);
@@ -184,10 +169,5 @@ export class SimulatedAir implements AirTransport {
 
   setVolume(v: number) {
     this.volume = v;
-  }
-
-  stop() {
-    if (this.timer) clearInterval(this.timer);
-    this.channel?.close();
   }
 }

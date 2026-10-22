@@ -18,9 +18,9 @@ export interface DecodedFrame {
   corrected: number;
 }
 
-export interface ReceiverListener {
+interface ReceiverListener {
   frame(f: DecodedFrame): void;
-  sync?(profile: ProfileId, startSample: number): void;
+  sync?(profile: ProfileId): void;
   lost?(profile: ProfileId, reason: 'header' | 'body'): void;
 }
 
@@ -36,7 +36,7 @@ const HUM_BUSY = 0.03;
 const MAX_CLOCK_SKEW = 0.012;
 const TRACK_STEP_SEC = 0.0005;
 
-export interface SymbolDecision {
+interface SymbolDecision {
   byte: number;
   /** 1 - (runner-up energy / winner energy), worst group. Low values become RS erasures. */
   conf: number;
@@ -184,7 +184,7 @@ abstract class FrameDecoder<P extends Profile> {
     const s0 = peak.pos + ((this.p.chirpSec + this.p.quietSec) * this.fs) / r;
     this.pending = { s0, r, tau: 0, started: best.pos };
     this.peaks = [];
-    this.listener.sync?.(this.p.id, best.pos);
+    this.listener.sync?.(this.p.id);
   }
 
   /** Decodes as much of the pending frame as the stored samples allow. */
@@ -336,7 +336,7 @@ class OfdmDecoder extends FrameDecoder<OfdmProfile> {
 
 /**
  * Listens to a continuous sample stream on every profile at once and emits decoded frames.
- * Pure TypeScript: the same code runs in a Web Worker, in Node tests and in the e2e harness.
+ * Pure TypeScript: the same code runs in a Web Worker, on imported recordings and in Node tests.
  */
 export class Receiver {
   private readonly store = new SampleStore();

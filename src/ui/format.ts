@@ -1,7 +1,7 @@
 import type { Status } from '../mesh/payloads';
 
-export function ago(ms: number, now = Date.now()): string {
-  const s = Math.max(0, Math.round((now - ms) / 1000));
+export function ago(ms: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 10) return 'just now';
   if (s < 60) return `${s}s ago`;
   const m = Math.round(s / 60);

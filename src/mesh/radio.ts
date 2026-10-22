@@ -3,7 +3,7 @@ import type { MeshClock } from './node';
 // Half-duplex channel access for an acoustic broadcast medium: listen before talk, back off
 // randomly while someone else is on air, and send one frame at a time.
 
-export interface RadioIO {
+interface RadioIO {
   /** True while the receiver hears another transmission. */
   busy(): boolean;
   /** Plays one frame; resolves when it has finished on air. */
@@ -22,7 +22,6 @@ export class TxQueue {
   private sending = false;
   private notBefore = 0;
   private deferringSince: number | null = null;
-  sent = 0;
   deferrals = 0;
   /** While paused nothing new starts; a frame already on air finishes. */
   paused = false;
@@ -46,10 +45,6 @@ export class TxQueue {
     if (this.queue.length > QUEUE_LIMIT) this.queue.length = QUEUE_LIMIT;
   }
 
-  clear() {
-    this.queue = [];
-  }
-
   /** Call frequently; starts the next transmission when the air is clear. */
   async tick(): Promise<void> {
     if (this.paused || this.sending || !this.queue.length || this.clock.now() < this.notBefore) return;
@@ -66,7 +61,6 @@ export class TxQueue {
     this.sending = true;
     try {
       await this.io.send(next);
-      this.sent++;
     } finally {
       this.sending = false;
       // A short random gap lets other nodes grab the channel between our frames.

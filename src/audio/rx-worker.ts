@@ -39,10 +39,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     sinceSpectrum += m.data.length;
     if (sinceSpectrum >= rx.fs / 25) {
       sinceSpectrum = 0;
-      let peak = 0;
-      for (const v of recent) peak = Math.max(peak, Math.abs(v));
       const bins = magnitudeSpectrum(recent, 2048);
-      post({ type: 'spectrum', bins, peak, fs: rx.fs }, [bins.buffer]);
+      post({ type: 'spectrum', bins, fs: rx.fs }, [bins.buffer]);
     }
     if (rx.busy !== wasBusy) post({ type: 'busy', busy: (wasBusy = rx.busy) });
   }

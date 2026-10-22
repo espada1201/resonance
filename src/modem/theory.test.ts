@@ -14,7 +14,7 @@ import { demodSymbol } from './receiver';
 // Roberts (IEEE Trans. Commun., 1982) reduced to a single integral:
 //   Ps = sin(π/M)/2π · ∫_{-π/2}^{π/2} exp(-Es/N0 · (1 - cos(π/M) cos θ)) / (1 - cos(π/M) cos θ) dθ
 
-export function mfskSer(M: number, esn0: number): number {
+function mfskSer(M: number, esn0: number): number {
   let p = 0;
   let c = 1;
   for (let n = 1; n < M; n++) {
@@ -24,7 +24,7 @@ export function mfskSer(M: number, esn0: number): number {
   return p;
 }
 
-export function mdpskSer(M: number, esn0: number): number {
+function mdpskSer(M: number, esn0: number): number {
   const c = Math.cos(Math.PI / M);
   const n = 2000;
   let sum = 0;
