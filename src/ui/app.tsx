@@ -40,7 +40,8 @@ function Gate({ station }: { station: Station }) {
           <Mic size={18} /> {station.status === 'starting' ? 'Starting…' : sim ? 'Join simulated air' : 'Start listening'}
         </button>
         {!sim && (
-          <a class="button ghost large" href="?air=sim">
+          // This tab joins the simulated room, and a second one opens beside it, 3 m away.
+          <a class="button ghost large" href="?air=sim" onClick={() => window.open('?air=sim&at=3,0', '_blank')}>
             Try it in two tabs, no microphone
           </a>
         )}
