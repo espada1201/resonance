@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { locate, offset } from '../geo';
 import { missing, received } from '../mesh/files';
@@ -176,34 +177,54 @@ function PinLine({ station, geo, me }: { station: Station; geo: Geo; me: Geo | n
   );
 }
 
+/** One item of the feed: who sent it and how it came, what it says, and what can be done with it. */
+function Item({ station, item, kind, actions, children }: { station: Station; item: FeedItem; kind?: string; actions?: ComponentChildren; children: ComponentChildren }) {
+  return (
+    <article class={kind ? `item ${kind}` : 'item'}>
+      <Meta station={station} item={item} />
+      {children}
+      {actions && <div class="actions">{actions}</div>}
+    </article>
+  );
+}
+
 function FeedItemView({ station, item, position }: { station: Station; item: FeedItem; position: Geo | null }) {
+  const shell = { station, item };
   if (item.locked) {
     return (
-      <article class="item locked">
-        <Meta station={station} item={item} />
+      <Item {...shell} kind="locked">
         <p class="muted">
           <Lock size={14} /> Sealed for a circle you are not in.
           {station.circleChannel !== null && ' If you should be, check the passphrase in Settings.'}
           {station.settings.relay && ' Your device still relays it.'}
         </p>
-      </article>
+      </Item>
     );
   }
   if (item.fileKey) {
     return (
-      <article class="item">
-        <Meta station={station} item={item} />
+      <Item {...shell}>
         <FileView station={station} item={item} />
-      </article>
+      </Item>
     );
   }
   const b = item.body;
   if (!b) return null;
+  const sound = <SoundFileButton station={station} item={item} />;
+  const delivery = <Delivery station={station} item={item} />;
   if (b.kind === 'checkin') {
     const replies = station.journal.repliesTo(item.src, item.msgId);
     return (
-      <article class={`item checkin s-${b.status}`}>
-        <Meta station={station} item={item} />
+      <Item
+        {...shell}
+        kind={`checkin s-${b.status}`}
+        actions={
+          <>
+            {delivery}
+            {sound}
+          </>
+        }
+      >
         <p class="status-line">
           <span class="status-word">{STATUS_TEXT[b.status]}</span>
           {b.about && (
@@ -232,57 +253,57 @@ function FeedItemView({ station, item, position }: { station: Station; item: Fee
             {ago(writtenAt(r))}
           </p>
         ))}
-        <div class="actions">
-          <Delivery station={station} item={item} />
-          <SoundFileButton station={station} item={item} />
-        </div>
-      </article>
+      </Item>
     );
   }
   if (b.kind === 'notice') {
     return (
-      <article class={`item notice t-${b.topic}`}>
-        <Meta station={station} item={item} />
+      <Item {...shell} kind={`notice t-${b.topic}`} actions={sound}>
         <span class="topic">{TOPIC_TEXT[b.topic]}</span>
         <p class="notice-text">{b.text}</p>
         <p class="muted small">
           {[b.place, `for ${b.hours < 24 ? `${b.hours} hours` : `${b.hours / 24} day${b.hours > 24 ? 's' : ''}`}`].filter(Boolean).join(' · ')}
         </p>
-        <div class="actions">
-          <SoundFileButton station={station} item={item} />
-        </div>
-      </article>
+      </Item>
     );
   }
   if (b.kind === 'contact') {
     return (
-      <article class="item contact">
-        <Meta station={station} item={item} />
+      <Item
+        {...shell}
+        kind="contact"
+        actions={
+          <>
+            {delivery}
+            <button type="button" class="ghost small" onClick={() => download(vcard(b.name, b.phone, b.note), `${b.name || 'contact'}.vcf`)}>
+              <Download size={14} /> Save contact
+            </button>
+            {sound}
+          </>
+        }
+      >
         <div class="card">
           <strong>{b.name}</strong>
           {b.phone && <a href={`tel:${b.phone.replace(/[^+\d]/g, '')}`}>{b.phone}</a>}
           {b.skills && <span>Can help with: {b.skills.map((k) => SKILL_TEXT[k].toLowerCase()).join(', ')}</span>}
           {b.note && <span class="muted">{b.note}</span>}
         </div>
-        <div class="actions">
-          <Delivery station={station} item={item} />
-          <button type="button" class="ghost small" onClick={() => download(vcard(b.name, b.phone, b.note), `${b.name || 'contact'}.vcf`)}>
-            <Download size={14} /> Save contact
-          </button>
-          <SoundFileButton station={station} item={item} />
-        </div>
-      </article>
+      </Item>
     );
   }
   return (
-    <article class={item.mine ? 'item text mine' : 'item text'}>
-      <Meta station={station} item={item} />
+    <Item
+      {...shell}
+      kind={item.mine ? 'text mine' : 'text'}
+      actions={
+        <>
+          {delivery}
+          {sound}
+        </>
+      }
+    >
       <p class="text-body">{b.text}</p>
-      <div class="actions">
-        <Delivery station={station} item={item} />
-        <SoundFileButton station={station} item={item} />
-      </div>
-    </article>
+    </Item>
   );
 }
 
