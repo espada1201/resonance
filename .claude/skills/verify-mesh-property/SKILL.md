@@ -5,15 +5,15 @@ description: Check that Resonance's mesh flooding terminates (every node puts ea
 
 # Verify the mesh: flooding terminates
 
-**Property.** Whatever is lost and in whatever order frames and timers come, each node puts a given packet on the air a bounded number of times: as its author at most `config.maxAttempts` frames (the first send, then retries or the one echo repeat; a receipt is its sender's packet), as a relay once per attempt it heard, and as a carrier once per HELLO it heard from a neighbour that had not heard the packet when it said hello.
+**Property.** Whatever is lost and in whatever order frames and timers come, each node puts a given packet on the air a bounded number of times: as its author at most `config.maxAttempts` frames (the first send, then retries or echo repeats; a receipt is its sender's packet), as a relay once per attempt it heard, and as a carrier once per HELLO it heard from a neighbour that had not heard the packet when it said hello.
 
 **Harm.** Sound is one shared channel where a frame takes 1 to 20 s, so a packet sent without bound jams the room for everyone nearby, and a call for help waits behind it.
 
 ## Run it
 
 ```sh
-npx vitest run src/mesh/flooding-bound.test.ts                      # default bound: 9 tests, 8-12 s
-MESH_VERIFY_FULL=1 npx vitest run src/mesh/flooding-bound.test.ts   # adds the two biggest scenarios: 31-41 s
+npx vitest run src/mesh/flooding-bound.test.ts                      # default bound: 10 tests, 8-12 s
+MESH_VERIFY_FULL=1 npx vitest run src/mesh/flooding-bound.test.ts   # adds the two biggest scenarios: 35-45 s
 ```
 
 Vitest 5.0.5 from package.json on Node 22; nothing else to install. Run the default bound on every change to the covered code, and the full bound before merging one. A failure prints `counterexample:` and numbered steps in the code's words. This is what removing the dedupe check from `receive()` prints:
@@ -34,17 +34,17 @@ Vitest 5.0.5 from package.json on Node 22; nothing else to install. Run the defa
 
 ## Does my change touch it?
 
-Sync commit: **4e13502** (`Merge branch 'claude/project-thread-5kbi5w' into feature-formal`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
+Sync commit: **91bbe75** (`A broadcast nobody echoed is repeated again when neighbours are about`). At that commit the check was confirmed to describe the code below, passing except for the known finding.
 
 ```sh
-git diff 4e13502 -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
+git diff 91bbe75 -- src/mesh/node.ts src/mesh/packet.ts src/mesh/payloads.ts src/mesh/bloom.ts src/mesh/radio.ts src/mesh/explorer.ts src/mesh/flooding-bound.test.ts
 ```
 
 Any output means rerun the check and follow "Keeping it in step".
 
 | File | What the check covers | How |
 | --- | --- | --- |
-| `src/mesh/node.ts` | `MeshNode`: `originate`, `aired`, `receive`, `hello`, `onAck`, `onHello`, `carry`, `feedNeighbors`, `tick`, `schedule`, `remember`, `sendAck`, `touchNeighbor`, `keepMs`, `ackTimeout`, `echoTimeout`, `pruneSeen` (below its 4000 entries only) | runs the real code |
+| `src/mesh/node.ts` | `MeshNode`: `originate`, `awaitAnswer`, `aired`, `receive`, `hello`, `onAck`, `onHello`, `carry`, `feedNeighbors`, `tick`, `alone`, `schedule`, `remember`, `sendAck`, `touchNeighbor`, `keepMs`, `ackTimeout`, `echoTimeout`, `pruneSeen` (below its 4000 entries only) | runs the real code |
 | `src/mesh/packet.ts` | `encodePacket`, `decodePacket`, `peekType` | runs the real code |
 | `src/mesh/payloads.ts` | `encodeBody`, `decodeBody` | runs the real code |
 | `src/mesh/bloom.ts` | `Bloom`, `sliceOf` (the HELLO summary) | runs the real code |
@@ -68,8 +68,9 @@ Default scenarios. Each must pass with `cut` 0 (the depth bound never stopped th
 | a check-in floods three nodes that all hear each other | ABC, all pairs | 2 | | 2,002 |
 | a check-in floods four nodes in a line | A-B-C-D | 2 | | 3,787 |
 | a check-in floods three nodes while the air is busy at one tick | ABC, all pairs | 1 | 1 busy tick | 9,267 |
-| a direct message and its receipt cross a relay | A-B-C | 1 | A's `maxAttempts` 2 stands in for 3 | 8,448 |
+| a direct message and its receipt cross a relay | A-B-C | 1 | A's `maxAttempts` 2 stands in for 3 | 7,994 |
 | a direct message to a neighbour, with all three attempts | A-B | 1 | | 181 |
+| a check-in from a node that knows a neighbour, whose echoes are all lost | A-B | 3 | A heard B's hello first, so it is not alone | 193 |
 | two nodes meet and swap what the other lacks | B-N | 1 | 1 HELLO each, relays off | 2,890 |
 
 `MESH_VERIFY_FULL=1` adds a check-in in a ring of four (AB AC BD CD) with 2 losses (35,695 states) and the triangle with 2 losses and a busy tick (24,724 states).
@@ -83,9 +84,9 @@ In every scenario:
 
 The check runs the real class instead of a TLA+ model because the question is whether node.ts itself, with its dedupe memory, timers and Bloom summaries, can send without bound; a hand model would drift from it. Vitest is already the repo's test runner, so nothing new is installed.
 
-## Known finding (open, not fixed)
+## Known finding (narrowed, still open)
 
-A packet that left a node's store but not its dedupe memory (`seen`) is carried back to it at every HELLO. The node's summary lacks the packet, so a neighbour that holds it carries it; `receive()` then returns at `if (this.seen.has(rk)) return p;` before `remember()`, so the store still lacks it and the next HELLO asks again. Every later HELLO whose slice covers the packet (every HELLO while the store holds 40 or fewer) brings it back once the 90 s `carryCooldownMs` has passed, with up to two more such packets (`CARRY_BATCH`), until the carrier's own copy expires: 12 h for chat, 72 h for check-ins, replies and notices. A node gets there when its store expires a packet a neighbour heard later, when a full store drops one (a beacon fills its 300 and says hello every minute), and after `Station.wipe()`, which clears the store but not `seen`. That last path is not in the check.
+A packet that left a node's store but not its dedupe memory (`seen`) is carried back to it once. The node's summary lacks the packet, so a neighbour that holds it carries it; `receive()` drops the copy as already seen, but notes its id in `forgotten`, and later HELLOs list `forgotten` ids, so nobody carries it again. Until commit fc3d45c it came back at every HELLO, for as long as the carrier kept its copy (12 h for chat, 72 h for lasting news); `mesh.test.ts` pins the fix in `a packet a node forgot is carried back to it once, not at every hello`. That one carry still breaks `airBudget`'s bound (one carry per HELLO from a neighbour that had not heard the packet). A node gets there when its store expires a packet a neighbour heard later, when a full store drops one (a beacon fills its 300 and says hello every minute), and after `Station.wipe()`, which clears the store but not `seen`. That last path is not in the check.
 
 From the test `a store forgets a chat after 12 h that a neighbour heard three hours later`:
 
@@ -120,7 +121,7 @@ After an intended change to the covered code:
 
 1. Run the default and the full bound.
 2. Read the diff against the table above: new `MeshNode` fields are copied and fingerprinted on their own, but new timers need `nextDue`, new `transmit` reasons need `airBudget`, and new config may need new scenarios.
-3. Confirm the check can still fail. Delete `if (this.seen.has(rk)) return p;` in `receive()`: the three flood scenarios fail with `relayed attempt 0 of check-in X 2 times`. Restore it, then delete the `if (a.packet.attempt + 1 >= this.config.maxAttempts) { ... }` block in `tick()`: both direct-message scenarios fail with `put chat M on air 3 times as its author` (4 times for the pair). Restore with `git checkout src/mesh/node.ts`.
+3. Confirm the check can still fail. Delete `if (this.seen.has(rk)) return p;` in `receive()`: the three flood scenarios fail with `relayed attempt 0 of check-in X 2 times`. Restore it, then delete the `if (a.packet.attempt + 1 >= this.config.maxAttempts) { ... }` block in `tick()`: both direct-message scenarios fail with `put chat M on air 3 times as its author` (4 times for the pair). Restore it, then write `this.config.maxAttempts + 1` in the echo repeats' limit in `tick()`: the scenario of a node that knows a neighbour fails with `A put check-in X on air 4 times as its author`. Restore with `git checkout src/mesh/node.ts`.
 4. Only then move the sync commit above to the commit you checked.
 
 A new scenario should stay under about 5 s and 40,000 states. To size one, log `explore(s, airBudget)`'s `states`, `depth` and `cut` once and delete the log. Retries, relays and HELLOs grow the state space fastest.
@@ -133,6 +134,6 @@ A new scenario should stay under about 5 s and 40,000 states. To size one, log `
 - Relays during a meeting; `feedNeighbors` batches after the first three; stores bigger than one HELLO slice (40 ids); the `UNPROVEN_FEED` budget.
 - Busy air long enough for `MAX_DEFER_MS` to release a held relay; more than one busy tick.
 - `answer()`, `hydrate()`, `Station.wipe()`, `pruneSeen` past 4000 entries, and times past 12 h or 72 h outside the known-finding scenarios.
-- More than four nodes, more than two losses, other random draws.
+- More than four nodes, more than two losses (three in the two-node echo scenario), other random draws.
 - `TxQueue` order, its 64-frame limit and drops; station.ts wiring; the audio modem.
 - Whether packets arrive (liveness). This checks a bound on sending only.
