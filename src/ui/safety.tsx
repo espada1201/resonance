@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, ReplyKind, Status } from '../mesh/payloads';
-import { type RosterEntry, rosterCsv, search } from '../roster';
+import { type CheckInBody, type Heard, type RosterEntry, rosterCsv, search } from '../roster';
 import type { Station } from '../station';
 import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { CourierList } from './courier';
@@ -15,6 +15,8 @@ const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
 /** Find needs the person's own device in earshot: heard directly this recently. */
 const FINDABLE_MS = 10 * 60_000;
+/** A tap this soon after a first-screen button opened the Safety tab is the same tap again. */
+const STRAY_TAP_MS = 400;
 
 type OrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 
@@ -93,12 +95,19 @@ function sentText(station: Station, about: string | undefined, ask: boolean) {
   return ask ? `${waiting} Add ${mine.latest.body.place ? 'what you need' : 'where you are and what you need'}, and send again.` : waiting;
 }
 
+/** Whether the request this device just sent is still open, so taking it back still means something. */
+function stillOpen(station: Station, sentAs: Heard<CheckInBody> | undefined) {
+  return !!sentAs && station.journal.roster().some((e) => e.open && e.latest.src === sentAs.src && e.latest.msgId === sentAs.msgId);
+}
+
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
 function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shortcut: Status | null; onShortcut: () => void }) {
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
   const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
-  const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: string } | null>(null);
+  const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: string; sentAs?: Heard<CheckInBody>; takenBack?: boolean } | null>(null);
+  // A double tap on the first screen's button lands on this row a moment after the tab opened: it is no second check-in.
+  const stray = useRef(0);
   const [err, setErr] = useState('');
   const more = useRef<HTMLDetailsElement>(null);
   const quickRow = useRef<HTMLDivElement>(null);
@@ -121,7 +130,8 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
       const ask = label === 'help' && !detailed;
       // Said now and kept as said: typing the name must not take the line away before the next send.
       const unnamed = nameless(station, fields.about);
-      setSent({ about: fields.about, ask, unnamed });
+      const sentAs = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === fields.about)?.latest;
+      setSent({ about: fields.about, ask, unnamed, sentAs });
       // The status stays as sent: after a call for help, the form must not quietly say Safe.
       if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
       if (ask) {
@@ -145,16 +155,32 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
     });
   }
 
-  const quick = (status: Status) => {
+  const quick = (status: Status, fromShortcut = false) => {
+    if (!fromShortcut && Date.now() < stray.current) return;
     const d = detailed ? draft : newDraft(station.settings);
     void send({ ...d, status: asking(d.status) === asking(status) ? d.status : status, withGeo: true }, status);
   };
+
+  /** Says "resolved" to the request just sent: the same reply "I got help" sends. */
+  async function takeBack() {
+    if (!sent?.sentAs) return;
+    try {
+      await station.reply(sent.sentAs, 'resolved');
+      setSent({ ...sent, takenBack: true });
+      setErr('');
+      // The button that was pressed is gone: the keyboard goes to the call for help, not back to the top.
+      requestAnimationFrame(() => quickRow.current?.querySelector<HTMLElement>('.s-help')?.focus());
+    } catch (e) {
+      setErr(errorText(e));
+    }
+  }
 
   // A tap on the first screen's button opened this tab: do what the button here does, once.
   useEffect(() => {
     if (!shortcut) return;
     onShortcut();
-    if (listening) quick(shortcut);
+    stray.current = Date.now() + STRAY_TAP_MS;
+    if (listening) quick(shortcut, true);
   }, []);
 
   const { place, outside } = station.settings;
@@ -169,7 +195,13 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
           {sending === 'help' ? 'Sending…' : 'I need help'}
         </button>
       </div>
-      {sent && <p role="status">{joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed)}</p>}
+      {sent && <p role="status">{sent.takenBack ? 'Taken back. Others now see it as resolved.' : joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed)}</p>}
+      {/* One tap sends at once, as an emergency must; this is the way out of a stray one. */}
+      {listening && sent?.ask && !sent.takenBack && stillOpen(station, sent.sentAs) && (
+        <button type="button" class="ghost small" onClick={() => void takeBack()}>
+          Sent by mistake? Take it back
+        </button>
+      )}
       <p class="muted small">
         One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at "${place}".`}

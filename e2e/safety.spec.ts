@@ -233,6 +233,72 @@ test('the first screen has I\'m safe and I need help, and they do what the Safet
   await expect(shortcuts).toHaveCount(0);
 });
 
+test('a call for help sent by mistake from the first screen is taken back in one tap, and others see it resolved', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  // One tap still sends at once: nothing asks "are you sure" first.
+  await a.getByRole('group', { name: 'In an emergency' }).getByRole('button', { name: 'I need help' }).click();
+  const status = a.getByRole('status').filter({ hasText: 'Sent' });
+  await expect(status).toContainText('No one has said they are coming yet.');
+  await expect(b.getByRole('tab', { name: 'Safety, 1 open request' })).toBeVisible();
+  await a.getByRole('button', { name: 'Sent by mistake? Take it back' }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Taken back' })).toHaveText('Taken back. Others now see it as resolved.');
+  await expect(a.getByRole('button', { name: 'Sent by mistake? Take it back' })).toHaveCount(0);
+  await expect(a.getByRole('button', { name: 'I need help' })).toBeFocused();
+  await expect(checkInRow(a, 'You')).toContainText('Resolved');
+
+  await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Ana')).toContainText('Resolved');
+  await expect(checkInRow(b, 'Ana')).not.toContainText('Waiting for help');
+  await proof(a, 'taken-back');
+});
+
+test('the one-tap help on the Safety tab offers the same way out, and a later check-in takes the offer away', async ({ page }) => {
+  await joinAir(page, '/?air=sim', 'Ana');
+  await openTab(page, 'Safety');
+  await page.getByRole('button', { name: 'I need help' }).click();
+  const takeBack = page.getByRole('button', { name: 'Sent by mistake? Take it back' });
+  await expect(takeBack).toBeVisible();
+  await page.getByRole('button', { name: "I'm safe" }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Sent.');
+  await expect(takeBack).toHaveCount(0);
+});
+
+test('a double tap on the first screen\'s help button cannot send a second, contradicting check-in', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  // The second tap lands on Safety's own row as soon as it can be pressed. This needs the clock of a real tap, so it runs in the page.
+  const waited = await a.evaluate(async () => {
+    const button = (selector: string) => document.querySelector<HTMLButtonElement>(selector);
+    const t0 = performance.now();
+    button('.shortcuts .s-help')!.click();
+    // Safety's row is pressable again only once the first tap has been sent and its answer shown.
+    while (!button('.checkin-card [role="status"]') || button('.quick .s-safe')?.disabled !== false) await new Promise((r) => setTimeout(r, 0));
+    const waited = performance.now() - t0;
+    button('.quick .s-safe')!.click();
+    return waited;
+  });
+  expect(waited, 'the second tap came within the guard window').toBeLessThan(400);
+
+  // A check-in sent by the second tap would take a moment to show; give it that, then look.
+  await a.waitForTimeout(1500);
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('No one has said they are coming yet.');
+  await expect(checkInRow(a, 'You')).toContainText('Waiting for help');
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Ana')).toContainText('Waiting for help');
+
+  // After the moment has passed, the same button works.
+  await a.getByRole('button', { name: "I'm safe" }).click();
+  await expect(checkInRow(a, 'You')).toContainText('Safe');
+});
+
 test('a check-in keeps the status sent but not its needs, and the keyboard meets its fields in the order they are typed', async ({ page }) => {
   await joinAir(page, '/?air=sim', 'Ana');
   await page.getByRole('radio', { name: 'Check in', exact: true }).click();
