@@ -34,6 +34,10 @@ export const HEARD_FROM_SENDER = 'heard from their own phone';
 /** Our own broadcast or reply, said by the same words on the Feed and on Safety: whether another phone repeated it. */
 export const HEARD_BY_NEARBY = 'heard by a phone nearby';
 export const NOT_HEARD_YET = 'not heard by another phone yet';
+/** Until the first resend has had its turn, no news is no failure: sound is slow. */
+export const SENDING_TEXT = 'sending… this can take up to a minute';
+/** Our reply, once the phone that asked has said it has it. */
+export const askerHasIt = (name: string) => `${name}'s phone has it`;
 
 export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 

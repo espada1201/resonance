@@ -341,7 +341,7 @@ export function Safety({ station, shortcut = null, onShortcut = () => undefined,
             name={name}
             by={by}
             reply={listening ? (e, what) => void answer(e.latest, what) : null}
-            replyLine={(r) => replyLine(station, r, by)}
+            replyLine={(r, askerNick) => replyLine(station, r, by, askerNick)}
             find={(e) => {
               const n = e.latest.body.about ? undefined : station.mesh.neighbors.get(e.latest.src);
               return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;

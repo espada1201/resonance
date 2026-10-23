@@ -27,7 +27,7 @@ export interface FeedItem extends Meta {
 }
 
 /** The safety log as saved, with the ids of our own messages another device was heard repeating. */
-export type SavedSafety = SafetySnapshot & { passedOn?: number[] };
+export type SavedSafety = SafetySnapshot & { passedOn?: number[]; reachedAsker?: number[] };
 
 const FEED_KEPT = 400;
 const FEED_SAVED = 200;
@@ -38,6 +38,8 @@ export class Journal {
   private log = new SafetyLog();
   /** Ids of our own broadcasts and replies that another device was heard repeating. */
   private passed = new Set<number>();
+  /** Ids of our own replies that the device that asked acknowledged itself. */
+  private reached = new Set<number>();
 
   constructor(
     private readonly self: number,
@@ -81,10 +83,12 @@ export class Journal {
     this.feed = [{ id, src, msgId, at, hops, mine: src === this.self, encrypted, locked: false, dst, fileKey: key }, ...this.feed].slice(0, FEED_KEPT);
   }
 
-  /** A receipt came back for our direct message, or it gave up after its retries. */
-  delivered(msgId: number, ok: boolean) {
+  /** A receipt came back for our direct message, or it gave up after its retries. `from`: the device that sent the receipt. */
+  delivered(msgId: number, ok: boolean, from?: number) {
     const item = this.feed.find((i) => i.mine && i.msgId === msgId);
     if (item) item.delivery = ok ? 'acked' : 'failed';
+    // A reply is for everyone, but the one that asked is the one who most needs it: its own receipt counts.
+    if (ok && from !== undefined && this.log.replies.some((r) => r.src === this.self && r.msgId === msgId && r.body.src === from)) this.reached.add(msgId);
   }
 
   /** Another device repeated a broadcast of ours: a feed item, or a reply such as "On my way". */
@@ -96,6 +100,11 @@ export class Journal {
   /** Whether another device was heard repeating this message of ours. */
   wasPassedOn(msgId: number) {
     return this.passed.has(msgId);
+  }
+
+  /** Whether the device that asked said it has this reply of ours. */
+  reachedAsker(msgId: number) {
+    return this.reached.has(msgId);
   }
 
   /** Removes an item (one sent again took its place). */
@@ -124,7 +133,7 @@ export class Journal {
   }
 
   snapshot(): { safety: SavedSafety; feed: FeedItem[] } {
-    return { safety: { ...this.log.snapshot(), ...(this.passed.size > 0 && { passedOn: [...this.passed] }) }, feed: this.feed.slice(0, FEED_SAVED) };
+    return { safety: { ...this.log.snapshot(), ...(this.passed.size > 0 && { passedOn: [...this.passed] }), ...(this.reached.size > 0 && { reachedAsker: [...this.reached] }) }, feed: this.feed.slice(0, FEED_SAVED) };
   }
 
   restore(saved: { safety: SavedSafety | null; feed: FeedItem[] | null; resent: Set<string> }) {
@@ -136,6 +145,7 @@ export class Journal {
     this.log.prune(this.clock.now());
     // A save from before the ids were kept marked the feed items and replies themselves.
     const marked = (x: { msgId: number }) => (x as { passedOn?: boolean }).passedOn;
+    this.reached = new Set(saved.safety?.reachedAsker ?? []);
     this.passed = new Set([...(saved.safety?.passedOn ?? []), ...[...this.feed, ...this.log.replies].filter(marked).map((x) => x.msgId)]);
   }
 
@@ -148,5 +158,6 @@ export class Journal {
     this.feed = [];
     this.log = new SafetyLog();
     this.passed.clear();
+    this.reached.clear();
   }
 }

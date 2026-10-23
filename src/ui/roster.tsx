@@ -4,7 +4,7 @@ import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
 import { type Heard, type ReplyBody, type RosterEntry, needingYou, tookBack, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOOK_BACK_TEXT, ago, joinParts, passedOnText } from './format';
+import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, REPLY_TEXT, SENDING_TEXT, SKILL_TEXT, STATUS_TEXT, TOOK_BACK_TEXT, ago, askerHasIt, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Compass } from './icons';
 
@@ -30,8 +30,8 @@ interface RosterProps {
   by: (src: number, nick: string) => string;
   /** Null while replies cannot be sent (not listening). */
   reply: ((e: RosterEntry, what: ReplyKind) => void) | null;
-  /** One reply as a line: who, how long ago, and for our own what is known about whether it was heard. */
-  replyLine: (r: Heard<ReplyBody>) => string;
+  /** One reply as a line: who, how long ago, and for our own what is known about whether it was heard. `askerNick`: the name on the request it answers. */
+  replyLine: (r: Heard<ReplyBody>, askerNick: string) => string;
   /** A Find action for someone whose own device is in earshot, or null. */
   find: (e: RosterEntry) => (() => void) | null;
   readout?: (e: RosterEntry) => ComponentChildren;
@@ -44,16 +44,21 @@ export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, n
   return r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : did}` : `${by(r.src, r.body.nick)} ${did}`;
 };
 
-/** What is known about whether our own reply, such as "On my way", was heard: empty for anyone else's. */
-export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
+/**
+ * What is known about whether our own reply, such as "On my way", was heard: empty for anyone else's.
+ * Best news first: the phone that asked has it, then some phone has it, then still on its way, then not heard.
+ */
+export function replyReceipt(station: Station, r: Heard<ReplyBody>, asker: string): string {
   if (r.src !== station.id) return '';
   if (station.queued(r)) return 'waiting to send…';
-  return station.journal.wasPassedOn(r.msgId) ? HEARD_BY_NEARBY : `sent, ${NOT_HEARD_YET}`;
+  if (station.journal.reachedAsker(r.msgId)) return askerHasIt(asker);
+  if (station.journal.wasPassedOn(r.msgId)) return HEARD_BY_NEARBY;
+  return station.firstResendPassed(r) ? `sent, ${NOT_HEARD_YET}` : SENDING_TEXT;
 }
 
-/** "Ben is on the way · 2 min ago", or for our own "You are on the way · just now · heard by a phone nearby". */
-export const replyLine = (station: Station, r: Heard<ReplyBody>, by: (src: number, nick: string) => string) =>
-  joinParts(' · ', replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r));
+/** "Ben is on the way · 2 min ago", or for our own "You are on the way · just now · Ben's phone has it". */
+export const replyLine = (station: Station, r: Heard<ReplyBody>, by: (src: number, nick: string) => string, askerNick: string) =>
+  joinParts(' · ', replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r, by(r.body.src, askerNick)));
 
 /**
  * "3 people · 3 asking for help · 1 waiting for you · you are on your way to 1": what is true, in the words a
@@ -118,7 +123,7 @@ export function RosterList({ entries, me, self, name, by, reply, replyLine, find
             </p>
             {e.replies.map((r) => (
               <p key={`${r.src}:${r.msgId}`} class="small reply">
-                {replyLine(r)}
+                {replyLine(r, b.nick)}
               </p>
             ))}
             {(e.open || e.stale) && confirming && (

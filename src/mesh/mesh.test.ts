@@ -466,6 +466,35 @@ describe('mesh flooding', () => {
     ]);
   });
 
+  it('a node that acknowledges a broadcast it was sent tells the sender who has it', () => {
+    const heardFrom: Array<[number, boolean, number | undefined]> = [];
+    const clock = { now: () => 0, random: () => 0.5 };
+    const wire: Uint8Array[] = [];
+    const asker = new MeshNode(2, clock, { transmit: (b) => void wire.push(b), deliver: () => undefined });
+    const replier = new MeshNode(1, clock, { transmit: () => undefined, deliver: () => undefined, delivery: (msgId, ok, from) => void heardFrom.push([msgId, ok, from]) });
+    const reply = encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId: 31, src: 1, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(text('on my way')) });
+    asker.acknowledge(decodePacket(reply)!);
+    const ack = decodePacket(wire[0])!;
+    expect([ack.type, ack.src, ack.dst]).toEqual([PacketType.Ack, 2, 1]);
+    replier.receive(wire[0]);
+    expect(heardFrom).toEqual([[31, true, 2]]);
+  });
+
+  it('an acknowledgement of a broadcast does not stand down the relays of it, as one of a direct message does', () => {
+    // Same node, same moment: only the destination of the packet differs.
+    const run = (dst: number) => {
+      let now = 0;
+      const sent: Packet[] = [];
+      const c = new MeshNode(3, { now: () => now, random: () => 0.5 }, { transmit: (b) => void sent.push(decodePacket(b)!), deliver: () => undefined });
+      c.receive(encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: dst !== BROADCAST, msgId: 41, src: 1, dst, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody(text('hi')) }));
+      c.receive(encodePacket({ type: PacketType.Ack, encrypted: false, ackRequested: false, msgId: 5, src: 2, dst: 1, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody({ kind: 'ack', msgId: 41, attempt: 0 }) }));
+      for (now = 0; now < 20_000; now += 50) c.tick();
+      return sent.filter((p) => p.type === PacketType.Text).length;
+    };
+    expect(run(BROADCAST)).toBe(1);
+    expect(run(7)).toBe(0);
+  });
+
   it('carries a message in a pocket to a node that was out of range (HELLO sync)', () => {
     const w = new World();
     const [a, b, c] = ['A', 'B', 'C'].map((n, i) => w.add(n, i + 1));

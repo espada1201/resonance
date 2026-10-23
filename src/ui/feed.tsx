@@ -7,7 +7,7 @@ import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
 import { type RosterEntry, tookBack, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
+import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, SENDING_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -66,7 +66,7 @@ function Delivery({ station, item }: { station: Station; item: FeedItem }) {
         <Check size={14} /> sent · {HEARD_BY_NEARBY}
       </span>
     ) : (
-      <span class="delivery">sent · {NOT_HEARD_YET}</span>
+      <span class="delivery">{station.firstResendPassed(item) ? `sent · ${NOT_HEARD_YET}` : SENDING_TEXT}</span>
     );
   }
   const state = item.delivery;
@@ -372,7 +372,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
         {b.outside && <p class="muted small">For family outside: {b.outside}</p>}
         {replies.map((r) => (
           <p key={`${r.src}:${r.msgId}`} class="small reply">
-            {replyLine(station, r, (src, nick) => named(station, src, nick))}
+            {replyLine(station, r, (src, nick) => named(station, src, nick), b.nick)}
           </p>
         ))}
       </Item>

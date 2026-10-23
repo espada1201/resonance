@@ -456,6 +456,38 @@ describe('what people say', () => {
     expect(s.journal.wasPassedOn(sent().msgId)).toBe(true);
   });
 
+  it('tells the one who answers our request that we have the answer, once, and only for an answer heard on the air', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    await s.say({ kind: 'checkin', status: 'help', note: '' });
+    const ask = s.journal.roster()[0].latest;
+    const answer = (msgId: number, src = s.id, to = ask.msgId) => heard(BEN, msgId, { kind: 'reply', ts: nowSec(), nick: 'Ben', what: 'coming', src, msgId: to }, { hops: 1 });
+    const acks = () => out.filter((o) => o.p.type === PacketType.Ack).map((o) => [o.p.dst, decodeBody(o.p.type, o.p.body)]);
+    // A recording is no phone that answered; an answer to someone else's request is not ours to confirm.
+    s.onFrame(answer(500), false);
+    s.onFrame(answer(501, CAL, 9));
+    expect(acks()).toEqual([]);
+    s.onFrame(answer(502));
+    s.onFrame(answer(502));
+    expect(acks()).toEqual([[BEN, { kind: 'ack', msgId: 502, attempt: 0 }]]);
+  });
+
+  it('marks our "On my way" as in the hands of the one who asked once that phone says so, and not for anyone else\'s receipt', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    const ask = { src: BEN, msgId: 7, at: Date.now(), hops: 0, encrypted: false, body: { kind: 'checkin' as const, ts: nowSec(), nick: 'Ben', status: 'help' as const, note: '' } };
+    s.journal.addToLog({ src: ask.src, msgId: ask.msgId, at: ask.at, hops: 0, encrypted: false, dst: BROADCAST }, ask.body);
+    await s.reply(ask, 'coming');
+    const sent = s.journal.repliesTo(BEN, 7).find((r) => r.src === s.id)!;
+    const receipt = (from: number) =>
+      frame(encodePacket({ type: PacketType.Ack, encrypted: false, ackRequested: false, msgId: 900 + from, src: from, dst: s.id, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody({ kind: 'ack', msgId: sent.msgId, attempt: 0 }) }));
+    s.onFrame(relayed(out[0].bytes, 1));
+    s.onFrame(receipt(CAL));
+    expect(s.journal.reachedAsker(sent.msgId)).toBe(false);
+    s.onFrame(receipt(BEN));
+    expect(s.journal.reachedAsker(sent.msgId)).toBe(true);
+  });
+
   it('sends a take-back as a resolved with the mistake flag, which the sender and a neighbour both read as cancelled', async () => {
     const s = new Station(air, 'phone', null);
     const out = outbox(s);

@@ -123,7 +123,7 @@ function Beacon() {
               name={(e) => e.latest.body.about ?? by(e.latest.src, e.latest.body.nick)}
               by={by}
               reply={null}
-              replyLine={(r) => replyLine(station, r, by)}
+              replyLine={(r, askerNick) => replyLine(station, r, by, askerNick)}
               find={() => null}
             />
           )}

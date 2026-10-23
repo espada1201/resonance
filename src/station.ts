@@ -4,7 +4,7 @@ import type { AirTransport } from './audio/transport';
 import { type FeedItem, Journal, type Meta } from './journal';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
 import { FILE_REQUEST_TTL, type FileRequest, FileTransfer, chunkFile } from './mesh/files';
-import { MeshNode, isLasting, storeKey } from './mesh/node';
+import { FIRST_RESEND_MS, MeshNode, isLasting, storeKey } from './mesh/node';
 import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, nodeHex, peekType, randomNodeId, randomU32 } from './mesh/packet';
 import { type Body, type ContentBody, type Geo, type ReplyKind, decodeBody, encodeBody, isContent, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
@@ -132,8 +132,8 @@ export class Station {
     this.mesh = new MeshNode(this.id, clock, {
       transmit: (bytes, reason) => this.radio.enqueue(bytes, reason === 'ack'),
       deliver: (p) => void this.onDeliver(p),
-      delivery: (msgId, ok) => {
-        this.journal.delivered(msgId, ok);
+      delivery: (msgId, ok, from) => {
+        this.journal.delivered(msgId, ok, from);
         this.changed();
       },
       passedOn: (msgId) => {
@@ -391,6 +391,11 @@ export class Station {
     return this.mesh.store.get(storeKey(said))?.queued ?? false;
   }
 
+  /** Whether something we said has been out long enough for its first resend to have come and gone. */
+  firstResendPassed(said: { at: number }) {
+    return Date.now() - said.at > FIRST_RESEND_MS;
+  }
+
   /** Bytes left in the packet (below 0: over by that many) and seconds on air, for the draft as it would go now. */
   budget(draft: Draft) {
     const n = this.packetBytes(this.stamp(draft));
@@ -463,6 +468,7 @@ export class Station {
 
   private async onDeliver(p: Packet) {
     const frame = this.frameInFlight;
+    const live = this.frameLive;
     const meta = met(p);
     let plain: Uint8Array | null = p.body;
     if (p.encrypted) plain = this.circle ? await open(this.circle, p) : null;
@@ -479,6 +485,8 @@ export class Station {
       void this.ranger.onPacket(p, body, frame);
     } else {
       this.record(meta, p, body, frame?.airtimeSec);
+      // An answer to our own request goes to everyone, so the one who gave it cannot tell it reached us: say so.
+      if (body.kind === 'reply' && body.src === this.id && p.src !== this.id && live) this.mesh.acknowledge(p);
     }
     this.changed();
   }

@@ -115,6 +115,24 @@ describe('journal', () => {
     expect(j.wasPassedOn(10)).toBe(false);
   });
 
+  it("remembers that the phone that asked has our reply, only when that phone's own receipt says so", () => {
+    j.add(met(CAL, 2), help);
+    j.add(met(ME, 20), { ...answer('coming'), nick: 'Ana' });
+    expect(j.reachedAsker(20)).toBe(false);
+    // Another phone's receipt, a failure and a message that is no reply of ours say nothing about the asker.
+    j.delivered(20, true, BEN);
+    j.delivered(20, false, CAL);
+    j.delivered(99, true, CAL);
+    expect(j.reachedAsker(20)).toBe(false);
+    j.delivered(20, true, CAL);
+    expect(j.reachedAsker(20)).toBe(true);
+    const reloaded = new Journal(ME, clock);
+    reloaded.restore({ ...JSON.parse(JSON.stringify(j.snapshot())), resent: new Set() });
+    expect(reloaded.reachedAsker(20)).toBe(true);
+    j.clear();
+    expect(j.reachedAsker(20)).toBe(false);
+  });
+
   it('keeps the newest 400 items and saves 200, while the log keeps what responders need', () => {
     j.add(met(CAL, 2), help);
     for (let i = 0; i < 450; i++) j.add(met(BEN, 100 + i), text(`chat ${i}`));
