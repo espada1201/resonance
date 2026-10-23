@@ -7,7 +7,7 @@ One tap tells everyone in earshot "I'm safe" or "I need help", with a GPS fix if
 - `checkin-safe` "I'm safe" reaches the other station's Safety tab and feed with the sender's name.
 - `checkin-distance` with both positions known, the entry reads like `300 m N` and the feed like `300 m N of you · ±8 m`.
 - `checkin-map` the Safety tab plots everyone with a position on a map around you.
-- `checkin-name` someone with no name yet is asked for one on the check-in card and in the compose bar's check-in; what they type becomes their nickname.
+- `checkin-name` someone with no name yet is asked for one on the check-in card and in the compose bar's check-in; what they type becomes their nickname. A check-in sent without one still goes at once, then reads `Others see you as #XXXXXX. Type your name in the box above, then send again.` and the name box is focused (after a call for help, `Where` is focused first).
 - `checkin-no-fix` GPS never holds a check-in back more than about 3 s: with a location prompt nobody answers, `I need help` is on air within seconds; when GPS fails, the compose bar's check-in still goes, saying `Sent without a position.`
 - `checkin-waiting` until a check-in has played on air, the card under the buttons reads `Waiting to send…`, not `Sent.` A phone whose screen locks mid-frame has not sent it: it stays waiting, a reload still sends it, and it goes once as soon as the phone's sound is back.
 
@@ -21,6 +21,8 @@ One tap tells everyone in earshot "I'm safe" or "I need help", with a GPS fix if
 Preconditions: the journey grants geolocation and moves the second station 300 m south.
 
 - **Asked for a name.** Run `verify.sh drive e2e/safety.spec.ts 'a call for help travels'`. Ana joins without a nickname, types it in `Your name` on the Safety tab, and the other station's list shows `Ana`.
+
+- **Sent without a name.** Run `verify.sh drive e2e/safety.spec.ts 'without a name'`. Both journeys: a nameless `I'm safe` and `I need help` go out, the prompt appears, and typing a name clears it.
 
 - **Safe with a fix.** Run `verify.sh drive e2e/messaging.spec.ts "I'm safe reaches the other station"`. The other station's Safety list shows `Safe` and `300 m N`, the map is labelled `Map of 1 check-ins around you`, and its feed shows `300 m N of you · ±8 m`.
 

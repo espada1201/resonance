@@ -69,11 +69,16 @@ export function draftProblem(d: CheckInDraft): string | null {
   return null;
 }
 
-export function NameField({ station }: { station: Station }) {
+/** What to add after a check-in went out with no name on it: the cheap fix. Empty once there is a name. */
+export const nameless = (station: Station) =>
+  station.settings.nick ? '' : `Others see you as #${nodeHex(station.id)}. Type your name in the box above, then send again.`;
+
+/** Asks for the name above the check-in buttons. `prompt`: a check-in just went out without one. */
+export function NameField({ station, prompt }: { station: Station; prompt?: boolean }) {
   const [namelessAtOpen] = useState(!station.settings.nick);
-  if (!namelessAtOpen) return null;
+  if (!namelessAtOpen && station.settings.nick) return null;
   return (
-    <div class="name-field">
+    <div class={prompt && !station.settings.nick ? 'name-field prompt' : 'name-field'}>
       <input
         value={station.settings.nick}
         placeholder="Your name, so people know who checked in"

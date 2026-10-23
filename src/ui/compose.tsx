@@ -3,7 +3,7 @@ import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
 import { MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
 import type { Draft, Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, checkInFix, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { who } from './feed';
 import { SKILL_TEXT, bytes, errorText, fitInput, seconds } from './format';
 import { rovingKeys } from './hooks';
@@ -133,12 +133,15 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
     setSaid('');
     try {
       const target = dst === BROADCAST ? undefined : dst;
+      let unnamed = false;
       if (mode === 'text') {
         await station.say({ kind: 'text', text: text.trim() }, target);
         setText('');
       } else if (mode === 'checkin') {
         const geo = checkin.withGeo ? await checkInFix(station, setError) : undefined;
-        await station.say({ kind: 'checkin', ...draftFields(checkin, geo) });
+        const fields = draftFields(checkin, geo);
+        unnamed = !station.settings.nick && !fields.about;
+        await station.say({ kind: 'checkin', ...fields });
         // The status stays as sent: after a call for help, the form must not quietly say Safe.
         setCheckin((d) => newDraft(station.settings, d.status));
       } else if (mode === 'notice') {
@@ -152,7 +155,7 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
         await station.sendFile(picked.name, picked.mime, picked.data);
         setPicked(null);
       }
-      setSaid(dst === BROADCAST || toEveryone ? 'Sent to everyone in earshot.' : `Sent to ${who(station, dst)}.`);
+      setSaid([dst === BROADCAST || toEveryone ? 'Sent to everyone in earshot.' : `Sent to ${who(station, dst)}.`, unnamed && nameless(station)].filter(Boolean).join(' '));
     } catch (err) {
       setError(errorText(err));
     } finally {

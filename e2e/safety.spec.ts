@@ -143,12 +143,19 @@ test('a call for help in the feed is answered from the feed', async ({ context }
   await proof(b, 'on-my-way-from-feed');
 });
 
-test('one tap for help, nameless, says how others see you and then asks where and what', async ({ page }) => {
+test('a check-in sent without a name goes at once, then asks for the name with the box ready, and sends again with it', async ({ page }) => {
   await joinAir(page);
   await openTab(page, 'Safety');
-  await expect(page.getByText(`Without a name, others see you as #${await nodeId(page)}.`)).toBeVisible();
+  const id = await nodeId(page);
+  await expect(page.getByText(`Without a name, others see you as #${id}.`)).toBeVisible();
   await page.getByRole('button', { name: "I'm safe" }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toBeVisible();
+  const status = page.getByRole('status').filter({ hasText: 'Sent' });
+  await expect(status).toContainText(`Sent. Others see you as #${id}. Type your name in the box above, then send again.`);
+  // It did not wait for a name; the missing one is asked for next, with the box ready to type in.
+  await expect(page.getByLabel('Your name')).toBeFocused();
+  await page.keyboard.type('Ana');
+  await page.getByRole('button', { name: "I'm safe" }).click();
+  await expect(status).not.toContainText('Others see you');
   // It turned itself off while sending; the keyboard comes back to it, not to the top of the page.
   await expect(page.getByRole('button', { name: "I'm safe" })).toBeFocused();
   await page.getByRole('button', { name: 'I need help' }).click();
@@ -157,6 +164,23 @@ test('one tap for help, nameless, says how others see you and then asks where an
   await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
   // The one tap sent a position; the details sent after it must not quietly drop it.
   await expect(page.getByLabel('Attach my GPS position')).toBeChecked();
+});
+
+test('a call for help without a name is never held back for one: it goes, then says how to add the name', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+  await openTab(a, 'Safety');
+  const id = await nodeId(a);
+  await a.getByRole('button', { name: 'I need help' }).click();
+  // Where stays the first thing asked for in an emergency; the name is said beside it, not instead of it.
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText(`Others see you as #${id}. Type your name in the box above, then send again.`);
+  await expect(a.getByLabel('Where', { exact: true })).toBeFocused();
+  await expect(a.getByLabel('Your name')).toBeVisible();
+  await expect(feedItem(b, 'Needs help')).toContainText(`#${id}`);
+  await a.getByLabel('Your name').fill('Ana');
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).not.toContainText('Others see you');
 });
 
 test('a check-in keeps the status sent but not its needs, and the keyboard meets its fields in the order they are typed', async ({ page }) => {

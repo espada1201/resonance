@@ -13,6 +13,9 @@
   display: grid;
   gap: 8px;
 }
+.name-field.prompt input {
+  border-color: var(--amber);
+}
 .extras {
   margin-top: 8px;
 }
