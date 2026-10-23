@@ -42,4 +42,4 @@ Each feature file starts with an H1 title and one paragraph on the user-visible 
 - [Microphone](./microphone.md): the real capture path decodes all three modes.
 - [Sound files](./sound-files.md): save a packet as a WAV, decode packets from a recording.
 - [Offline](./offline.md): the app and the beacon open with no network, and a page left open across a deploy keeps working.
-- [Layout](./layout.md): every tab fits a phone screen.
+- [Layout](./layout.md): every tab fits a phone screen, with every tab label whole at 360 and 320 px.

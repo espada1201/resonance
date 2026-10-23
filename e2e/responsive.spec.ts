@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { PacketType } from '../src/mesh/packet';
-import { nowSec } from '../src/mesh/payloads';
+import { encodeBody, nowSec } from '../src/mesh/payloads';
 import { checkInRow, expect, feedItem, joinAir, openTab, playPacket, sendText, test } from './helpers';
 
 const SCREENS = fileURLToPath(new URL('.out/screens/', import.meta.url));
@@ -77,6 +77,33 @@ for (const layout of LAYOUTS) {
       await expect(feedItem(page, text)).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth), 'the feed must not scroll sideways').toBeLessThanOrEqual(layout.width);
       expect(await spills(page), 'nothing sticks out past the screen edge').toEqual([]);
+    });
+  });
+}
+
+// A narrow phone must show every tab label whole, even with the count on Safety: the row may not clip one or scroll.
+for (const width of [360, 320]) {
+  test.describe(`tab row at ${width} px`, () => {
+    test.use({ viewport: { width, height: 740 } });
+
+    test('shows every tab label in full, with a count on Safety', async ({ page }) => {
+      await joinAir(page);
+      await playPacket(page, PacketType.CheckIn, encodeBody({ kind: 'checkin', ts: nowSec(), nick: 'Ben', status: 'help', note: '' }));
+      await expect(page.getByRole('tab', { name: 'Safety, 1 open request' })).toBeVisible({ timeout: 20_000 });
+      const row = await page.getByRole('tablist', { name: 'Sections' }).evaluate((list) => {
+        const box = list.getBoundingClientRect();
+        return {
+          clipped: list.scrollWidth > list.clientWidth,
+          tabs: [...list.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => {
+            const r = t.getBoundingClientRect();
+            return { label: t.textContent, inside: r.left >= box.left - 0.5 && r.right <= box.right + 0.5, whole: t.scrollWidth <= t.clientWidth };
+          }),
+        };
+      });
+      expect(row.tabs.map((t) => t.label)).toEqual(['Feed', 'Safety1', 'Air', 'People', 'Settings']);
+      expect(row.tabs.filter((t) => !t.inside || !t.whole), 'a tab is cut off').toEqual([]);
+      expect(row.clipped, 'the tab row scrolls sideways').toBe(false);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     });
   });
 }
