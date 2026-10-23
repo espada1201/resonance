@@ -88,16 +88,27 @@ nav:has(.tabs :focus-visible) .tabs-hint {
   font-weight: 600;
   background: none;
 }
-/* Five labels and a count must fit a 320 px phone whole: tighter, never clipped or scrolled. */
+/* Five labels and a count must fit a 320 px phone whole, whatever font the device falls back to:
+   labels keep their natural width and share what is left, padding and the count stay small, and a tab may
+   shrink (min-width: 0) rather than push the row wider. */
 @media (max-width: 400px) {
   .tabs {
-    padding: 0 4px;
+    padding: 0 2px;
     gap: 0;
   }
   .tabs button {
     flex: 1 1 auto;
-    padding: 0 5px;
-    font-size: 14px;
+    min-width: 0;
+    padding: 0 3px;
+    font-size: 13px;
+  }
+  .tabs .badge {
+    min-width: 16px;
+    height: 16px;
+    margin-left: 3px;
+    padding: 0 4px;
+    border-radius: 8px;
+    font-size: 10px;
   }
 }
 .tabs button[aria-selected='true'] {
