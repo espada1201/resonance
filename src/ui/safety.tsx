@@ -98,7 +98,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
   const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
-  const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: boolean } | null>(null);
+  const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: string } | null>(null);
   const [err, setErr] = useState('');
   const more = useRef<HTMLDetailsElement>(null);
   const quickRow = useRef<HTMLDivElement>(null);
@@ -119,7 +119,8 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
       // Saying it also remembers where you are and whom to tell outside, for your next check-ins.
       await station.say({ kind: 'checkin', ...fields });
       const ask = label === 'help' && !detailed;
-      const unnamed = nameless(station, fields.about) !== '';
+      // Said now and kept as said: typing the name must not take the line away before the next send.
+      const unnamed = nameless(station, fields.about);
       setSent({ about: fields.about, ask, unnamed });
       // The status stays as sent: after a call for help, the form must not quietly say Safe.
       if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
@@ -128,7 +129,8 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
         setDraft({ ...newDraft(station.settings, 'help'), withGeo: d.withGeo });
         more.current!.open = true;
         requestAnimationFrame(() => more.current?.querySelector<HTMLInputElement>('input[aria-label="Where"]')?.focus());
-      } else if (unnamed) {
+      } else if (unnamed && !asking(d.status)) {
+        // After a request for help the keyboard stays where the details are: the name is said beside it, not instead of it.
         requestAnimationFrame(() => card.current?.querySelector<HTMLInputElement>('.name-field input')?.focus());
       }
     } catch (e) {
@@ -158,7 +160,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
   const { place, outside } = station.settings;
   return (
     <section class="checkin-card" aria-label="Check in" ref={card}>
-      <NameField station={station} prompt={sent?.unnamed} />
+      <NameField station={station} prompt={!!sent?.unnamed} />
       <div class="quick" ref={quickRow}>
         <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => quick('safe')}>
           {sending === 'safe' ? 'Sending…' : "I'm safe"}
@@ -167,7 +169,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
           {sending === 'help' ? 'Sending…' : 'I need help'}
         </button>
       </div>
-      {sent && <p role="status">{joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed && nameless(station, sent.about))}</p>}
+      {sent && <p role="status">{joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed)}</p>}
       <p class="muted small">
         One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at "${place}".`}

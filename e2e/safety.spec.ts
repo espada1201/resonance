@@ -156,6 +156,9 @@ test('a check-in sent without a name goes at once, then asks for the name with t
   await expect(status).toContainText(`Sent. Others see you as #${id}. Type your name in the box above, then send again.`);
   await expect(page.getByLabel('Your name')).toBeFocused();
   await page.keyboard.type('Ana');
+  // The line stays until the next send: typing the name does not make it vanish under the person's fingers.
+  await expect(page.getByLabel('Your name')).toHaveValue('Ana');
+  await expect(status).toContainText(`Others see you as #${id}. Type your name in the box above, then send again.`);
   await page.getByRole('button', { name: "I'm safe" }).click();
   await expect(status).not.toContainText('Others see you');
   // It turned itself off while sending; the keyboard comes back to it, not to the top of the page.
@@ -182,7 +185,31 @@ test('a call for help without a name is never held back for one: it goes, then s
   await expect(a.getByLabel('Your name')).toBeVisible();
   await expect(feedItem(b, 'Needs help')).toContainText(`#${id}`);
   await a.getByLabel('Your name').fill('Ana');
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Others see you');
+  await a.getByRole('button', { name: "I'm safe" }).click();
   await expect(a.getByRole('status').filter({ hasText: 'Sent' })).not.toContainText('Others see you');
+});
+
+test('a call for help sent from the open form without a name leaves the keyboard off the name box, and "I\'m safe" still goes to it', async ({ page }) => {
+  await joinAir(page);
+  await openTab(page, 'Safety');
+  const name = page.getByLabel('Your name');
+  const status = page.getByRole('status').filter({ hasText: 'Sent' });
+  await page.getByText('More detail').click();
+  await page.getByRole('radio', { name: 'Needs medical help' }).click();
+  await page.getByRole('button', { name: 'Send check-in' }).click();
+  await expect(status).toContainText('Others see you as');
+  await expect(name).not.toBeFocused();
+  await expect(page.getByRole('button', { name: 'Send check-in' })).toBeFocused();
+
+  await page.getByRole('button', { name: 'I need help' }).click();
+  await expect(status).toContainText('Others see you as');
+  await expect(name).not.toBeFocused();
+  await expect(page.getByRole('button', { name: 'I need help' })).toBeFocused();
+
+  await page.getByRole('button', { name: "I'm safe" }).click();
+  await expect(status).toContainText('Others see you as');
+  await expect(name).toBeFocused();
 });
 
 test('the first screen has I\'m safe and I need help, and they do what the Safety tab buttons do', async ({ context }) => {
