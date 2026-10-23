@@ -69,6 +69,10 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await openTab(page, 'Safety');
   await page.getByRole('button', { name: 'I need help' }).click();
   await expect(checkInRow(page, 'You')).toContainText('Waiting for help', { timeout: 8_000 });
+  // Your own call for help is nothing for you to act on: no count on the tab, the title or the icon.
+  await expect(page.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
+  await expect(page.locator('.tabs .badge')).toHaveCount(0);
+  await expect(page).toHaveTitle('Resonance');
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   // Its rows hold nothing to tab to, so the log itself takes focus for the keyboard to scroll it.
   await expect(page.getByRole('region', { name: 'Air log' })).toHaveAttribute('tabindex', '0');

@@ -106,6 +106,9 @@ export interface RosterEntry {
 export const STALE_AFTER_SEC = 24 * 3600;
 export const URGENT: Status[] = ['help', 'medical'];
 
+/** The open requests this device could act on: not its own call for help (one it made for someone without a phone is still someone's). */
+export const needingYou = (entries: RosterEntry[], self: number) => entries.filter((e) => e.open && !(e.latest.src === self && !e.latest.body.about));
+
 const ref = (h: Pick<Heard, 'src' | 'msgId'>) => `${h.src}:${h.msgId}`;
 export const fold = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 export const rosterKey = (c: Heard<CheckInBody>) => (c.body.about ? `name:${c.src}:${fold(c.body.about)}` : `node:${c.src}`);

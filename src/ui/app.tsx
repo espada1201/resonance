@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { useAutoStart } from '../boot';
 import { BROADCAST, nodeHex } from '../mesh/packet';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
-import type { RosterEntry } from '../roster';
+import { type RosterEntry, needingYou } from '../roster';
 import type { Station } from '../station';
 import { AirPanel, AirStatus } from './air';
 import { Compose, focusCompose } from './compose';
@@ -77,13 +77,14 @@ function Gate({ station }: { station: Station }) {
 /**
  * A call for help heard while the page is open, that nobody is coming to yet, buzzes the phone
  * (where the browser can), and screen readers say it: a phone left on a table must not keep it
- * to itself. The count of open requests shows in the page title and on the home-screen icon.
+ * to itself. The count of open requests from others shows in the page title and on the home-screen icon.
  */
 function useCallsForHelp(station: Station, entries: RosterEntry[]) {
   const [opened] = useState(() => Date.now());
   const told = useRef(new Set<string>());
   const [said, setSaid] = useState('');
-  const open = entries.filter((e) => e.open).length;
+  // Your own call for help is not something for you to act on: it stays out of the count.
+  const open = needingYou(entries, station.id).length;
   const calls = entries.filter((e) => e.open && !e.coming && e.latest.src !== station.id && e.latest.at >= opened);
   const ids = calls.map((e) => `${e.latest.src}:${e.latest.msgId}`);
   useEffect(() => {

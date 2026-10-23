@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Need, ReplyKind, Status } from './mesh/payloads';
-import { type CheckInBody, type Heard, type ReplyBody, type RosterEntry, SafetyLog, roster, rosterCsv, search } from './roster';
+import { type CheckInBody, type Heard, type ReplyBody, type RosterEntry, SafetyLog, needingYou, roster, rosterCsv, search } from './roster';
 
 const T = 1_700_000_000;
 let ids = 0;
@@ -119,6 +119,19 @@ describe('safety roster', () => {
       [false, false, false, false],
       [false, false, false, false],
     ]);
+  });
+
+  it('counts the open requests that need this device, not its own', () => {
+    const ME = 1;
+    const own = checkIn(ME, 'help', T);
+    const other = checkIn(2, 'medical', T + 10);
+    const forSomeone = checkIn(ME, 'help', T + 20, { about: 'Maria' });
+    const answered = checkIn(3, 'help', T + 30);
+    const safe = checkIn(4, 'safe', T + 40);
+    const entries = roster([own, other, forSomeone, answered, safe], [reply(answered, 'coming', T + 50)], T + 60);
+    expect(entries.filter((e) => e.open)).toHaveLength(4);
+    expect(names(needingYou(entries, ME)).sort()).toEqual(['Maria', 'n2', 'n3']);
+    expect(needingYou(roster([own], [], T + 60), ME)).toEqual([]);
   });
 
   it('keeps "On my way" when the person sends an update, and starts afresh after they were safe', () => {

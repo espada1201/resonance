@@ -31,7 +31,7 @@ Each feature file starts with an H1 title and one paragraph on the user-visible 
 - [Messages](./messages.md): broadcast and direct messages, receipts, contact cards.
 - [Check-ins](./check-ins.md): "I'm safe" and "I need help" with a GPS fix, the list of who checked in.
 - [Safety list and replies](./safety-list.md): needs and place, "On my way", someone without a phone, search and spreadsheet.
-- [Open requests on the Safety tab](./badge.md): the tab's name counts the requests for help still open.
+- [Open requests on the Safety tab](./badge.md): the tab's name counts other people's requests for help still open, not your own.
 - [Courier to family outside](./courier.md): a phone with signal passes a check-in on by text or email, once.
 - [Notices](./notices.md): water, food or danger, pinned on every feed and large on the beacon.
 - [Signal](./signal.md): how well each neighbour comes across, in words.
