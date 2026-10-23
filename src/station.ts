@@ -59,6 +59,8 @@ const LISTEN_AFTER_SEND_MS = 400;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
 /** Hellos are at least this far apart; a neighbour who just turned up gets one back within seconds. */
 const GREET_GAP_MS = 30_000;
+/** A receipt for an answer to our request is said again after this long, and up to as long again. */
+const ACK_AGAIN_MS = 8_000;
 
 export class Station {
   readonly id: number;
@@ -486,9 +488,15 @@ export class Station {
     } else {
       this.record(meta, p, body, frame?.airtimeSec);
       // An answer to our own request goes to everyone, so the one who gave it cannot tell it reached us: say so.
-      if (body.kind === 'reply' && body.src === this.id && p.src !== this.id && live) this.mesh.acknowledge(p);
+      if (body.kind === 'reply' && body.src === this.id && p.src !== this.id && live) this.acknowledgeReply(p);
     }
     this.changed();
+  }
+
+  /** Says we have the answer, and says it once more a little later: the first may be lost in the noise, and the one who answered cannot ask again. */
+  private acknowledgeReply(p: Packet) {
+    this.mesh.acknowledge(p);
+    setTimeout(() => this.mesh.acknowledge(p), ACK_AGAIN_MS * (1 + Math.random()));
   }
 
   private record(meta: Meta, p: Packet, body: Body, airtimeSec = 0) {

@@ -469,7 +469,15 @@ describe('what people say', () => {
     expect(acks()).toEqual([]);
     s.onFrame(answer(502));
     s.onFrame(answer(502));
-    expect(acks()).toEqual([[BEN, { kind: 'ack', msgId: 502, attempt: 0 }]]);
+    const receipt = [BEN, { kind: 'ack', msgId: 502, attempt: 0 }];
+    expect(acks()).toEqual([receipt]);
+    // Sound is lossy and the one who answered cannot tell: the receipt goes once more, a little later, and not again.
+    vi.advanceTimersByTime(7_000);
+    expect(acks()).toEqual([receipt]);
+    vi.advanceTimersByTime(10_000);
+    expect(acks()).toEqual([receipt, receipt]);
+    vi.advanceTimersByTime(60_000);
+    expect(acks()).toEqual([receipt, receipt]);
   });
 
   it('marks our "On my way" as in the hands of the one who asked once that phone says so, and not for anyone else\'s receipt', async () => {
