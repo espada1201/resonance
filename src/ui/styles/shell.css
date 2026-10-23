@@ -48,6 +48,28 @@
 /* The tab bar scrolls sideways inside its landmark rather than widening the page. */
 .shell > nav {
   min-width: 0;
+  position: relative;
+  z-index: 2;
+}
+/* Keyboard users only: names the arrow keys where a Tab press cannot show them. Hidden, it takes no room and is not read. */
+.key-hint {
+  visibility: hidden;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tabs-hint {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  pointer-events: none;
+}
+nav:has(.tabs :focus-visible) .tabs-hint,
+.needs:has(.pill:focus-visible) .key-hint {
+  visibility: visible;
 }
 .tabs {
   display: flex;

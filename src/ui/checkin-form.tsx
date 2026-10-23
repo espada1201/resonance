@@ -115,9 +115,11 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
       {/* After the boxes, not between them: someone tabbing on to type must not land on a need and switch it on. */}
       {asking(draft.status) && (
         <div class="needs">
-          <span class="small" aria-hidden="true">
-            What is needed?
-          </span>
+          <div class="needs-head" aria-hidden="true">
+            <span class="small">What is needed?</span>
+            {/* Shown only while the keyboard is on a need: a touch screen never sees it. */}
+            <span class="key-hint">Arrow keys move, Space picks</span>
+          </div>
           {/* One Tab stop, so eight needs do not stand between the note and Send. */}
           <div class="pills" role="toolbar" aria-label="What is needed" onKeyDown={rovingKeys(NEEDS, needAt, setNeedAt)}>
             {NEEDS.map((n) => (

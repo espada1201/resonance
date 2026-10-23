@@ -161,6 +161,10 @@ export function App({ station }: { station: Station }) {
             </button>
           ))}
         </div>
+        {/* Shown only while the keyboard is on a tab: a touch screen never sees it. */}
+        <p class="key-hint tabs-hint" aria-hidden="true">
+          Arrow keys switch tabs
+        </p>
       </nav>
 
       <p class="sr-only" aria-live="assertive">

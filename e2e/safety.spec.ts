@@ -173,12 +173,16 @@ test('a check-in keeps the status sent but not its needs, and the keyboard meets
   // The needs are one stop: arrows move along them, Space switches one on, Tab goes on past them all.
   const needs = page.getByRole('toolbar', { name: 'What is needed' });
   await expect(needs.getByRole('button').first()).toBeFocused();
+  // Nothing says the arrows work except a short line that shows while the keyboard is on a need.
+  const hint = page.getByText('Arrow keys move, Space picks');
+  await expect(hint).toBeVisible();
   await page.keyboard.press('ArrowRight');
   await expect(needs.getByRole('button', { name: 'Injured' })).toBeFocused();
   await page.keyboard.press('Space');
   await expect(needs.getByRole('button', { name: 'Injured' })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Tab');
   await expect(page.getByText('Someone without a phone, family outside, GPS')).toBeFocused();
+  await expect(hint).toBeHidden();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   await expect(page.getByLabel('Note')).toBeEmpty();

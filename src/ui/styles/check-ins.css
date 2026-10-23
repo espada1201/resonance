@@ -16,6 +16,12 @@
 .extras {
   margin-top: 8px;
 }
+.needs-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
 .more form {
   display: grid;
   gap: 10px;
