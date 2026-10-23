@@ -38,6 +38,7 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(b.getByRole('tab', { name: 'Safety, 1 open request' })).toBeVisible();
   await ana.getByRole('button', { name: 'On my way' }).click();
   await expect(ana).toContainText('You are on the way');
+  await expect(ana).toContainText('another phone has it');
 
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
   await expect(checkInRow(a, 'You')).not.toContainText('heard directly');
@@ -129,6 +130,8 @@ test('a call for help in the feed is answered from the feed', async ({ context }
   const request = feedItem(b, 'Needs help');
   await request.getByRole('button', { name: 'On my way' }).click();
   await expect(request).toContainText('You are on the way');
+  // The sender of "On my way" can tell that another phone heard it, as with a message to everyone.
+  await expect(request).toContainText(/You are on the way · .+ · another phone has it/);
   await expect(request.getByRole('button', { name: 'On my way' })).toHaveCount(0);
   // The button that was pressed is gone; the keyboard lands on the next one, not back at the top.
   await expect(request.getByRole('button', { name: 'Sound file' })).toBeFocused();

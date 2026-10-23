@@ -441,6 +441,22 @@ describe('what people say', () => {
     expect(s.journal.feed.find((i) => i.dst === CAL)!.passedOn).toBeFalsy();
   });
 
+  it('marks our "On my way" once another device is heard passing it on, and only then', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    const ask = { src: BEN, msgId: 7, at: Date.now(), hops: 0, encrypted: false, body: { kind: 'checkin' as const, ts: nowSec(), nick: 'Ben', status: 'help' as const, note: '' } };
+    s.journal.addToLog({ src: ask.src, msgId: ask.msgId, at: ask.at, hops: 0, encrypted: false, dst: BROADCAST }, ask.body);
+    await s.reply(ask, 'coming');
+    const sent = () => s.journal.repliesTo(BEN, 7).find((r) => r.src === s.id)!;
+    expect(sent().passedOn).toBeFalsy();
+    // A recording of the air can hold our own sound: that is no other phone.
+    s.onFrame(relayed(out[0].bytes, 1), false);
+    expect(sent().passedOn).toBeFalsy();
+    s.onFrame(relayed(out[0].bytes, 1));
+    expect(sent().passedOn).toBe(true);
+    expect(s.journal.roster()[0].replies.find((r) => r.src === s.id)!.passedOn).toBe(true);
+  });
+
   it('measures the very packet that goes: a draft with 0 bytes left fits, one more byte does not, and a seal costs its overhead', async () => {
     const s = new Station(air, 'phone', null);
     s.update({ nick: 'Ana', profile: 'fast' });

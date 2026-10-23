@@ -84,10 +84,12 @@ export class Journal {
     if (item) item.delivery = ok ? 'acked' : 'failed';
   }
 
-  /** Another device repeated a broadcast of ours. */
+  /** Another device repeated a broadcast of ours: a feed item, or a reply such as "On my way". */
   passedOn(msgId: number) {
     const item = this.feed.find((i) => i.mine && i.msgId === msgId && i.dst === BROADCAST);
     if (item) item.passedOn = true;
+    const reply = this.log.replies.find((r) => r.src === this.self && r.msgId === msgId);
+    if (reply) reply.passedOn = true;
   }
 
   /** Removes an item (one sent again took its place). */

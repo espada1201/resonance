@@ -9,7 +9,7 @@ import { download, named, who } from './feed';
 import { FindPanel } from './find';
 import { NEED_TEXT, STATUS_TEXT, errorText } from './format';
 import { Compass, Download, Pin } from './icons';
-import { type Helper, HelperList, RosterList, headcount, replyText } from './roster';
+import { type Helper, HelperList, RosterList, headcount, receipt, replyText } from './roster';
 
 const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
@@ -277,6 +277,7 @@ export function Safety({ station }: { station: Station }) {
             name={name}
             by={by}
             reply={listening ? (e, what) => void answer(e.latest, what) : null}
+            receipt={(r) => receipt(station, r)}
             find={(e) => {
               const n = e.latest.body.about ? undefined : station.mesh.neighbors.get(e.latest.src);
               return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;

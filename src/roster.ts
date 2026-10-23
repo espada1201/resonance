@@ -16,6 +16,8 @@ export interface Heard<B extends Body = Body> {
   /** Sealed for a circle. A reply to it is sealed too, and one to an open check-in is not. */
   encrypted: boolean;
   body: B;
+  /** For what this device said: another device was heard repeating it. */
+  passedOn?: boolean;
 }
 
 export type NoticeBody = Extract<Body, { kind: 'notice' }>;

@@ -123,6 +123,7 @@ function Beacon() {
               name={(e) => e.latest.body.about ?? by(e.latest.src, e.latest.body.nick)}
               by={by}
               reply={null}
+              receipt={() => ''}
               find={() => null}
             />
           )}
