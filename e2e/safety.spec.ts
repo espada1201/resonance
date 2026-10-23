@@ -35,14 +35,17 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(ana).toContainText('Waiting for help');
   await expect(ana).toContainText('Trapped');
   await expect(ana).toContainText('Floor 4, room 412');
-  await expect(b.getByRole('tab', { name: 'Safety, 1 open request' })).toBeVisible();
+  await expect(b.getByRole('tab', { name: 'Safety, 1 waiting for you' })).toBeVisible();
+  // Unanswered: the heading says someone is asking and that it is waiting for this phone.
+  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · 1 waiting for you' })).toBeVisible();
   await ana.getByRole('button', { name: 'On my way' }).click();
   await expect(ana).toContainText('You are on the way');
   await expect(ana).toContainText('another phone has it');
-  // Ben has answered it, so it is nothing more for him to act on: the count goes, and the heading says so.
+  // Ben has answered it, so it is nothing more for him to act on and the count goes, but the heading still says a person is asking.
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(b).toHaveTitle('Resonance');
-  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 open request (none for you)' })).toBeVisible();
+  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · you are on your way to 1' })).toBeVisible();
+  await expect(a.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · someone is coming to you' })).toBeVisible();
 
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
   await expect(checkInRow(a, 'You')).not.toContainText('heard directly');
@@ -61,6 +64,8 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(ana).not.toContainText('Waiting for help');
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(b).toHaveTitle('Resonance');
+  // Nobody asking: the third state of the heading.
+  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · no one is asking for help' })).toBeVisible();
   await proof(b, 'call-for-help');
 });
 
@@ -75,7 +80,7 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await expect(checkInRow(page, 'You')).toContainText('Waiting for help', { timeout: 8_000 });
   await expect(page.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(page.locator('.tabs .badge')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Check-ins · 1 person · 1 open request (none for you)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · you are waiting for someone' })).toBeVisible();
   await expect(page).toHaveTitle('Resonance');
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   // Its rows hold nothing to tab to, so the log itself takes focus for the keyboard to scroll it.
@@ -243,7 +248,7 @@ test('a call for help sent by mistake from the first screen is taken back in one
   await a.getByRole('group', { name: 'In an emergency' }).getByRole('button', { name: 'I need help' }).click();
   const status = a.getByRole('status').filter({ hasText: 'Sent' });
   await expect(status).toContainText('No one has said they are coming yet.');
-  await expect(b.getByRole('tab', { name: 'Safety, 1 open request' })).toBeVisible();
+  await expect(b.getByRole('tab', { name: 'Safety, 1 waiting for you' })).toBeVisible();
   await a.getByRole('button', { name: 'Sent by mistake? Take it back' }).click();
   await expect(a.getByRole('status').filter({ hasText: 'Taken back' })).toHaveText('Taken back. Others now see it as resolved.');
   await expect(a.getByRole('button', { name: 'Sent by mistake? Take it back' })).toHaveCount(0);
@@ -501,6 +506,6 @@ test('a beacon at the shelter desk posts notices under its own name and lists wh
   await openTab(phone, 'Safety');
   await phone.getByRole('button', { name: 'I need help' }).click();
   await expect(checkInRow(beacon, 'Ana')).toContainText('Waiting for help');
-  await expect(beacon.getByRole('heading', { name: /Check-ins · 1 person · 1 open request/ })).toBeVisible();
+  await expect(beacon.getByRole('heading', { name: /Check-ins · 1 person · 1 asking for help/ })).toBeVisible();
   await proof(beacon, 'beacon-desk');
 });

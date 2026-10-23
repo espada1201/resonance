@@ -153,7 +153,7 @@ export function App({ station }: { station: Station }) {
               aria-selected={current === t}
               aria-controls="section"
               tabIndex={current === t ? 0 : -1}
-              aria-label={t === 'safety' && open > 0 ? `Safety, ${open} open request${open > 1 ? 's' : ''}` : undefined}
+              aria-label={t === 'safety' && open > 0 ? `Safety, ${open} waiting for you` : undefined}
               onClick={() => setTab(t)}
             >
               {TAB_TEXT[t]}

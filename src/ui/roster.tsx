@@ -51,13 +51,28 @@ export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
 export const replyLine = (station: Station, r: Heard<ReplyBody>, by: (src: number, nick: string) => string) =>
   joinParts(' · ', replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r));
 
-/** "3 people · 2 open requests (1 for you)": the tab's count is only the requests still for this device, so a heading that counts more says so. */
+/**
+ * "3 people · 3 asking for help · 1 waiting for you · you are on your way to 1": what is true, in the words a
+ * stranger would use. It never says "none for you" while someone is still waiting, which read as "nobody needs you".
+ * The tab's count is the "waiting for you" part: other people's open requests this device has not answered.
+ */
 export function headcount(entries: RosterEntry[], self?: number) {
-  const open = entries.filter((e) => e.open).length;
-  const forYou = self === undefined ? open : needingYou(entries, self).length;
+  const open = entries.filter((e) => e.open);
   const people = `${entries.length} ${entries.length === 1 ? 'person' : 'people'}`;
-  const requests = `${open} open ${open === 1 ? 'request' : 'requests'}`;
-  return `${people} · ${requests}${forYou < open ? ` (${forYou ? `${forYou} for you` : 'none for you'})` : ''}`;
+  if (!open.length) return `${people} · no one is asking for help`;
+  const asking = `${open.length} asking for help`;
+  if (self === undefined) return `${people} · ${asking}`;
+  const forYou = needingYou(entries, self).length;
+  const onWay = open.filter((e) => e.replies.some((r) => r.src === self && r.body.what === 'coming')).length;
+  const own = open.find((e) => e.latest.src === self && !e.latest.body.about);
+  return joinParts(
+    ' · ',
+    people,
+    asking,
+    forYou > 0 && `${forYou} waiting for you`,
+    onWay > 0 && `you are on your way to ${onWay}`,
+    own && (own.coming ? 'someone is coming to you' : 'you are waiting for someone'),
+  );
 }
 
 /** Everyone's latest check-in, in the order a responder works through them. */

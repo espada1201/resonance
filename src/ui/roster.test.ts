@@ -25,23 +25,32 @@ const coming = (to: Heard<CheckInBody>, by: number): Heard<ReplyBody> => ({
 });
 
 describe('headcount', () => {
-  it('counts people and open requests, and says how many of them are for this device', () => {
+  it('says in plain words how many are asking and what is true for this device: none, not yet answered, answered by you', () => {
+    const ben = checkIn(2, 'help');
+    const safe = checkIn(3, 'safe');
+    expect(headcount(roster([safe], [], T + 10), ME)).toBe('1 person · no one is asking for help');
+    expect(headcount(roster([ben, safe], [], T + 10), ME)).toBe('2 people · 1 asking for help · 1 waiting for you');
+    expect(headcount(roster([ben, safe], [coming(ben, ME)], T + 10), ME)).toBe('2 people · 1 asking for help · you are on your way to 1');
+  });
+
+  it('never reads as nobody needing you while a person still waits: your own request says you are waiting, then that someone is coming', () => {
+    const own = checkIn(ME, 'help');
+    expect(headcount(roster([own], [], T + 10), ME)).toBe('1 person · 1 asking for help · you are waiting for someone');
+    expect(headcount(roster([own], [coming(own, 2)], T + 10), ME)).toBe('1 person · 1 asking for help · someone is coming to you');
+  });
+
+  it('adds up every kind in one line', () => {
     const own = checkIn(ME, 'help');
     const ben = checkIn(2, 'help');
     const cal = checkIn(3, 'medical');
-    const entries = roster([own, ben, cal], [coming(ben, ME)], T + 10);
-    expect(headcount(entries)).toBe('3 people · 3 open requests');
-    expect(headcount(entries, ME)).toBe('3 people · 3 open requests (1 for you)');
+    const dee = checkIn(4, 'help');
+    const entries = roster([own, ben, cal, dee], [coming(ben, ME)], T + 10);
+    expect(headcount(entries, ME)).toBe('4 people · 4 asking for help · 2 waiting for you · you are on your way to 1 · you are waiting for someone');
   });
 
-  it('says none are for you when the only open request is your own, so it never contradicts the Safety count', () => {
-    const entries = roster([checkIn(ME, 'help')], [], T + 10);
-    expect(headcount(entries, ME)).toBe('1 person · 1 open request (none for you)');
-  });
-
-  it('adds nothing when every open request is for you, or none is open', () => {
-    expect(headcount(roster([checkIn(2, 'help')], [], T + 10), ME)).toBe('1 person · 1 open request');
-    expect(headcount(roster([checkIn(2, 'safe')], [], T + 10), ME)).toBe('1 person · 0 open requests');
+  it('says nothing about a device when there is none to speak for, as on the beacon desk', () => {
+    expect(headcount(roster([checkIn(2, 'help'), checkIn(3, 'safe')], [], T + 10))).toBe('2 people · 1 asking for help');
+    expect(headcount(roster([checkIn(2, 'safe')], [], T + 10))).toBe('1 person · no one is asking for help');
   });
 });
 

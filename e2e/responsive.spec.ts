@@ -88,7 +88,7 @@ for (const width of [360, 320]) {
     test('shows every tab label in full, with a count on Safety', async ({ page }) => {
       await joinAir(page);
       await playPacket(page, PacketType.CheckIn, encodeBody({ kind: 'checkin', ts: nowSec(), nick: 'Ben', status: 'help', note: '' }));
-      await expect(page.getByRole('tab', { name: 'Safety, 1 open request' })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('tab', { name: 'Safety, 1 waiting for you' })).toBeVisible({ timeout: 20_000 });
       const row = await page.getByRole('tablist', { name: 'Sections' }).evaluate((list) => {
         const box = list.getBoundingClientRect();
         return {
