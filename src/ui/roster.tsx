@@ -2,7 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
-import { type Heard, type ReplyBody, type RosterEntry, writtenAt } from '../roster';
+import { type Heard, type ReplyBody, type RosterEntry, needingYou, writtenAt } from '../roster';
 import type { Station } from '../station';
 import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, passedOnText } from './format';
 import { handFocusOn } from './hooks';
@@ -47,10 +47,13 @@ export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
   return r.passedOn ? 'another phone has it' : 'sent, no other phone has passed it on yet';
 }
 
-/** "3 people · 1 open request" */
-export function headcount(entries: RosterEntry[]) {
+/** "3 people · 2 open requests (1 for you)": the tab's count is only the requests still for this device, so a heading that counts more says so. */
+export function headcount(entries: RosterEntry[], self?: number) {
   const open = entries.filter((e) => e.open).length;
-  return `${entries.length} ${entries.length === 1 ? 'person' : 'people'} · ${open} open ${open === 1 ? 'request' : 'requests'}`;
+  const forYou = self === undefined ? open : needingYou(entries, self).length;
+  const people = `${entries.length} ${entries.length === 1 ? 'person' : 'people'}`;
+  const requests = `${open} open ${open === 1 ? 'request' : 'requests'}`;
+  return `${people} · ${requests}${forYou < open ? ` (${forYou ? `${forYou} for you` : 'none for you'})` : ''}`;
 }
 
 /** Everyone's latest check-in, in the order a responder works through them. */

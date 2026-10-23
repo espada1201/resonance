@@ -134,6 +134,26 @@ describe('safety roster', () => {
     expect(needingYou(roster([own], [], T + 60), ME)).toEqual([]);
   });
 
+  it('stops counting a request once this device has said "On my way", but not when someone else has', () => {
+    const ME = 1;
+    const ask = checkIn(2, 'help', T);
+    const other = checkIn(3, 'help', T + 10);
+    const mine = reply(ask, 'coming', T + 20, ME);
+    const theirs = reply(other, 'coming', T + 30, 4);
+    const entries = roster([ask, other], [mine, theirs], T + 60);
+    expect(names(needingYou(entries, ME))).toEqual(['n3']);
+    expect(needingYou(roster([ask], [], T + 60), ME)).toHaveLength(1);
+  });
+
+  it('counts a request again when its sender asks anew after this device answered an earlier ask', () => {
+    const ME = 1;
+    const first = checkIn(2, 'help', T);
+    const coming = reply(first, 'coming', T + 20, ME);
+    const resolved = reply(first, 'resolved', T + 30, 2);
+    const again = checkIn(2, 'help', T + 600);
+    expect(needingYou(roster([first, again], [coming, resolved], T + 700), ME)).toHaveLength(1);
+  });
+
   it('keeps "On my way" when the person sends an update, and starts afresh after they were safe', () => {
     const first = checkIn(1, 'help', T);
     const update = checkIn(1, 'help', T + 600, { note: 'still stuck' });

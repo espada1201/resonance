@@ -258,7 +258,7 @@ export function Safety({ station, shortcut = null, onShortcut = () => undefined 
       <section class="roster-section" aria-labelledby="roster-title">
         <div class="section-head">
           <h2 class="label" id="roster-title">
-            Check-ins{entries.length > 0 && ` · ${headcount(entries)}`}
+            Check-ins{entries.length > 0 && ` · ${headcount(entries, station.id)}`}
           </h2>
           {entries.length > 0 && (
             <div class="row">

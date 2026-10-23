@@ -39,6 +39,10 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await ana.getByRole('button', { name: 'On my way' }).click();
   await expect(ana).toContainText('You are on the way');
   await expect(ana).toContainText('another phone has it');
+  // Ben has answered it, so it is nothing more for him to act on: the count goes, and the heading says so.
+  await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
+  await expect(b).toHaveTitle('Resonance');
+  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 open request (none for you)' })).toBeVisible();
 
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
   await expect(checkInRow(a, 'You')).not.toContainText('heard directly');
@@ -71,6 +75,7 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await expect(checkInRow(page, 'You')).toContainText('Waiting for help', { timeout: 8_000 });
   await expect(page.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(page.locator('.tabs .badge')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Check-ins · 1 person · 1 open request (none for you)' })).toBeVisible();
   await expect(page).toHaveTitle('Resonance');
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   // Its rows hold nothing to tab to, so the log itself takes focus for the keyboard to scroll it.
