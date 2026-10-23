@@ -371,9 +371,10 @@ export class Station {
     if (body.kind === 'checkin' && !body.about) this.update({ place: body.place ?? '', outside: body.outside ?? '' });
   }
 
-  /** Answers a check-in, sealed exactly when it was: a circle's request is answered inside the circle, an open one in the open. */
-  async reply(to: Heard<CheckInBody>, what: ReplyKind) {
-    await this.transmit({ kind: 'reply', ts: nowSec(), nick: this.settings.nick, what, src: to.src, msgId: to.msgId }, { sealed: to.encrypted });
+  /** Answers a check-in, sealed exactly when it was (`mistake`: the sender takes its own request back): a circle's request is answered inside the circle, an open one in the open. */
+  async reply(to: Heard<CheckInBody>, what: ReplyKind, opts: { mistake?: boolean } = {}) {
+    const body = { kind: 'reply' as const, ts: nowSec(), nick: this.settings.nick, what, src: to.src, msgId: to.msgId };
+    await this.transmit(opts.mistake ? { ...body, mistake: true } : body, { sealed: to.encrypted });
   }
 
   /** "Send again" for a direct message with no receipt: a fresh packet, sealed as the first was, in place of the old item. */

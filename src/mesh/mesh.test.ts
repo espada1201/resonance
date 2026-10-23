@@ -128,6 +128,7 @@ describe('packet + payload codecs', () => {
     { kind: 'contact', ts: 3, name: 'Sam', phone: '', skills: ['firstaid', 'vehicle', 'space'], note: '' },
     { kind: 'reply', ts: 6, nick: 'ben', what: 'coming', src: 0xabcdef, msgId: 0xdeadbeef },
     { kind: 'reply', ts: 7, nick: '', what: 'passed', src: 1, msgId: 2 },
+    { kind: 'reply', ts: 7, nick: 'ana', what: 'resolved', src: 1, msgId: 2, mistake: true },
     { kind: 'notice', ts: 8, nick: 'desk', topic: 'water', hours: 24, place: 'North stairwell', text: 'Bottled water 9–5, bring a container' },
     { kind: 'file', fileId: 513, index: 0, total: 4, meta: { name: 'map.png', mime: 'image/png', size: 600 }, data: Uint8Array.of(9, 9) },
     { kind: 'file', fileId: 513, index: 3, total: 4, data: Uint8Array.of(1, 2, 3) },
@@ -139,6 +140,18 @@ describe('packet + payload codecs', () => {
     { kind: 'range', phase: 'report', session: 0xffff, intervalUs: 1234567 },
   ])('round-trips $kind bodies', (body) => {
     expect(decodeBody(typeOf[body.kind], encodeBody(body))).toEqual(body);
+  });
+
+  it('marks a request taken back as a mistake with one byte after everything an older phone reads, so older phones still read it as resolved', () => {
+    const resolved = { kind: 'reply' as const, ts: 7, nick: 'ana', what: 'resolved' as const, src: 1, msgId: 2 };
+    const plain = encodeBody(resolved);
+    const taken = encodeBody({ ...resolved, mistake: true });
+    expect([...taken.slice(0, plain.length)]).toEqual([...plain]);
+    expect(taken.length).toBe(plain.length + 1);
+    // An older phone reads only the fields it knows and ignores what follows; that is today's decoder with the flag byte cut off.
+    expect(decodeBody(PacketType.Reply, taken.slice(0, plain.length))).toEqual(resolved);
+    expect(decodeBody(PacketType.Reply, plain)).toEqual(resolved);
+    expect(decodeBody(PacketType.Reply, taken)).toEqual({ ...resolved, mistake: true });
   });
 
   it('cuts long nicknames on a character boundary', () => {

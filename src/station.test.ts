@@ -456,6 +456,23 @@ describe('what people say', () => {
     expect(s.journal.wasPassedOn(sent().msgId)).toBe(true);
   });
 
+  it('sends a take-back as a resolved with the mistake flag, which the sender and a neighbour both read as cancelled', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    await s.say({ kind: 'checkin', status: 'help', note: '' });
+    const ask = s.journal.roster()[0].latest;
+    expect(s.journal.roster()[0].open).toBe(true);
+    await s.reply(ask, 'resolved', { mistake: true });
+    const [entry] = s.journal.roster();
+    expect([entry.open, entry.resolved, entry.cancelled]).toEqual([false, true, true]);
+    const sent = decodePacket(out.at(-1)!.bytes)!;
+    expect(decodeBody(sent.type, sent.body)).toMatchObject({ kind: 'reply', what: 'resolved', mistake: true, src: s.id, msgId: ask.msgId });
+    // Plain "I got help" is resolved, not cancelled.
+    await s.say({ kind: 'checkin', status: 'help', note: '' });
+    await s.reply(s.journal.roster()[0].latest, 'resolved');
+    expect(s.journal.roster()[0].cancelled).toBe(false);
+  });
+
   it('measures the very packet that goes: a draft with 0 bytes left fits, one more byte does not, and a seal costs its overhead', async () => {
     const s = new Station(air, 'phone', null);
     s.update({ nick: 'Ana', profile: 'fast' });

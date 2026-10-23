@@ -8,8 +8,8 @@ let ids = 0;
 function checkIn(src: number, status: Status, sentSec: number, extra: Partial<CheckInBody> = {}, heardMs = sentSec * 1000): Heard<CheckInBody> {
   return { src, msgId: ++ids, at: heardMs, hops: 1, encrypted: false, body: { kind: 'checkin', ts: sentSec, nick: `n${src}`, status, note: '', ...extra } };
 }
-function reply(to: Heard<CheckInBody>, what: ReplyKind, sentSec: number, by = 9, heardMs = sentSec * 1000): Heard<ReplyBody> {
-  return { src: by, msgId: ++ids, at: heardMs, hops: 0, encrypted: false, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId } };
+function reply(to: Heard<CheckInBody>, what: ReplyKind, sentSec: number, by = 9, heardMs = sentSec * 1000, mistake?: boolean): Heard<ReplyBody> {
+  return { src: by, msgId: ++ids, at: heardMs, hops: 0, encrypted: false, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId, ...(mistake && { mistake }) } };
 }
 const names = (es: RosterEntry[]) => es.map((e) => e.latest.body.about ?? e.latest.body.nick);
 
@@ -71,6 +71,23 @@ describe('safety roster', () => {
     expect([e.open, e.resolved]).toEqual([true, false]);
     [e] = roster([first, again], [resolved, late, reply(again, 'resolved', T + 950)], T + 1000);
     expect([e.open, e.resolved]).toEqual([false, true]);
+  });
+
+  it('tells a request its sender took back from one that was resolved: cancelled only when the sender\'s own mistake flag closed it', () => {
+    const ask = checkIn(1, 'help', T);
+    const [taken] = roster([ask], [reply(ask, 'resolved', T + 30, 1, undefined, true)], T + 60);
+    expect([taken.open, taken.resolved, taken.cancelled]).toEqual([false, true, true]);
+    // Help that came is resolved, and a flag from anyone but the sender is not a take-back.
+    const [helped] = roster([ask], [reply(ask, 'resolved', T + 30, 9)], T + 60);
+    expect([helped.resolved, helped.cancelled]).toEqual([true, false]);
+    const [odd] = roster([ask], [reply(ask, 'resolved', T + 30, 9, undefined, true)], T + 60);
+    expect(odd.cancelled).toBe(false);
+    // Taken back, then asked again and then helped: the last word is not the take-back.
+    const again = checkIn(1, 'help', T + 600);
+    const [later] = roster([ask, again], [reply(ask, 'resolved', T + 30, 1, undefined, true), reply(again, 'resolved', T + 700, 9)], T + 800);
+    expect([later.resolved, later.cancelled]).toEqual([true, false]);
+    // A request never closed is not cancelled.
+    expect(roster([ask], [], T + 60)[0].cancelled).toBe(false);
   });
 
   it('counts a Resolved whatever the clock of the phone that sent it says', () => {
