@@ -40,7 +40,8 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · 1 waiting for you' })).toBeVisible();
   await ana.getByRole('button', { name: 'On my way' }).click();
   await expect(ana).toContainText('You are on the way');
-  await expect(ana).toContainText('heard by a phone nearby');
+  // The phone that asked says it has the answer, and the line names her, not "a phone nearby".
+  await expect(ana).toContainText("Ana's phone has it");
   // Ben has answered it, so it is nothing more for him to act on and the count goes, but the heading still says a person is asking.
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(b).toHaveTitle('Resonance');
@@ -149,12 +150,42 @@ test('a call for help in the feed is answered from the feed', async ({ context }
   const request = feedItem(b, 'Needs help');
   await request.getByRole('button', { name: 'On my way' }).click();
   await expect(request).toContainText('You are on the way');
-  await expect(request).toContainText(/You are on the way · .+ · heard by a phone nearby/);
+  await expect(request).toContainText(/You are on the way · .+ · Ana's phone has it/);
   await expect(request.getByRole('button', { name: 'On my way' })).toHaveCount(0);
   // The button that was pressed is gone; the keyboard lands on the next one, not back at the top.
   await expect(request.getByRole('button', { name: 'Save as audio' })).toBeFocused();
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
   await proof(b, 'on-my-way-from-feed');
+});
+
+test('a request sent in one tap and then again with details is one request on the Feed, the first marked as replaced', async ({ context }) => {
+  test.setTimeout(240_000);
+  const mei = await context.newPage();
+  await joinAir(mei, '/?air=sim', 'Mei');
+  const jonas = await context.newPage();
+  await joinAir(jonas, '/?air=sim', 'Jonas');
+
+  await openTab(mei, 'Safety');
+  await mei.getByRole('button', { name: 'I need help' }).click();
+  await expect(mei.getByText('No one has said they are coming yet.')).toBeVisible();
+  // The one tap asks for details; the request goes again with them.
+  if (!(await mei.getByRole('button', { name: 'Water' }).isVisible())) await mei.getByText('More detail').click();
+  await mei.getByRole('button', { name: 'Water' }).click();
+  await mei.getByRole('button', { name: 'Send check-in' }).click();
+
+  await expect(feedItem(jonas, 'Water')).toBeVisible();
+  const earlier = feedItem(jonas, 'Earlier check-in, replaced by a newer one');
+  await expect(earlier).toHaveCount(1);
+  await expect(earlier).not.toContainText('Needs help');
+  await expect(earlier.getByRole('button', { name: 'On my way' })).toHaveCount(0);
+  // One request to answer, and it is the one with what is needed.
+  const request = feedItem(jonas, 'Water');
+  await expect(request).not.toContainText('Earlier check-in');
+  await expect(request).toContainText('Needs help');
+  await expect(jonas.getByRole('button', { name: 'On my way' })).toHaveCount(1);
+  await request.getByRole('button', { name: 'On my way' }).click();
+  await expect(request).toContainText("Mei's phone has it");
+  await proof(jonas, 'one-request-on-the-feed');
 });
 
 test('a check-in sent without a name goes at once, then asks for the name with the box ready, and sends again with it', async ({ page }) => {

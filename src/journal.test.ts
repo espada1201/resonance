@@ -133,6 +133,18 @@ describe('journal', () => {
     expect(j.reachedAsker(20)).toBe(false);
   });
 
+  it('says which check-ins a newer one from the same phone about the same person has replaced', () => {
+    const detail: CheckInBody = { ...help, ts: TS + 20, needs: ['water'] };
+    j.add(met(CAL, 2), help);
+    j.add(met(BEN, 5), { ...help, nick: 'Ben', ts: TS + 5 });
+    expect(j.replacedCheckIns()).toEqual(new Set());
+    now += 20_000;
+    j.add(met(CAL, 6), detail);
+    // Ben's is his own person's; a check-in about someone else is another person's too.
+    j.add(met(CAL, 7), { ...help, ts: TS + 21, about: 'Mr Ito' });
+    expect(j.replacedCheckIns()).toEqual(new Set([`${CAL}:2`]));
+  });
+
   it('keeps the newest 400 items and saves 200, while the log keeps what responders need', () => {
     j.add(met(CAL, 2), help);
     for (let i = 0; i < 450; i++) j.add(met(BEN, 100 + i), text(`chat ${i}`));

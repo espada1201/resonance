@@ -93,6 +93,8 @@ export const REPLY_TEXT: Record<ReplyKind, string> = { coming: 'is on the way', 
 
 /** A request its sender took back: what everyone sees instead of a call for help. The protocol still says "resolved". */
 export const CANCELLED_TEXT = 'Cancelled: sent by mistake';
+/** An older check-in on the Feed, once the same person has sent a newer one: it is not a second request. */
+export const REPLACED_TEXT = 'Earlier check-in, replaced by a newer one';
 export const TOOK_BACK_TEXT = 'took it back: sent by mistake';
 
 export const STRENGTH_TEXT: Record<Strength, string> = { strong: 'Strong signal', fair: 'Fair signal', weak: 'Weak signal' };

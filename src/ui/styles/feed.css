@@ -172,6 +172,10 @@
   font-size: 18px;
   font-weight: 650;
 }
+/* An older check-in that a newer one has replaced: still there to read, no longer a call. */
+.checkin.replaced {
+  --status: var(--muted);
+}
 /* A request its sender took back is no call for help: grey, not red. */
 .checkin.cancelled {
   --status: var(--muted);

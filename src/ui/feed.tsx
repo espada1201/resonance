@@ -7,7 +7,7 @@ import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
 import { type RosterEntry, tookBack, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, SENDING_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
+import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, REPLACED_TEXT, SENDING_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -305,10 +305,12 @@ interface ItemProps {
   position: Geo | null;
   /** The open request this check-in makes, if it is one. */
   request?: RosterEntry;
+  /** A newer check-in from the same phone about the same person has taken this one's place. */
+  replaced?: boolean;
   onReply?: (src: number) => void;
 }
 
-function FeedItemView({ station, item, position, request, onReply }: ItemProps) {
+function FeedItemView({ station, item, position, request, replaced, onReply }: ItemProps) {
   const shell = { station, item };
   if (item.locked) {
     return (
@@ -335,22 +337,23 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
   if (b.kind === 'checkin') {
     const replies = station.journal.repliesTo(item.src, item.msgId);
     const cancelled = replies.some(tookBack);
+    const earlier = replaced && !cancelled;
     const answerable =
       request && station.status === 'listening' && !(item.mine && !b.about) && !request.replies.some((r) => r.src === station.id && r.body.what === 'coming');
     return (
       <Item
         {...shell}
-        kind={cancelled ? 'checkin cancelled' : `checkin s-${b.status}`}
+        kind={cancelled ? 'checkin cancelled' : earlier ? 'checkin replaced' : `checkin s-${b.status}`}
         actions={
           <>
-            {delivery}
+            {!earlier && delivery}
             {answerable && <OnMyWay station={station} request={request} />}
             {sound}
           </>
         }
       >
         <p class="status-line">
-          <span class="status-word">{cancelled ? CANCELLED_TEXT : STATUS_TEXT[b.status]}</span>
+          <span class="status-word">{cancelled ? CANCELLED_TEXT : earlier ? REPLACED_TEXT : STATUS_TEXT[b.status]}</span>
           {b.about && (
             <span>
               <strong>{b.about}</strong>, reported by {item.mine ? 'you' : named(station, item.src, b.nick)}
@@ -467,6 +470,7 @@ export function Feed({ station, onReply }: { station: Station; onReply?: (src: n
       </div>
     );
   }
+  const replaced = station.journal.replacedCheckIns();
   const open = new Map(
     station.journal
       .roster()
@@ -477,7 +481,7 @@ export function Feed({ station, onReply }: { station: Station; onReply?: (src: n
     <div class="feed">
       {notices}
       {station.journal.feed.map((item) => (
-        <FeedItemView key={item.id} station={station} item={item} position={station.position} request={open.get(item.id)} onReply={onReply} />
+        <FeedItemView key={item.id} station={station} item={item} position={station.position} request={open.get(item.id)} replaced={replaced.has(item.id)} onReply={onReply} />
       ))}
     </div>
   );

@@ -2,7 +2,7 @@ import { type Parcel, parcels } from './courier';
 import { BROADCAST } from './mesh/packet';
 import { type ContentBody, isContent } from './mesh/payloads';
 import { activeNotices } from './notices';
-import { type Heard, type NoticeBody, type ReplyBody, type RosterEntry, SafetyLog, type SafetySnapshot, roster, writtenAt } from './roster';
+import { type Heard, type NoticeBody, type ReplyBody, type RosterEntry, SafetyLog, type SafetySnapshot, roster, superseded, writtenAt } from './roster';
 
 // Everything said on the mesh that this device knows, heard or sent: the feed people read, and the
 // safety log responders act on. The station hands it what it opened (or could not open); the
@@ -115,6 +115,11 @@ export class Journal {
   /** Everyone's latest check-in, in the order a responder works through them. */
   roster(): RosterEntry[] {
     return roster(this.log.checkins, this.log.replies, Math.floor(this.clock.now() / 1000));
+  }
+
+  /** Ids (`src:msgId`) of check-ins that a newer one from the same phone about the same person has taken the place of. */
+  replacedCheckIns(): Set<string> {
+    return new Set(superseded(this.log.checkins).map((c) => `${c.src}:${c.msgId}`));
   }
 
   /** Check-ins naming someone outside, newest first, marked once someone passed them on. */
