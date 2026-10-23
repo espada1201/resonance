@@ -19,7 +19,7 @@ test('on simulated air the page is listening before its first hello', async ({ p
   await page.clock.runFor(1_000);
   await expect(page.getByRole('status')).toHaveText('Listening');
   await expect(page.getByPlaceholder('Say something')).toBeVisible();
-  await expect(page.getByText(/^Nothing on the air yet/)).toBeVisible();
+  await expect(page.getByText(/^Nothing heard yet/)).toBeVisible();
   await proof(page, 'sim-ready');
 });
 

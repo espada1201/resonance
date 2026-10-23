@@ -82,7 +82,7 @@ function Radar({ me, people, heading, name }: { me: Geo; people: RosterEntry[]; 
 /** `ask`: the one-tap call for help went with no details, so this asks for them. */
 function sentText(station: Station, about: string | undefined, ask: boolean) {
   const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
-  if (mine && station.queued(mine.latest)) return 'Waiting to go on air…';
+  if (mine && station.queued(mine.latest)) return 'Waiting to send…';
   const item = mine && station.journal.feed.find((i) => i.mine && i.msgId === mine.latest.msgId);
   const sent = item?.passedOn ? 'Sent. Another phone has it.' : 'Sent.';
   if (!mine || !asking(mine.latest.body.status)) return sent;

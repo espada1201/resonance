@@ -75,21 +75,21 @@ test('a phone that pauses its sound says so, holds what you send, and a tap brin
   await page.getByRole('button', { name: 'Start listening' }).click();
   await openTab(page, 'Settings');
   await page.getByRole('checkbox', { name: /Relay messages for others/ }).uncheck();
-  const line = page.getByRole('region', { name: 'Air', exact: true }).getByRole('status');
+  const line = page.getByRole('region', { name: 'Sound', exact: true }).getByRole('status');
   await expect(line).not.toHaveText(/Starting/);
 
   await page.evaluate(() => (window as unknown as { lockScreen(): Promise<void> }).lockScreen());
   await expect(line).toHaveText(/^Sound paused by this device · tap to resume/);
   await sendText(page, 'Sent while the screen was locked');
   const item = feedItem(page, 'Sent while the screen was locked');
-  await expect(item).toContainText('waiting to go on air…');
+  await expect(item).toContainText('waiting to send…');
   await expect(line).toHaveText(/ · \d+ waiting$/);
   await proof(page, 'sound-paused');
 
   await page.evaluate(() => (window as unknown as { unlockScreen(): void }).unlockScreen());
   await line.click();
   await expect(line).not.toHaveText(/Sound paused/);
-  await expect(item).not.toContainText('waiting to go on air');
+  await expect(item).not.toContainText('waiting to send');
   await expect(airRow(page, 'OUT', 'message')).toBeVisible();
 });
 

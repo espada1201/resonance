@@ -7,7 +7,7 @@ import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
 import { type RosterEntry, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes } from './format';
+import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -51,7 +51,7 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
           <Lock size={12} /> circle
         </span>
       )}
-      {!item.mine && <span class="chip">{item.hops === 0 ? 'heard directly' : `${item.hops} hop${item.hops > 1 ? 's' : ''}`}</span>}
+      {!item.mine && <span class="chip">{item.hops === 0 ? 'heard directly' : passedOnText(item.hops)}</span>}
       <time dateTime={new Date(writtenAt(item)).toISOString()}>{ago(writtenAt(item))}</time>
     </header>
   );
@@ -59,7 +59,7 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
 
 function Delivery({ station, item }: { station: Station; item: FeedItem }) {
   const [err, setErr] = useState('');
-  if (station.queued(item)) return <span class="delivery">waiting to go on air…</span>;
+  if (station.queued(item)) return <span class="delivery">waiting to send…</span>;
   if (item.mine && item.dst === BROADCAST) {
     return item.passedOn ? (
       <span class="delivery ok">
@@ -131,7 +131,7 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
       <button
         type="button"
         class="ghost small"
-        title="Save this packet as a sound file. Play it from any speaker near a Resonance device (phone calls and walkie-talkies cut the tones it needs)."
+        title="Save this message as an audio file. Play it from any speaker near a phone running Resonance (phone calls and walkie-talkies cut the sound it needs)."
         onClick={() => {
           try {
             saveSound(station, item);
@@ -140,7 +140,7 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
           }
         }}
       >
-        <WaveFile size={14} /> Sound file
+        <WaveFile size={14} /> Save as audio
       </button>
       {err && (
         <span class="error small" role="alert">

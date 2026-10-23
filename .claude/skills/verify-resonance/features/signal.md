@@ -10,7 +10,7 @@ Each station says, in plain words, how well it hears every neighbour, judged fro
 ## How to get to it (user POV)
 
 - People tab, `Heard directly`.
-- The air panel: beside the tabs on a laptop, the `Air` tab on a phone.
+- The air panel: beside the tabs on a laptop, the `Sound` tab on a phone.
 
 ## Driving it with verify.sh
 

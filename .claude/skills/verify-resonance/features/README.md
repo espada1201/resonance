@@ -13,7 +13,7 @@ This directory is the maintained source for verifying what Resonance users can d
 - Drive through `verify.sh drive <spec> '<test title>'`.
 - Locate by role and accessible name. The specs never use CSS selectors for user actions.
 - Stations join with `joinAir`, which waits until their first hello has cleared the air.
-- Narrow layouts (under 960 px) move the air log behind an `Air` tab. `joinAir` handles it.
+- Narrow layouts (under 960 px) move the sound log behind a `Sound` tab. `joinAir` handles it.
 
 ## Proof and skip reporting
 
@@ -40,7 +40,7 @@ Each feature file starts with an H1 title and one paragraph on the user-visible 
 - [Find](./find.md): two devices measure the distance between them by sound.
 - [Beacon](./beacon.md): a laptop left in a hallway relays and remembers.
 - [Microphone](./microphone.md): the real capture path decodes all three modes.
-- [Sound files](./sound-files.md): save a packet as a WAV, decode packets from a recording.
+- [Sound files](./sound-files.md): `Save as audio` on a message saves a WAV, and a recording can be read back.
 - [Offline](./offline.md): the app and the beacon open with no network, and a page left open across a deploy keeps working.
 - [Keyboard hints](./keyboard.md): a short line names the arrow keys for tabs and needs while the keyboard is on them.
 - [Layout](./layout.md): every tab fits a phone screen, with every tab label whole at 360 and 320 px.

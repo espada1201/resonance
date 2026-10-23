@@ -75,7 +75,7 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await expect(page).toHaveTitle('Resonance');
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   // Its rows hold nothing to tab to, so the log itself takes focus for the keyboard to scroll it.
-  await expect(page.getByRole('region', { name: 'Air log' })).toHaveAttribute('tabindex', '0');
+  await expect(page.getByRole('region', { name: 'Sound log' })).toHaveAttribute('tabindex', '0');
   await proof(page, 'help-without-fix');
 });
 
@@ -111,7 +111,7 @@ test('the big help button sends the details open beside it, then says whether an
   await expect(mine).toContainText('Trapped');
   await expect(mine).toContainText('Leg stuck under a beam');
   await expect(a.getByLabel('Note')).toBeEmpty();
-  await expect(a.getByText('Waiting to go on air…')).toBeVisible();
+  await expect(a.getByText('Waiting to send…')).toBeVisible();
   await expect(a.getByText('Sent. Another phone has it. No one has said they are coming yet.')).toBeVisible();
 
   await openTab(b, 'Safety');
@@ -138,7 +138,7 @@ test('a call for help in the feed is answered from the feed', async ({ context }
   await expect(request).toContainText(/You are on the way · .+ · another phone has it/);
   await expect(request.getByRole('button', { name: 'On my way' })).toHaveCount(0);
   // The button that was pressed is gone; the keyboard lands on the next one, not back at the top.
-  await expect(request.getByRole('button', { name: 'Sound file' })).toBeFocused();
+  await expect(request.getByRole('button', { name: 'Save as audio' })).toBeFocused();
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
   await proof(b, 'on-my-way-from-feed');
 });
@@ -329,7 +329,7 @@ test('a sealed message and file heard before joining the circle open once you jo
   await a.getByRole('button', { name: 'Send', exact: true }).click();
   await openTab(b, 'Feed');
   await expect(feedItem(b, 'Sealed for a circle you are not in')).toBeVisible();
-  const chunks = b.getByRole('list', { name: 'Air activity' }).getByRole('listitem').filter({ hasText: 'file chunk from' });
+  const chunks = b.getByRole('list', { name: 'Sound activity' }).getByRole('listitem').filter({ hasText: 'file chunk from' });
   await expect(chunks).toHaveCount(2, { timeout: 120_000 });
   await expect(feedItem(b, 'route.txt')).toHaveCount(0);
 

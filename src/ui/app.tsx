@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useAutoStart } from '../boot';
 import { BROADCAST, nodeHex } from '../mesh/packet';
-import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
+import type { ProfileId } from '../modem/profiles';
 import { type RosterEntry, needingYou } from '../roster';
 import type { Station } from '../station';
 import { AirPanel, AirStatus } from './air';
@@ -17,12 +17,12 @@ import { TopBar } from './shell';
 
 const MODES: Array<[ProfileId, string, string]> = [
   ['audible', 'Audible', 'across a room'],
-  ['fast', 'Fast', 'close, in a quiet room'],
-  ['ultrasonic', 'Near-ultrasonic', 'same table, almost silent'],
+  ['fast', 'Fast', 'close, in a quiet room, fastest'],
+  ['ultrasonic', 'Quiet', 'same table, almost silent, slowest'],
 ];
 
 type Tab = 'feed' | 'safety' | 'air' | 'people' | 'settings';
-const TAB_TEXT: Record<Tab, string> = { feed: 'Feed', safety: 'Safety', air: 'Air', people: 'People', settings: 'Settings' };
+const TAB_TEXT: Record<Tab, string> = { feed: 'Feed', safety: 'Safety', air: 'Sound', people: 'People', settings: 'Settings' };
 
 function Gate({ station }: { station: Station }) {
   const sim = station.transport.kind === 'simulated';
@@ -55,8 +55,7 @@ function Gate({ station }: { station: Station }) {
         )}
       </div>
       <p class="muted small">
-        Your browser will ask for the microphone. Resonance decodes sound on this device and never records or uploads it. It turns off echo
-        cancellation, which would erase the chirps.
+        Your browser will ask to use the microphone. Resonance listens for its own messages on this device and never records or uploads sound.
       </p>
       <details class="more">
         <summary>Three ways to send, from across a room to almost silent</summary>
@@ -64,7 +63,6 @@ function Gate({ station }: { station: Station }) {
           {MODES.map(([id, name, range]) => (
             <div key={id}>
               <dt>{name}</dt>
-              <dd class="rate">{Math.round(rawBitrate(PROFILES[id])).toLocaleString('en')} bit/s raw</dd>
               <dd>{range}</dd>
             </div>
           ))}

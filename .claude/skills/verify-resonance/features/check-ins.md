@@ -9,7 +9,7 @@ One tap tells everyone in earshot "I'm safe" or "I need help", with a GPS fix if
 - `checkin-map` the Safety tab plots everyone with a position on a map around you.
 - `checkin-name` someone with no name yet is asked for one on the check-in card and in the compose bar's check-in; what they type becomes their nickname.
 - `checkin-no-fix` GPS never holds a check-in back more than about 3 s: with a location prompt nobody answers, `I need help` is on air within seconds; when GPS fails, the compose bar's check-in still goes, saying `Sent without a position.`
-- `checkin-waiting` until a check-in has played on air, the card under the buttons reads `Waiting to go on air…`, not `Sent.` A phone whose screen locks mid-frame has not sent it: it stays waiting, a reload still sends it, and it goes once as soon as the phone's sound is back.
+- `checkin-waiting` until a check-in has played on air, the card under the buttons reads `Waiting to send…`, not `Sent.` A phone whose screen locks mid-frame has not sent it: it stays waiting, a reload still sends it, and it goes once as soon as the phone's sound is back.
 
 ## How to get to it (user POV)
 
@@ -26,7 +26,7 @@ Preconditions: the journey grants geolocation and moves the second station 300 m
 
 - **No fix.** Run `verify.sh drive e2e/safety.spec.ts 'location prompt waits'` and `verify.sh drive e2e/safety.spec.ts 'compose bar goes out without a position'`. The journeys stub GPS in the page: one never answers, one fails. Either way the station's own row appears and the air log shows `OUT check-in` within 8 s.
 
-- **Waiting to go on air.** Run `verify.sh drive e2e/safety.spec.ts 'the big help button'`: under the buttons, `Waiting to go on air…` becomes `Sent. Nobody has answered yet.` once the check-in has played. Simulated air and Chromium's fake device never suspend their sound, so a screen locked mid-frame is driven on the station: `npx vitest run src/station.test.ts -t 'locked screen'`. Ten minutes locked, the check-in is still to go and nothing more is played; back on screen it goes on air once, and only then does its repeat timer start.
+- **Waiting to send.** Run `verify.sh drive e2e/safety.spec.ts 'the big help button'`: under the buttons, `Waiting to send…` becomes `Sent. Nobody has answered yet.` once the check-in has played. Simulated air and Chromium's fake device never suspend their sound, so a screen locked mid-frame is driven on the station: `npx vitest run src/station.test.ts -t 'locked screen'`. Ten minutes locked, the check-in is still to go and nothing more is played; back on screen it goes on air once, and only then does its repeat timer start.
 
 ## Gotchas
 

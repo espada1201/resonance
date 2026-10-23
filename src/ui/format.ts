@@ -23,6 +23,9 @@ export function ago(ms: number): string {
   return `${Math.round(h / 24)} d ago`;
 }
 
+/** How far a message travelled to get here: each phone that repeated it is one more time. */
+export const passedOnText = (hops: number) => `passed on ${hops === 1 ? 'once' : `${hops} times`}`;
+
 export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 export function seconds(s: number): string {
@@ -77,4 +80,4 @@ export const REPLY_TEXT: Record<ReplyKind, string> = { coming: 'is on the way', 
 
 export const STRENGTH_TEXT: Record<Strength, string> = { strong: 'Strong signal', fair: 'Fair signal', weak: 'Weak signal' };
 
-export const PROFILE_NAME: Record<ProfileId, string> = { audible: 'Audible', fast: 'Fast', ultrasonic: 'Near-ultrasonic' };
+export const PROFILE_NAME: Record<ProfileId, string> = { audible: 'Audible', fast: 'Fast', ultrasonic: 'Quiet' };

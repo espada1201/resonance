@@ -4,7 +4,7 @@ import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
 import { type Heard, type ReplyBody, type RosterEntry, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago } from './format';
+import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Compass } from './icons';
 
@@ -43,7 +43,7 @@ export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, n
 /** What is known about whether our own reply, such as "On my way", was heard: empty for anyone else's. */
 export function receipt(station: Station, r: Heard<ReplyBody>): string {
   if (r.src !== station.id) return '';
-  if (station.queued(r)) return 'waiting to go on air…';
+  if (station.queued(r)) return 'waiting to send…';
   return r.passedOn ? 'another phone has it' : 'sent, no other phone has passed it on yet';
 }
 
@@ -86,7 +86,7 @@ export function RosterList({ entries, me, self, name, by, reply, receipt, find, 
             )}
             {b.note && <p class="text-body">{b.note}</p>}
             <p class="muted small">
-              {[where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? `${hops} hop${hops > 1 ? 's' : ''}` : 'heard directly')]
+              {[where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? passedOnText(hops) : 'heard directly')]
                 .filter(Boolean)
                 .join(' · ')}
             </p>

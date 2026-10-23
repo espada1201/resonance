@@ -9,8 +9,8 @@ const SCREENS = fileURLToPath(new URL('.out/screens/', import.meta.url));
 const LAYOUTS = [
   { name: 'desktop', width: 1440, height: 900, tabs: ['Feed', 'Safety', 'People', 'Settings'] },
   // Below 960 px the air panel moves from the side into its own tab.
-  { name: 'phone', width: 390, height: 844, tabs: ['Feed', 'Safety', 'Air', 'People', 'Settings'] },
-  { name: 'small phone', width: 360, height: 740, tabs: ['Feed', 'Safety', 'Air', 'People', 'Settings'] },
+  { name: 'phone', width: 390, height: 844, tabs: ['Feed', 'Safety', 'Sound', 'People', 'Settings'] },
+  { name: 'small phone', width: 360, height: 740, tabs: ['Feed', 'Safety', 'Sound', 'People', 'Settings'] },
 ] as const;
 
 /**
@@ -100,7 +100,7 @@ for (const width of [360, 320]) {
           }),
         };
       });
-      expect(row.tabs.map((t) => t.label)).toEqual(['Feed', 'Safety1', 'Air', 'People', 'Settings']);
+      expect(row.tabs.map((t) => t.label)).toEqual(['Feed', 'Safety1', 'Sound', 'People', 'Settings']);
       expect(row.tabs.filter((t) => !t.inside || !t.whole), 'a tab is cut off').toEqual([]);
       expect(row.clipped, 'the tab row scrolls sideways').toBe(false);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
