@@ -10,6 +10,9 @@ export function fitInput(e: Event, max: number): string {
   return v;
 }
 
+/** The parts that are there, apart from `sep`: empty, false and missing parts are left out. */
+export const joinParts = (sep: string, ...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(sep);
+
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function ago(ms: number): string {
@@ -22,6 +25,19 @@ export function ago(ms: number): string {
   if (h < 24) return `${h} h ago`;
   return `${Math.round(h / 24)} d ago`;
 }
+
+/** How far a message travelled to get here: each phone that repeated it is one more time. */
+export const passedOnText = (hops: number) => `passed along ${hops} ${hops === 1 ? 'time' : 'times'}`;
+
+/** What a message says about where it came from when it was heard from the sender's own phone. */
+export const HEARD_FROM_SENDER = 'heard from their own phone';
+/** Our own broadcast or reply, said by the same words on the Feed and on Safety: whether another phone repeated it. */
+export const HEARD_BY_NEARBY = 'heard by a phone nearby';
+export const NOT_HEARD_YET = 'not heard by another phone yet';
+/** Until the first resend has had its turn, no news is no failure: sound is slow. */
+export const SENDING_TEXT = 'sending… this can take up to a minute';
+/** Our reply, once the phone that asked has said it has it. */
+export const askerHasIt = (name: string) => `${name}'s phone has it`;
 
 export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -75,6 +91,12 @@ export const TOPIC_TEXT: Record<Topic, string> = {
 /** "Ben is on the way", "Ben marked it resolved", "Ben passed it on". */
 export const REPLY_TEXT: Record<ReplyKind, string> = { coming: 'is on the way', resolved: 'marked it resolved', passed: 'passed it on' };
 
+/** A request its sender took back: what everyone sees instead of a call for help. The protocol still says "resolved". */
+export const CANCELLED_TEXT = 'Cancelled: sent by mistake';
+/** An older check-in on the Feed, once the same person has sent a newer one: it is not a second request. */
+export const REPLACED_TEXT = 'Earlier check-in, replaced by a newer one';
+export const TOOK_BACK_TEXT = 'took it back: sent by mistake';
+
 export const STRENGTH_TEXT: Record<Strength, string> = { strong: 'Strong signal', fair: 'Fair signal', weak: 'Weak signal' };
 
-export const PROFILE_NAME: Record<ProfileId, string> = { audible: 'Audible', fast: 'Fast', ultrasonic: 'Near-ultrasonic' };
+export const PROFILE_NAME: Record<ProfileId, string> = { audible: 'Audible', fast: 'Fast', ultrasonic: 'Quiet' };

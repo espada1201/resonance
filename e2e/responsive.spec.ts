@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { PacketType } from '../src/mesh/packet';
-import { nowSec } from '../src/mesh/payloads';
+import { encodeBody, nowSec } from '../src/mesh/payloads';
 import { checkInRow, expect, feedItem, joinAir, openTab, playPacket, sendText, test } from './helpers';
 
 const SCREENS = fileURLToPath(new URL('.out/screens/', import.meta.url));
@@ -9,8 +9,8 @@ const SCREENS = fileURLToPath(new URL('.out/screens/', import.meta.url));
 const LAYOUTS = [
   { name: 'desktop', width: 1440, height: 900, tabs: ['Feed', 'Safety', 'People', 'Settings'] },
   // Below 960 px the air panel moves from the side into its own tab.
-  { name: 'phone', width: 390, height: 844, tabs: ['Feed', 'Safety', 'Air', 'People', 'Settings'] },
-  { name: 'small phone', width: 360, height: 740, tabs: ['Feed', 'Safety', 'Air', 'People', 'Settings'] },
+  { name: 'phone', width: 390, height: 844, tabs: ['Feed', 'Safety', 'Sound', 'People', 'Settings'] },
+  { name: 'small phone', width: 360, height: 740, tabs: ['Feed', 'Safety', 'Sound', 'People', 'Settings'] },
 ] as const;
 
 /**
@@ -53,7 +53,7 @@ for (const layout of LAYOUTS) {
       // A long unbroken token (a link, an email) must wrap inside its card, not push it off screen.
       const text = 'Water and blankets at the north stairwell, level 2. Map: https://example.org/shelters/lambeth-north-stairwell-level-2';
       await sendText(b, text);
-      await expect(feedItem(a, text)).toContainText('heard directly');
+      await expect(feedItem(a, text)).toContainText('heard from their own phone');
       await openTab(a, 'Safety');
       await a.getByRole('button', { name: "I'm safe" }).click();
       await openTab(b, 'Safety');
@@ -80,3 +80,52 @@ for (const layout of LAYOUTS) {
     });
   });
 }
+
+for (const width of [360, 320]) {
+  test.describe(`tab row at ${width} px`, () => {
+    test.use({ viewport: { width, height: 740 } });
+
+    test('shows every tab label in full, with a count on Safety', async ({ page }) => {
+      await joinAir(page);
+      await playPacket(page, PacketType.CheckIn, encodeBody({ kind: 'checkin', ts: nowSec(), nick: 'Ben', status: 'help', note: '' }));
+      await expect(page.getByRole('tab', { name: 'Safety, 1 waiting for you' })).toBeVisible({ timeout: 20_000 });
+      const row = await page.getByRole('tablist', { name: 'Sections' }).evaluate((list) => {
+        const box = list.getBoundingClientRect();
+        return {
+          clipped: list.scrollWidth > list.clientWidth,
+          tabs: [...list.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => {
+            const r = t.getBoundingClientRect();
+            return { label: t.textContent, inside: r.left >= box.left - 0.5 && r.right <= box.right + 0.5, whole: t.scrollWidth <= t.clientWidth };
+          }),
+        };
+      });
+      expect(row.tabs.map((t) => t.label)).toEqual(['Feed', 'Safety1', 'Sound', 'People', 'Settings']);
+      expect(row.tabs.filter((t) => !t.inside || !t.whole), 'a tab is cut off').toEqual([]);
+      expect(row.clipped, 'the tab row scrolls sideways').toBe(false);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    });
+  });
+}
+
+test.describe('first screen on a 360x640 phone', () => {
+  test.use({ viewport: { width: 360, height: 640 } });
+
+  test('shows I\'m safe, I need help, some feed and the message box without scrolling sideways', async ({ page }) => {
+    await joinAir(page, '/?air=sim', 'Ana');
+    const buttons = page.getByRole('group', { name: 'In an emergency' }).getByRole('button');
+    await expect(buttons).toHaveText(["I'm safe", 'I need help']);
+    const box = async (loc: ReturnType<Page['locator']>) => (await loc.boundingBox())!;
+    for (const b of await buttons.all()) {
+      const r = await box(b);
+      expect(r.height).toBeGreaterThanOrEqual(44);
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.width).toBeLessThanOrEqual(360);
+    }
+    const feed = await box(page.getByRole('tabpanel'));
+    const message = await box(page.getByPlaceholder(/^Say something/));
+    expect(feed.height, 'room left for the feed').toBeGreaterThanOrEqual(120);
+    expect(message.y + message.height, 'the message box is on screen').toBeLessThanOrEqual(640);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+    await page.screenshot({ path: `${SCREENS}first-screen-360x640.png`, animations: 'disabled' });
+  });
+});

@@ -48,6 +48,28 @@
 /* The tab bar scrolls sideways inside its landmark rather than widening the page. */
 .shell > nav {
   min-width: 0;
+  position: relative;
+  z-index: 2;
+}
+/* Keyboard users only: names the arrow keys where a Tab press cannot show them. Hidden, it takes no room and is not read.
+   The tabs' own line makes room under the tab row while the keyboard is there, so it never covers the page. */
+.key-hint {
+  visibility: hidden;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tabs-hint {
+  display: none;
+  margin: 0;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+}
+nav:has(.tabs :focus-visible) .tabs-hint {
+  display: block;
+  visibility: visible;
+}
+.needs:has(.pill:focus-visible) .key-hint {
+  visibility: visible;
 }
 .tabs {
   display: flex;
@@ -65,6 +87,29 @@
   color: var(--muted);
   font-weight: 600;
   background: none;
+}
+/* Five labels and a count must fit a 320 px phone whole, whatever font the device falls back to:
+   labels keep their natural width and share what is left, padding and the count stay small, and a tab may
+   shrink (min-width: 0) rather than push the row wider. */
+@media (max-width: 400px) {
+  .tabs {
+    padding: 0 2px;
+    gap: 0;
+  }
+  .tabs button {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 3px;
+    font-size: 13px;
+  }
+  .tabs .badge {
+    min-width: 16px;
+    height: 16px;
+    margin-left: 3px;
+    padding: 0 4px;
+    border-radius: 8px;
+    font-size: 10px;
+  }
 }
 .tabs button[aria-selected='true'] {
   color: var(--text);

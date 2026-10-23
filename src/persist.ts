@@ -1,7 +1,6 @@
-import type { FeedItem } from './journal';
+import type { FeedItem, SavedSafety } from './journal';
 import type { SavedFiles } from './mesh/files';
 import type { StoredPacket } from './mesh/node';
-import type { SafetySnapshot } from './roster';
 import type { Settings } from './station';
 
 // What the station keeps between visits: seven JSON strings under resonance:v1:<role>:, written
@@ -14,7 +13,7 @@ export interface Saved extends SavedFiles {
   /** Partial: a save from an older version may lack newer settings. */
   settings: Partial<Settings>;
   /** Check-ins, replies and notices: three days, 600 of each. */
-  safety: SafetySnapshot;
+  safety: SavedSafety;
   /** Newest first. */
   feed: FeedItem[];
   /** The mesh store: each packet's bytes, when and over how many hops it was first heard, and `q` if it is ours and has not been on air. */

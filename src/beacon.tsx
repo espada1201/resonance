@@ -9,7 +9,7 @@ import { errorText, fitInput } from './ui/format';
 import { useMedia, useStation, useTicker } from './ui/hooks';
 import { Mic } from './ui/icons';
 import { NoticeBoard, type NoticeDraft, NoticeFields, newNotice } from './ui/notices';
-import { RosterList, headcount } from './ui/roster';
+import { RosterList, headcount, replyLine } from './ui/roster';
 import { StatGrid, TopBar } from './ui/shell';
 import './ui/styles/index.css';
 
@@ -25,7 +25,7 @@ function uptime(ms: number) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-/** A notice from the desk the beacon sits on: water, food, danger, for everyone in earshot. */
+/** A notice from the desk the beacon sits on: water, food, danger, for everyone near it. */
 function NoticeForm() {
   const [notice, setNotice] = useState<NoticeDraft>(newNotice);
   const [err, setErr] = useState('');
@@ -95,7 +95,7 @@ function Beacon() {
             <h2>Leave this device here as a relay.</h2>
             <p class="lede">
               It listens in all three modes and repeats every message it hears. It keeps the newest 300 packets (check-ins and notices for three
-              days, the rest for 12 hours) and hands them to any phone that comes within earshot. Plug it in, turn the volume up and keep the lid open.
+              days, the rest for 12 hours) and hands them to any phone that comes near it. Plug it in, turn the volume up and keep the lid open.
             </p>
             {station.status === 'error' && <p class="error" role="alert">{station.error}</p>}
             <button
@@ -123,6 +123,7 @@ function Beacon() {
               name={(e) => e.latest.body.about ?? by(e.latest.src, e.latest.body.nick)}
               by={by}
               reply={null}
+              replyLine={(r, askerNick) => replyLine(station, r, by, askerNick)}
               find={() => null}
             />
           )}

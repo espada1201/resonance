@@ -1,6 +1,6 @@
 import { MAX_PLACE, TOPICS, type Topic } from '../mesh/payloads';
 import type { Heard, NoticeBody } from '../roster';
-import { TOPIC_TEXT, clock, fitInput } from './format';
+import { TOPIC_TEXT, clock, fitInput, joinParts } from './format';
 import { rovingKeys } from './hooks';
 
 /** How long a notice stays up, in hours. */
@@ -36,7 +36,7 @@ export function NoticeBoard({ notices, by, large = false }: { notices: Heard<Not
         <article key={`${n.src}:${n.msgId}`} class={`notice t-${n.body.topic}`}>
           <span class="topic">{TOPIC_TEXT[n.body.topic]}</span>
           <p class="notice-text">{n.body.text}</p>
-          <p class="muted small">{[n.body.place, until(n.body.ts + n.body.hours * 3600), `from ${by(n.src, n.body.nick)}`].filter(Boolean).join(' · ')}</p>
+          <p class="muted small">{joinParts(' · ', n.body.place, until(n.body.ts + n.body.hours * 3600), `from ${by(n.src, n.body.nick)}`)}</p>
         </article>
       ))}
     </section>

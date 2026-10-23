@@ -128,6 +128,7 @@ describe('packet + payload codecs', () => {
     { kind: 'contact', ts: 3, name: 'Sam', phone: '', skills: ['firstaid', 'vehicle', 'space'], note: '' },
     { kind: 'reply', ts: 6, nick: 'ben', what: 'coming', src: 0xabcdef, msgId: 0xdeadbeef },
     { kind: 'reply', ts: 7, nick: '', what: 'passed', src: 1, msgId: 2 },
+    { kind: 'reply', ts: 7, nick: 'ana', what: 'resolved', src: 1, msgId: 2, mistake: true },
     { kind: 'notice', ts: 8, nick: 'desk', topic: 'water', hours: 24, place: 'North stairwell', text: 'Bottled water 9–5, bring a container' },
     { kind: 'file', fileId: 513, index: 0, total: 4, meta: { name: 'map.png', mime: 'image/png', size: 600 }, data: Uint8Array.of(9, 9) },
     { kind: 'file', fileId: 513, index: 3, total: 4, data: Uint8Array.of(1, 2, 3) },
@@ -139,6 +140,18 @@ describe('packet + payload codecs', () => {
     { kind: 'range', phase: 'report', session: 0xffff, intervalUs: 1234567 },
   ])('round-trips $kind bodies', (body) => {
     expect(decodeBody(typeOf[body.kind], encodeBody(body))).toEqual(body);
+  });
+
+  it('marks a request taken back as a mistake with one byte after everything an older phone reads, so older phones still read it as resolved', () => {
+    const resolved = { kind: 'reply' as const, ts: 7, nick: 'ana', what: 'resolved' as const, src: 1, msgId: 2 };
+    const plain = encodeBody(resolved);
+    const taken = encodeBody({ ...resolved, mistake: true });
+    expect([...taken.slice(0, plain.length)]).toEqual([...plain]);
+    expect(taken.length).toBe(plain.length + 1);
+    // An older phone reads only the fields it knows and ignores what follows; that is today's decoder with the flag byte cut off.
+    expect(decodeBody(PacketType.Reply, taken.slice(0, plain.length))).toEqual(resolved);
+    expect(decodeBody(PacketType.Reply, plain)).toEqual(resolved);
+    expect(decodeBody(PacketType.Reply, taken)).toEqual({ ...resolved, mistake: true });
   });
 
   it('cuts long nicknames on a character boundary', () => {
@@ -451,6 +464,35 @@ describe('mesh flooding', () => {
       ['A', p.msgId, false],
       ['A', p.msgId, true],
     ]);
+  });
+
+  it('a node that acknowledges a broadcast it was sent tells the sender who has it', () => {
+    const heardFrom: Array<[number, boolean, number | undefined]> = [];
+    const clock = { now: () => 0, random: () => 0.5 };
+    const wire: Uint8Array[] = [];
+    const asker = new MeshNode(2, clock, { transmit: (b) => void wire.push(b), deliver: () => undefined });
+    const replier = new MeshNode(1, clock, { transmit: () => undefined, deliver: () => undefined, delivery: (msgId, ok, from) => void heardFrom.push([msgId, ok, from]) });
+    const reply = encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: false, msgId: 31, src: 1, dst: BROADCAST, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody(text('on my way')) });
+    asker.acknowledge(decodePacket(reply)!);
+    const ack = decodePacket(wire[0])!;
+    expect([ack.type, ack.src, ack.dst]).toEqual([PacketType.Ack, 2, 1]);
+    replier.receive(wire[0]);
+    expect(heardFrom).toEqual([[31, true, 2]]);
+  });
+
+  it('an acknowledgement of a broadcast does not stand down the relays of it, as one of a direct message does', () => {
+    // Same node, same moment: only the destination of the packet differs.
+    const run = (dst: number) => {
+      let now = 0;
+      const sent: Packet[] = [];
+      const c = new MeshNode(3, { now: () => now, random: () => 0.5 }, { transmit: (b) => void sent.push(decodePacket(b)!), deliver: () => undefined });
+      c.receive(encodePacket({ type: PacketType.Text, encrypted: false, ackRequested: dst !== BROADCAST, msgId: 41, src: 1, dst, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody(text('hi')) }));
+      c.receive(encodePacket({ type: PacketType.Ack, encrypted: false, ackRequested: false, msgId: 5, src: 2, dst: 1, ttl: 5, hops: 1, attempt: 0, channel: 0, body: encodeBody({ kind: 'ack', msgId: 41, attempt: 0 }) }));
+      for (now = 0; now < 20_000; now += 50) c.tick();
+      return sent.filter((p) => p.type === PacketType.Text).length;
+    };
+    expect(run(BROADCAST)).toBe(1);
+    expect(run(7)).toBe(0);
   });
 
   it('carries a message in a pocket to a node that was out of range (HELLO sync)', () => {

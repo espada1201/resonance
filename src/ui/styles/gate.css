@@ -29,10 +29,10 @@
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
-/* Subgrid keeps the rates on one line even when a long mode name wraps. */
+/* Subgrid keeps the descriptions level even when a long mode name wraps. */
 .gate-modes > div {
   display: grid;
-  grid-row: span 3;
+  grid-row: span 2;
   grid-template-rows: subgrid;
 }
 .gate-modes dt {
@@ -45,8 +45,4 @@
   margin: 0;
   font-size: 13px;
   color: var(--muted);
-}
-.gate-modes .rate {
-  font: 500 16px var(--mono);
-  color: var(--text);
 }
