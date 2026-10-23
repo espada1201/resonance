@@ -167,7 +167,9 @@ test('a request sent in one tap and then again with details is one request on th
 
   await openTab(mei, 'Safety');
   await mei.getByRole('button', { name: 'I need help' }).click();
-  await expect(mei.getByText('No one has said they are coming yet.')).toBeVisible();
+  // Jonas has it and has passed it on, so the room is quiet when the details go.
+  await expect(feedItem(jonas, 'Needs help')).toBeVisible();
+  await expect(mei.getByText('Sent. Heard by a phone nearby. No one has said they are coming yet.')).toBeVisible();
   // The one tap asks for details; the request goes again with them.
   if (!(await mei.getByRole('button', { name: 'Water' }).isVisible())) await mei.getByText('More detail').click();
   await mei.getByRole('button', { name: 'Water' }).click();
