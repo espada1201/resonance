@@ -4,7 +4,7 @@ Tabs and the list of needs follow the standard arrow-key pattern, and a short li
 
 ## Sub-features
 
-- `keyboard-tabs-hint` with the keyboard on a tab, `Arrow keys switch tabs` shows over the page, moving nothing. After a click it stays hidden.
+- `keyboard-tabs-hint` with the keyboard on a tab, `Arrow keys switch tabs` shows in its own line under the tab row, pushing the page down by that line instead of covering the top of it (checked at 360 and 1280 px); moving along the tabs moves nothing more. After a click it stays hidden.
 - `keyboard-needs-hint` with the keyboard on a need, `Arrow keys move, Space picks` shows beside `What is needed?`; it is gone once focus moves on.
 
 ## How to get to it (user POV)
@@ -16,6 +16,7 @@ Tabs and the list of needs follow the standard arrow-key pattern, and a short li
 Preconditions: none beyond the baseline.
 
 - **Tabs.** Run `verify.sh drive e2e/start.spec.ts 'arrow keys switch tabs'`.
+- **Not covering the page.** Run `verify.sh drive e2e/start.spec.ts 'keyboard hint at'`. With the keyboard on Feed, Safety and Settings, the hint ends above the tab panel and above its first content, inside the page, at 360 and 1280 px.
 - **Needs.** Run `verify.sh drive e2e/safety.spec.ts 'keyboard meets its fields'`.
 
 ## Gotchas

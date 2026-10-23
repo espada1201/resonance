@@ -7,8 +7,9 @@ One tap tells everyone in earshot "I'm safe" or "I need help", with a GPS fix if
 - `checkin-safe` "I'm safe" reaches the other station's Safety tab and feed with the sender's name.
 - `checkin-distance` with both positions known, the entry reads like `300 m N` and the feed like `300 m N of you · ±8 m`.
 - `checkin-map` the Safety tab plots everyone with a position on a map around you.
-- `checkin-name` someone with no name yet is asked for one on the check-in card and in the compose bar's check-in; what they type becomes their nickname. A check-in sent without one still goes at once, then reads `Others see you as #XXXXXX. Type your name in the box above, then send again.` and the name box is focused (after a call for help, `Where` is focused first).
-- `checkin-shortcuts` the Feed tab has `I'm safe` and `I need help` above the feed; a tap opens Safety and does what that tab's own button does.
+- `checkin-name` someone with no name yet is asked for one on the check-in card and in the compose bar's check-in; what they type becomes their nickname. A check-in sent without one still goes at once, then reads `Others see you as #XXXXXX. Type your name in the box above, then send again.` and, after `I'm safe`, the name box is focused. After a call for help or medical check-in the keyboard stays on the details (`Where`, or the button that was pressed). The line stays until the next send, even once a name is typed.
+- `checkin-shortcuts` the Feed tab has `I'm safe` and `I need help` above the feed; a tap opens Safety and does what that tab's own button does. Taps on Safety's own `I'm safe` / `I need help` in the first 400 ms after that are ignored, so a double tap sends one check-in.
+- `checkin-take-back` after a one-tap `I need help` (Feed or Safety) the status line offers `Sent by mistake? Take it back`; it sends `Resolved` for that request and reads `Taken back. Others now see it as resolved.` A later check-in removes the offer. The call itself is never held for a confirm.
 - `checkin-no-fix` GPS never holds a check-in back more than about 3 s: with a location prompt nobody answers, `I need help` is on air within seconds; when GPS fails, the compose bar's check-in still goes, saying `Sent without a position.`
 - `checkin-waiting` until a check-in has played on air, the card under the buttons reads `Waiting to send…`, not `Sent.` A phone whose screen locks mid-frame has not sent it: it stays waiting, a reload still sends it, and it goes once as soon as the phone's sound is back.
 
@@ -25,6 +26,9 @@ Preconditions: the journey grants geolocation and moves the second station 300 m
 
 - **Sent without a name.** Run `verify.sh drive e2e/safety.spec.ts 'without a name'`. Both journeys: a nameless `I'm safe` and `I need help` go out, the prompt appears, and typing a name clears it.
 - **First-screen buttons.** Run `verify.sh drive e2e/safety.spec.ts 'the first screen has'`.
+- **Taken back.** Run `verify.sh drive e2e/safety.spec.ts 'sent by mistake'` and `'same way out'`: the other station's row for Ana reads `Resolved`, not `Waiting for help`.
+- **Double tap.** Run `verify.sh drive e2e/safety.spec.ts 'double tap'`. The page taps the Feed's `I need help` and Safety's `I'm safe` as soon as it can be pressed (inside 400 ms); only the call for help goes out.
+- **Keyboard after help.** Run `verify.sh drive e2e/safety.spec.ts 'open form without a name'`.
 
 - **Safe with a fix.** Run `verify.sh drive e2e/messaging.spec.ts "I'm safe reaches the other station"`. The other station's Safety list shows `Safe` and `300 m N`, the map is labelled `Map of 1 check-ins around you`, and its feed shows `300 m N of you · ±8 m`.
 
