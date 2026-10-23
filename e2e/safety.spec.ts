@@ -40,7 +40,7 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · 1 waiting for you' })).toBeVisible();
   await ana.getByRole('button', { name: 'On my way' }).click();
   await expect(ana).toContainText('You are on the way');
-  await expect(ana).toContainText('another phone has it');
+  await expect(ana).toContainText('heard by a phone nearby');
   // Ben has answered it, so it is nothing more for him to act on and the count goes, but the heading still says a person is asking.
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(b).toHaveTitle('Resonance');
@@ -48,7 +48,7 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(a.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · someone is coming to you' })).toBeVisible();
 
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
-  await expect(checkInRow(a, 'You')).not.toContainText('heard directly');
+  await expect(checkInRow(a, 'You')).not.toContainText('heard from their own phone');
   // Resolved closes the request on every phone, so it asks once more.
   await ana.getByRole('button', { name: 'Resolved', exact: true }).click();
   await expect(ana.getByRole('group', { name: 'Resolved for everyone?' })).toBeVisible();
@@ -121,14 +121,14 @@ test('the big help button sends the details open beside it, then says whether an
   await expect(mine).toContainText('Leg stuck under a beam');
   await expect(a.getByLabel('Note')).toBeEmpty();
   await expect(a.getByText('Waiting to send…')).toBeVisible();
-  await expect(a.getByText('Sent. Another phone has it. No one has said they are coming yet.')).toBeVisible();
+  await expect(a.getByText('Sent. Heard by a phone nearby. No one has said they are coming yet.')).toBeVisible();
 
   await openTab(b, 'Safety');
   const ana = checkInRow(b, 'Ana');
   await expect(ana).toContainText('Trapped');
   await expect(ana).toContainText('Leg stuck under a beam');
   await ana.getByRole('button', { name: 'On my way' }).click();
-  await expect(a.getByText(/^Sent\.( Another phone has it\.)? Ben is on the way\.$/)).toBeVisible();
+  await expect(a.getByText(/^Sent\.( Heard by a phone nearby\.)? Ben is on the way\.$/)).toBeVisible();
   await proof(a, 'big-button-details');
 });
 
@@ -143,7 +143,7 @@ test('a call for help in the feed is answered from the feed', async ({ context }
   const request = feedItem(b, 'Needs help');
   await request.getByRole('button', { name: 'On my way' }).click();
   await expect(request).toContainText('You are on the way');
-  await expect(request).toContainText(/You are on the way · .+ · another phone has it/);
+  await expect(request).toContainText(/You are on the way · .+ · heard by a phone nearby/);
   await expect(request.getByRole('button', { name: 'On my way' })).toHaveCount(0);
   // The button that was pressed is gone; the keyboard lands on the next one, not back at the top.
   await expect(request.getByRole('button', { name: 'Save as audio' })).toBeFocused();

@@ -7,7 +7,7 @@ import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
 import { type RosterEntry, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
+import { NEED_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NOT_HEARD_YET, ago, bytes, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -51,7 +51,7 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
           <Lock size={12} /> circle
         </span>
       )}
-      {!item.mine && <span class="chip">{item.hops === 0 ? 'heard directly' : passedOnText(item.hops)}</span>}
+      {!item.mine && <span class="chip">{item.hops === 0 ? HEARD_FROM_SENDER : passedOnText(item.hops)}</span>}
       <time dateTime={new Date(writtenAt(item)).toISOString()}>{ago(writtenAt(item))}</time>
     </header>
   );
@@ -63,10 +63,10 @@ function Delivery({ station, item }: { station: Station; item: FeedItem }) {
   if (item.mine && item.dst === BROADCAST) {
     return station.journal.wasPassedOn(item.msgId) ? (
       <span class="delivery ok">
-        <Check size={14} /> sent · another phone has it
+        <Check size={14} /> sent · {HEARD_BY_NEARBY}
       </span>
     ) : (
-      <span class="delivery">sent · no other phone has passed it on yet</span>
+      <span class="delivery">sent · {NOT_HEARD_YET}</span>
     );
   }
   const state = item.delivery;
@@ -450,7 +450,7 @@ export function Feed({ station, onReply }: { station: Station; onReply?: (src: n
         {notices}
         <p class="empty-title">No messages yet.</p>
         <p>
-          Messages from any device within earshot appear here, including ones that other phones passed on. Say something below
+          Messages from any device near you appear here, including ones that other phones passed on. Say something below
           {station.transport.kind === 'simulated' ? (
             <>
               , or open{' '}

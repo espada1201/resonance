@@ -86,7 +86,7 @@ function sentText(station: Station, about: string | undefined, ask: boolean) {
   const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
   if (mine && station.queued(mine.latest)) return 'Waiting to send…';
   const item = mine && station.journal.feed.find((i) => i.mine && i.msgId === mine.latest.msgId);
-  const sent = item && station.journal.wasPassedOn(item.msgId) ? 'Sent. Another phone has it.' : 'Sent.';
+  const sent = item && station.journal.wasPassedOn(item.msgId) ? 'Sent. Heard by a phone nearby.' : 'Sent.';
   if (!mine || !asking(mine.latest.body.status)) return sent;
   const answer = mine.replies.at(-1);
   if (answer) return `${sent} ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.`;
@@ -203,7 +203,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
         </button>
       )}
       <p class="muted small">
-        One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
+        One tap tells everyone near you, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at "${place}".`}
         {outside && ` Whoever gets signal first can tell ${outside}.`}
       </p>

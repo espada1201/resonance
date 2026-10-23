@@ -67,13 +67,13 @@ describe('the line under a request for one reply', () => {
   });
 
   it('says whether another phone has our reply once it has gone, and says nothing about anyone else\'s', () => {
-    expect(replyReceipt(station(false, false), mine)).toBe('sent, no other phone has passed it on yet');
-    expect(replyReceipt(station(false, true), mine)).toBe('another phone has it');
+    expect(replyReceipt(station(false, false), mine)).toBe('sent, not heard by another phone yet');
+    expect(replyReceipt(station(false, true), mine)).toBe('heard by a phone nearby');
     expect(replyReceipt(station(true, true), theirs)).toBe('');
   });
 
   it('is who, how long ago and the receipt, in one line', () => {
-    expect(replyLine(station(false, true), mine, by)).toBe('You are on the way · just now · another phone has it');
+    expect(replyLine(station(false, true), mine, by)).toBe('You are on the way · just now · heard by a phone nearby');
     expect(replyLine(station(false, true), theirs, by)).toBe('n3 is on the way · just now');
   });
 });

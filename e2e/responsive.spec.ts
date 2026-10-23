@@ -53,7 +53,7 @@ for (const layout of LAYOUTS) {
       // A long unbroken token (a link, an email) must wrap inside its card, not push it off screen.
       const text = 'Water and blankets at the north stairwell, level 2. Map: https://example.org/shelters/lambeth-north-stairwell-level-2';
       await sendText(b, text);
-      await expect(feedItem(a, text)).toContainText('heard directly');
+      await expect(feedItem(a, text)).toContainText('heard from their own phone');
       await openTab(a, 'Safety');
       await a.getByRole('button', { name: "I'm safe" }).click();
       await openTab(b, 'Safety');

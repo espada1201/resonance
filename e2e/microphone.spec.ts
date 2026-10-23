@@ -33,7 +33,7 @@ for (const profile of FAKE_MIC_PROFILES) {
     const item = feedItem(page, fakeMicText(profile));
     await expect(item).toBeVisible();
     await expect(item).toContainText('fake mic');
-    await expect(item).toContainText('heard directly');
+    await expect(item).toContainText('heard from their own phone');
     const modeAndSize = new RegExp(`${MODE_LABEL[profile]} · ${fakeMicBytes(profile)} B\\b`);
     await expect(airRow(page, 'IN', `message from ${process.env[FAKE_MIC_SENDER]}`, modeAndSize)).toBeVisible();
     await proof(page, `microphone-${profile}`);

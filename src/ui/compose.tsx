@@ -155,7 +155,7 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
         await station.sendFile(picked.name, picked.mime, picked.data);
         setPicked(null);
       }
-      setSaid(joinParts(' ', dst === BROADCAST || toEveryone ? 'Sent to everyone in earshot.' : `Sent to ${who(station, dst)}.`, unnamedLine));
+      setSaid(joinParts(' ', dst === BROADCAST || toEveryone ? 'Sent to everyone near you.' : `Sent to ${who(station, dst)}.`, unnamedLine));
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -185,7 +185,7 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
           <textarea
             rows={2}
             value={text}
-            placeholder={dst === BROADCAST ? 'Say something to everyone in earshot…' : `Say something to ${who(station, dst)}…`}
+            placeholder={dst === BROADCAST ? 'Say something to everyone near you…' : `Say something to ${who(station, dst)}…`}
             onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

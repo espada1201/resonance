@@ -158,7 +158,7 @@ export function Settings({ station }: { station: Station }) {
         </a>
         <span class="muted small">
           Beacon mode is a full-screen relay. It keeps listening, repeats everything, keeps check-ins and notices for three days, and hands what it
-          holds to every phone that comes within earshot.
+          holds to every phone that comes near.
         </span>
       </div>
 

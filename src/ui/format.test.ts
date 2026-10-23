@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Station } from '../station';
 import { nameless } from './checkin-form';
-import { joinParts } from './format';
+import { joinParts, passedOnText } from './format';
 
 describe('joinParts', () => {
   it('joins what is there and leaves out what is empty, false or missing', () => {
@@ -25,5 +25,12 @@ describe('nameless', () => {
   it('says nothing once there is a name, or when the check-in was about someone else', () => {
     expect(nameless(station('Ana'), undefined)).toBe('');
     expect(nameless(station(''), 'Maria')).toBe('');
+  });
+});
+
+describe('passedOnText', () => {
+  it('counts the phones a message went through in plain numbers, not "once"', () => {
+    expect(passedOnText(1)).toBe('passed along 1 time');
+    expect(passedOnText(3)).toBe('passed along 3 times');
   });
 });

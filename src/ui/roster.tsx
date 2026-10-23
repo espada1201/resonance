@@ -4,7 +4,7 @@ import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
 import { type Heard, type ReplyBody, type RosterEntry, needingYou, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, joinParts, passedOnText } from './format';
+import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NOT_HEARD_YET, ago, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Compass } from './icons';
 
@@ -44,10 +44,10 @@ export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, n
 export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
   if (r.src !== station.id) return '';
   if (station.queued(r)) return 'waiting to send…';
-  return station.journal.wasPassedOn(r.msgId) ? 'another phone has it' : 'sent, no other phone has passed it on yet';
+  return station.journal.wasPassedOn(r.msgId) ? HEARD_BY_NEARBY : `sent, ${NOT_HEARD_YET}`;
 }
 
-/** "Ben is on the way · 2 min ago", or for our own "You are on the way · just now · another phone has it". */
+/** "Ben is on the way · 2 min ago", or for our own "You are on the way · just now · heard by a phone nearby". */
 export const replyLine = (station: Station, r: Heard<ReplyBody>, by: (src: number, nick: string) => string) =>
   joinParts(' · ', replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r));
 
@@ -108,7 +108,7 @@ export function RosterList({ entries, me, self, name, by, reply, replyLine, find
             )}
             {b.note && <p class="text-body">{b.note}</p>}
             <p class="muted small">
-              {joinParts(' · ', where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? passedOnText(hops) : 'heard directly'))}
+              {joinParts(' · ', where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? passedOnText(hops) : HEARD_FROM_SENDER))}
             </p>
             {e.replies.map((r) => (
               <p key={`${r.src}:${r.msgId}`} class="small reply">
