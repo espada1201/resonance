@@ -5,7 +5,7 @@ import { nodeHex } from '../mesh/packet';
 import { type Geo, MAX_CONTACT_NAME, MAX_NICK, MAX_OUTSIDE, MAX_PLACE, NEEDS, type Need, STATUSES, type Status } from '../mesh/payloads';
 import type { CheckInBody } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, STATUS_TEXT, errorText, fitInput } from './format';
+import { NEED_TEXT, STATUS_TEXT, fitInput } from './format';
 import { rovingKeys } from './hooks';
 import { Pin } from './icons';
 
@@ -52,13 +52,17 @@ export function draftFields(d: CheckInDraft, geo?: Geo): Omit<CheckInBody, 'kind
   };
 }
 
-export async function checkInFix(station: Station, missed: (why: string) => void): Promise<Geo | undefined> {
+/** A check-in goes out with or without a position; no position is said calmly, once, and is nothing to fix. */
+export const NO_FIX_NOTE = 'Location not found yet — add where you are in words if you can.';
+
+/** The position to send, or undefined if there is none yet: the check-in goes either way. */
+export async function checkInFix(station: Station): Promise<Geo | undefined> {
   try {
     const geo = await locateWithin(3000);
     station.setPosition(geo);
     return geo;
-  } catch (e) {
-    missed(`${errorText(e)} Sent without a position.`);
+  } catch {
+    return undefined;
   }
 }
 

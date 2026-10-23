@@ -83,6 +83,11 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await expect(page.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · you are waiting for someone' })).toBeVisible();
   await expect(page).toHaveTitle('Resonance');
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
+  // No position is not an error: one calm line, not red and not an alert, and it goes with the next send.
+  const noFix = page.getByText('Location not found yet — add where you are in words if you can.');
+  await expect(noFix).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(noFix).toHaveCSS('color', await page.locator('.muted').first().evaluate((el) => getComputedStyle(el).color));
   // Its rows hold nothing to tab to, so the log itself takes focus for the keyboard to scroll it.
   await expect(page.getByRole('region', { name: 'Sound log' })).toHaveAttribute('tabindex', '0');
   await proof(page, 'help-without-fix');
@@ -98,7 +103,8 @@ test('a check-in from the compose bar goes out without a position when GPS fails
   await page.getByLabel('Attach my GPS position').check();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByRole('alert')).toHaveText('Could not get a location fix. Sent without a position.');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('Sent to everyone near you. Location not found yet — add where you are in words if you can.')).toBeVisible();
   await openTab(page, 'Safety');
   await expect(checkInRow(page, 'You')).toContainText('Safe');
   await proof(page, 'compose-without-fix');

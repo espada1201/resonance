@@ -3,7 +3,7 @@ import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, ReplyKind, Status } from '../mesh/payloads';
 import { type CheckInBody, type Heard, type RosterEntry, rosterCsv, search } from '../roster';
 import type { Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, NO_FIX_NOTE, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
@@ -105,7 +105,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
   const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
-  const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: string; sentAs?: Heard<CheckInBody>; takenBack?: boolean } | null>(null);
+  const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: string; sentAs?: Heard<CheckInBody>; takenBack?: boolean; noFix?: boolean } | null>(null);
   // A double tap on the first screen's button lands on this row a moment after the tab opened: it is no second check-in.
   const stray = useRef(0);
   const [err, setErr] = useState('');
@@ -122,7 +122,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
     setSending(label);
     setErr('');
     setSent(null);
-    const geo = d.withGeo ? await checkInFix(station, setErr) : undefined;
+    const geo = d.withGeo ? await checkInFix(station) : undefined;
     const fields = draftFields(d, geo);
     try {
       // Saying it also remembers where you are and whom to tell outside, for your next check-ins.
@@ -131,7 +131,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
       // Said now and kept as said: typing the name must not take the line away before the next send.
       const unnamed = nameless(station, fields.about);
       const sentAs = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === fields.about)?.latest;
-      setSent({ about: fields.about, ask, unnamed, sentAs });
+      setSent({ about: fields.about, ask, unnamed, sentAs, noFix: d.withGeo && !geo });
       // The status stays as sent: after a call for help, the form must not quietly say Safe.
       if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
       if (ask) {
@@ -196,6 +196,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
         </button>
       </div>
       {sent && <p role="status">{sent.takenBack ? 'Taken back. Others now see it as resolved.' : joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed)}</p>}
+      {sent?.noFix && !sent.takenBack && <p class="muted small">{NO_FIX_NOTE}</p>}
       {/* One tap sends at once, as an emergency must; this is the way out of a stray one. */}
       {listening && sent?.ask && !sent.takenBack && stillOpen(station, sent.sentAs) && (
         <button type="button" class="ghost small" onClick={() => void takeBack()}>
