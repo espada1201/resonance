@@ -11,7 +11,7 @@ import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes,
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
-import { receipt } from './roster';
+import { replyReceipt } from './roster';
 
 export function who(station: Station, src: number, nick?: string) {
   if (src === station.id) return 'You';
@@ -373,7 +373,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
           <p key={`${r.src}:${r.msgId}`} class="small reply">
             {r.src === station.id ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${named(station, r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`}
             {' · '}
-            {[ago(writtenAt(r)), receipt(station, r)].filter(Boolean).join(' · ')}
+            {[ago(writtenAt(r)), replyReceipt(station, r)].filter(Boolean).join(' · ')}
           </p>
         ))}
       </Item>

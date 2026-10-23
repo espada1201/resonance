@@ -81,7 +81,6 @@ for (const layout of LAYOUTS) {
   });
 }
 
-// A narrow phone must show every tab label whole, even with the count on Safety: the row may not clip one or scroll.
 for (const width of [360, 320]) {
   test.describe(`tab row at ${width} px`, () => {
     test.use({ viewport: { width, height: 740 } });
@@ -108,7 +107,6 @@ for (const width of [360, 320]) {
   });
 }
 
-// The two emergency buttons on the first screen must not squeeze out the feed or the message box on a small phone.
 test.describe('first screen on a 360x640 phone', () => {
   test.use({ viewport: { width: 360, height: 640 } });
 

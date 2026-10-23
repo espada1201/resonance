@@ -69,7 +69,6 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await openTab(page, 'Safety');
   await page.getByRole('button', { name: 'I need help' }).click();
   await expect(checkInRow(page, 'You')).toContainText('Waiting for help', { timeout: 8_000 });
-  // Your own call for help is nothing for you to act on: no count on the tab, the title or the icon.
   await expect(page.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(page.locator('.tabs .badge')).toHaveCount(0);
   await expect(page).toHaveTitle('Resonance');
@@ -134,7 +133,6 @@ test('a call for help in the feed is answered from the feed', async ({ context }
   const request = feedItem(b, 'Needs help');
   await request.getByRole('button', { name: 'On my way' }).click();
   await expect(request).toContainText('You are on the way');
-  // The sender of "On my way" can tell that another phone heard it, as with a message to everyone.
   await expect(request).toContainText(/You are on the way · .+ · another phone has it/);
   await expect(request.getByRole('button', { name: 'On my way' })).toHaveCount(0);
   // The button that was pressed is gone; the keyboard lands on the next one, not back at the top.
@@ -151,7 +149,6 @@ test('a check-in sent without a name goes at once, then asks for the name with t
   await page.getByRole('button', { name: "I'm safe" }).click();
   const status = page.getByRole('status').filter({ hasText: 'Sent' });
   await expect(status).toContainText(`Sent. Others see you as #${id}. Type your name in the box above, then send again.`);
-  // It did not wait for a name; the missing one is asked for next, with the box ready to type in.
   await expect(page.getByLabel('Your name')).toBeFocused();
   await page.keyboard.type('Ana');
   await page.getByRole('button', { name: "I'm safe" }).click();
@@ -191,7 +188,6 @@ test('the first screen has I\'m safe and I need help, and they do what the Safet
 
   const shortcuts = a.getByRole('group', { name: 'In an emergency' });
   await shortcuts.getByRole('button', { name: "I'm safe" }).click();
-  // The same one tap as in Safety: that tab opens with the answer to it.
   await expect(a.getByRole('tab', { name: 'Safety', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Sent.');
   await openTab(b, 'Safety');
@@ -202,7 +198,6 @@ test('the first screen has I\'m safe and I need help, and they do what the Safet
   await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('No one has said they are coming yet. Add where you are and what you need, and send again.');
   await expect(a.getByLabel('Where', { exact: true })).toBeFocused();
   await expect(checkInRow(b, 'Ana')).toContainText('Waiting for help');
-  // Once on the Safety tab the shortcuts are not repeated beside its own buttons.
   await expect(shortcuts).toHaveCount(0);
 });
 
@@ -220,7 +215,6 @@ test('a check-in keeps the status sent but not its needs, and the keyboard meets
   // The needs are one stop: arrows move along them, Space switches one on, Tab goes on past them all.
   const needs = page.getByRole('toolbar', { name: 'What is needed' });
   await expect(needs.getByRole('button').first()).toBeFocused();
-  // Nothing says the arrows work except a short line that shows while the keyboard is on a need.
   const hint = page.getByText('Arrow keys move, Space picks');
   await expect(hint).toBeVisible();
   await page.keyboard.press('ArrowRight');

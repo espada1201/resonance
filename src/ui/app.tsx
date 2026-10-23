@@ -82,7 +82,6 @@ function useCallsForHelp(station: Station, entries: RosterEntry[]) {
   const [opened] = useState(() => Date.now());
   const told = useRef(new Set<string>());
   const [said, setSaid] = useState('');
-  // Your own call for help is not something for you to act on: it stays out of the count.
   const open = needingYou(entries, station.id).length;
   const calls = entries.filter((e) => e.open && !e.coming && e.latest.src !== station.id && e.latest.at >= opened);
   const ids = calls.map((e) => `${e.latest.src}:${e.latest.msgId}`);
@@ -162,7 +161,6 @@ export function App({ station }: { station: Station }) {
             </button>
           ))}
         </div>
-        {/* Shown only while the keyboard is on a tab: a touch screen never sees it. */}
         <p class="key-hint tabs-hint" aria-hidden="true">
           Arrow keys switch tabs
         </p>

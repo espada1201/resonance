@@ -69,7 +69,7 @@ export function draftProblem(d: CheckInDraft): string | null {
   return null;
 }
 
-/** What to add after a check-in went out with no name on it: the cheap fix. Empty once there is a name. */
+/** The line added after a check-in went out with no name. Empty once there is a name. */
 export const nameless = (station: Station) =>
   station.settings.nick ? '' : `Others see you as #${nodeHex(station.id)}. Type your name in the box above, then send again.`;
 
@@ -122,7 +122,6 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
         <div class="needs">
           <div class="needs-head" aria-hidden="true">
             <span class="small">What is needed?</span>
-            {/* Shown only while the keyboard is on a need: a touch screen never sees it. */}
             <span class="key-hint">Arrow keys move, Space picks</span>
           </div>
           {/* One Tab stop, so eight needs do not stand between the note and Send. */}

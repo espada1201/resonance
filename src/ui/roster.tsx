@@ -41,7 +41,7 @@ export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, n
   r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${by(r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`;
 
 /** What is known about whether our own reply, such as "On my way", was heard: empty for anyone else's. */
-export function receipt(station: Station, r: Heard<ReplyBody>): string {
+export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
   if (r.src !== station.id) return '';
   if (station.queued(r)) return 'waiting to send…';
   return r.passedOn ? 'another phone has it' : 'sent, no other phone has passed it on yet';
