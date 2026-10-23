@@ -94,7 +94,7 @@ function sentText(station: Station, about: string | undefined, ask: boolean) {
 }
 
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
-function CheckInCard({ station }: { station: Station }) {
+function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shortcut: Status | null; onShortcut: () => void }) {
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
   const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
@@ -150,6 +150,13 @@ function CheckInCard({ station }: { station: Station }) {
     void send({ ...d, status: asking(d.status) === asking(status) ? d.status : status, withGeo: true }, status);
   };
 
+  // A tap on the first screen's button opened this tab: do what the button here does, once.
+  useEffect(() => {
+    if (!shortcut) return;
+    onShortcut();
+    if (listening) quick(shortcut);
+  }, []);
+
   const { place, outside } = station.settings;
   return (
     <section class="checkin-card" aria-label="Check in" ref={card}>
@@ -202,7 +209,7 @@ function helpers(station: Station): Helper[] {
   return [...latest.values()];
 }
 
-export function Safety({ station }: { station: Station }) {
+export function Safety({ station, shortcut = null, onShortcut = () => undefined }: { station: Station; shortcut?: Status | null; onShortcut?: () => void }) {
   const entries = station.journal.roster();
   const parcels = station.journal.parcels();
   const helping = helpers(station);
@@ -247,7 +254,7 @@ export function Safety({ station }: { station: Station }) {
   return (
     <div class="safety">
       {!shown.some(finding) && <FindPanel station={station} />}
-      <CheckInCard station={station} />
+      <CheckInCard station={station} shortcut={shortcut} onShortcut={onShortcut} />
 
       <section class="roster-section" aria-labelledby="roster-title">
         <div class="section-head">

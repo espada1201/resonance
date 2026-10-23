@@ -183,6 +183,29 @@ test('a call for help without a name is never held back for one: it goes, then s
   await expect(a.getByRole('status').filter({ hasText: 'Sent' })).not.toContainText('Others see you');
 });
 
+test('the first screen has I\'m safe and I need help, and they do what the Safety tab buttons do', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  const shortcuts = a.getByRole('group', { name: 'In an emergency' });
+  await shortcuts.getByRole('button', { name: "I'm safe" }).click();
+  // The same one tap as in Safety: that tab opens with the answer to it.
+  await expect(a.getByRole('tab', { name: 'Safety', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Sent.');
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Ana')).toContainText('Safe');
+
+  await openTab(a, 'Feed');
+  await shortcuts.getByRole('button', { name: 'I need help' }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('No one has said they are coming yet. Add where you are and what you need, and send again.');
+  await expect(a.getByLabel('Where', { exact: true })).toBeFocused();
+  await expect(checkInRow(b, 'Ana')).toContainText('Waiting for help');
+  // Once on the Safety tab the shortcuts are not repeated beside its own buttons.
+  await expect(shortcuts).toHaveCount(0);
+});
+
 test('a check-in keeps the status sent but not its needs, and the keyboard meets its fields in the order they are typed', async ({ page }) => {
   await joinAir(page, '/?air=sim', 'Ana');
   await page.getByRole('radio', { name: 'Check in', exact: true }).click();

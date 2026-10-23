@@ -107,3 +107,27 @@ for (const width of [360, 320]) {
     });
   });
 }
+
+// The two emergency buttons on the first screen must not squeeze out the feed or the message box on a small phone.
+test.describe('first screen on a 360x640 phone', () => {
+  test.use({ viewport: { width: 360, height: 640 } });
+
+  test('shows I\'m safe, I need help, some feed and the message box without scrolling sideways', async ({ page }) => {
+    await joinAir(page, '/?air=sim', 'Ana');
+    const buttons = page.getByRole('group', { name: 'In an emergency' }).getByRole('button');
+    await expect(buttons).toHaveText(["I'm safe", 'I need help']);
+    const box = async (loc: ReturnType<Page['locator']>) => (await loc.boundingBox())!;
+    for (const b of await buttons.all()) {
+      const r = await box(b);
+      expect(r.height).toBeGreaterThanOrEqual(44);
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.width).toBeLessThanOrEqual(360);
+    }
+    const feed = await box(page.getByRole('tabpanel'));
+    const message = await box(page.getByPlaceholder(/^Say something/));
+    expect(feed.height, 'room left for the feed').toBeGreaterThanOrEqual(120);
+    expect(message.y + message.height, 'the message box is on screen').toBeLessThanOrEqual(640);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+    await page.screenshot({ path: `${SCREENS}first-screen-360x640.png`, animations: 'disabled' });
+  });
+});

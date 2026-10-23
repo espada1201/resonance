@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useAutoStart } from '../boot';
 import { BROADCAST, nodeHex } from '../mesh/packet';
+import type { Status } from '../mesh/payloads';
 import type { ProfileId } from '../modem/profiles';
 import { type RosterEntry, needingYou } from '../roster';
 import type { Station } from '../station';
@@ -107,6 +108,8 @@ export function App({ station }: { station: Station }) {
   const [tab, setTab] = useState<Tab>('feed');
   const [dst, setDst] = useState(BROADCAST);
   const [writing, setWriting] = useState(false);
+  // A shortcut on the first screen sends what the Safety tab's button sends: the tab opens and does it.
+  const [shortcut, setShortcut] = useState<Status | null>(null);
   const tabs: Tab[] = wide ? ['feed', 'safety', 'people', 'settings'] : ['feed', 'safety', 'air', 'people', 'settings'];
   const current: Tab = !wide || tab !== 'air' ? tab : 'feed';
   const live = station.status === 'listening';
@@ -171,10 +174,27 @@ export function App({ station }: { station: Station }) {
 
       <main class="main">
         <div class="left">
+          {composing && (
+            <div class="shortcuts" role="group" aria-label="In an emergency">
+              {(['safe', 'help'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  class={`big s-${s}`}
+                  onClick={() => {
+                    setShortcut(s);
+                    setTab('safety');
+                  }}
+                >
+                  {s === 'safe' ? "I'm safe" : 'I need help'}
+                </button>
+              ))}
+            </div>
+          )}
           <div class="scroll" role="tabpanel" id="section" aria-labelledby={`tab-${current}`}>
             {!live && current !== 'settings' && current !== 'air' && <Gate station={station} />}
             {current === 'feed' && (live || station.journal.feed.length > 0) && <Feed station={station} onReply={live ? messageNode : undefined} />}
-            {current === 'safety' && <Safety station={station} />}
+            {current === 'safety' && <Safety station={station} shortcut={shortcut} onShortcut={() => setShortcut(null)} />}
             {current === 'people' && <People station={station} onMessage={messageNode} />}
             {current === 'settings' && <Settings station={station} />}
             {current === 'air' && <AirPanel station={station} />}
