@@ -430,15 +430,15 @@ describe('what people say', () => {
     await s.say({ kind: 'text', text: 'Water at the north stairwell' });
     await s.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
     const [broadcast] = s.journal.feed.filter((i) => i.dst === BROADCAST);
-    expect(broadcast.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(false);
     // A recording of the air can hold our own sound: that is no other phone.
     s.onFrame(relayed(out[0].bytes, 1), false);
-    expect(broadcast.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(false);
     s.onFrame(relayed(out[1].bytes, 1));
-    expect(broadcast.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(false);
     s.onFrame(relayed(out[0].bytes, 1));
-    expect(broadcast.passedOn).toBe(true);
-    expect(s.journal.feed.find((i) => i.dst === CAL)!.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(true);
+    expect(s.journal.wasPassedOn(s.journal.feed.find((i) => i.dst === CAL)!.msgId)).toBe(false);
   });
 
   it('marks our "On my way" once another device is heard passing it on, and only then', async () => {
@@ -448,13 +448,12 @@ describe('what people say', () => {
     s.journal.addToLog({ src: ask.src, msgId: ask.msgId, at: ask.at, hops: 0, encrypted: false, dst: BROADCAST }, ask.body);
     await s.reply(ask, 'coming');
     const sent = () => s.journal.repliesTo(BEN, 7).find((r) => r.src === s.id)!;
-    expect(sent().passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(sent().msgId)).toBe(false);
     // A recording of the air can hold our own sound: that is no other phone.
     s.onFrame(relayed(out[0].bytes, 1), false);
-    expect(sent().passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(sent().msgId)).toBe(false);
     s.onFrame(relayed(out[0].bytes, 1));
-    expect(sent().passedOn).toBe(true);
-    expect(s.journal.roster()[0].replies.find((r) => r.src === s.id)!.passedOn).toBe(true);
+    expect(s.journal.wasPassedOn(sent().msgId)).toBe(true);
   });
 
   it('measures the very packet that goes: a draft with 0 bytes left fits, one more byte does not, and a seal costs its overhead', async () => {

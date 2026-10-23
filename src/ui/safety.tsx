@@ -9,7 +9,7 @@ import { download, named, who } from './feed';
 import { FindPanel } from './find';
 import { NEED_TEXT, STATUS_TEXT, errorText } from './format';
 import { Compass, Download, Pin } from './icons';
-import { type Helper, HelperList, RosterList, headcount, replyReceipt, replyText } from './roster';
+import { type Helper, HelperList, RosterList, headcount, replyLine, replyText } from './roster';
 
 const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
@@ -84,7 +84,7 @@ function sentText(station: Station, about: string | undefined, ask: boolean) {
   const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
   if (mine && station.queued(mine.latest)) return 'Waiting to send…';
   const item = mine && station.journal.feed.find((i) => i.mine && i.msgId === mine.latest.msgId);
-  const sent = item?.passedOn ? 'Sent. Another phone has it.' : 'Sent.';
+  const sent = item && station.journal.wasPassedOn(item.msgId) ? 'Sent. Another phone has it.' : 'Sent.';
   if (!mine || !asking(mine.latest.body.status)) return sent;
   const answer = mine.replies.at(-1);
   if (answer) return `${sent} ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.`;
@@ -289,7 +289,7 @@ export function Safety({ station, shortcut = null, onShortcut = () => undefined 
             name={name}
             by={by}
             reply={listening ? (e, what) => void answer(e.latest, what) : null}
-            receipt={(r) => replyReceipt(station, r)}
+            replyLine={(r) => replyLine(station, r, by)}
             find={(e) => {
               const n = e.latest.body.about ? undefined : station.mesh.neighbors.get(e.latest.src);
               return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;

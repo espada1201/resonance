@@ -30,8 +30,8 @@ interface RosterProps {
   by: (src: number, nick: string) => string;
   /** Null while replies cannot be sent (not listening). */
   reply: ((e: RosterEntry, what: ReplyKind) => void) | null;
-  /** What is known about whether our own reply was heard; empty for anyone else's. */
-  receipt: (r: Heard<ReplyBody>) => string;
+  /** One reply as a line: who, how long ago, and for our own what is known about whether it was heard. */
+  replyLine: (r: Heard<ReplyBody>) => string;
   /** A Find action for someone whose own device is in earshot, or null. */
   find: (e: RosterEntry) => (() => void) | null;
   readout?: (e: RosterEntry) => ComponentChildren;
@@ -44,8 +44,12 @@ export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, n
 export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
   if (r.src !== station.id) return '';
   if (station.queued(r)) return 'waiting to send…';
-  return r.passedOn ? 'another phone has it' : 'sent, no other phone has passed it on yet';
+  return station.journal.wasPassedOn(r.msgId) ? 'another phone has it' : 'sent, no other phone has passed it on yet';
 }
+
+/** "Ben is on the way · 2 min ago", or for our own "You are on the way · just now · another phone has it". */
+export const replyLine = (station: Station, r: Heard<ReplyBody>, by: (src: number, nick: string) => string) =>
+  [replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r)].filter(Boolean).join(' · ');
 
 /** "3 people · 2 open requests (1 for you)": the tab's count is only the requests still for this device, so a heading that counts more says so. */
 export function headcount(entries: RosterEntry[], self?: number) {
@@ -57,7 +61,7 @@ export function headcount(entries: RosterEntry[], self?: number) {
 }
 
 /** Everyone's latest check-in, in the order a responder works through them. */
-export function RosterList({ entries, me, self, name, by, reply, receipt, find, readout }: RosterProps) {
+export function RosterList({ entries, me, self, name, by, reply, replyLine, find, readout }: RosterProps) {
   // Resolved closes a request on every phone, and it sits beside On my way: it asks once more.
   // Keyed by the ask, so a new one from the same person never opens with the question showing.
   const [closing, setClosing] = useState<string | null>(null);
@@ -95,7 +99,7 @@ export function RosterList({ entries, me, self, name, by, reply, receipt, find, 
             </p>
             {e.replies.map((r) => (
               <p key={`${r.src}:${r.msgId}`} class="small reply">
-                {[replyText(r, self, by), ago(writtenAt(r)), receipt(r)].filter(Boolean).join(' · ')}
+                {replyLine(r)}
               </p>
             ))}
             {(e.open || e.stale) && confirming && (

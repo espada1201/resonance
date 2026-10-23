@@ -9,7 +9,7 @@ import { errorText, fitInput } from './ui/format';
 import { useMedia, useStation, useTicker } from './ui/hooks';
 import { Mic } from './ui/icons';
 import { NoticeBoard, type NoticeDraft, NoticeFields, newNotice } from './ui/notices';
-import { RosterList, headcount } from './ui/roster';
+import { RosterList, headcount, replyLine } from './ui/roster';
 import { StatGrid, TopBar } from './ui/shell';
 import './ui/styles/index.css';
 
@@ -123,7 +123,7 @@ function Beacon() {
               name={(e) => e.latest.body.about ?? by(e.latest.src, e.latest.body.nick)}
               by={by}
               reply={null}
-              receipt={() => ''}
+              replyLine={(r) => replyLine(station, r, by)}
               find={() => null}
             />
           )}

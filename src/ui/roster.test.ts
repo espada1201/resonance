@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import type { Station } from '../station';
 import type { Status } from '../mesh/payloads';
 import { type CheckInBody, type Heard, type ReplyBody, roster } from '../roster';
-import { headcount } from './roster';
+import { headcount, replyLine, replyReceipt } from './roster';
 
 const T = 1_700_000_000;
 const ME = 1;
@@ -41,5 +42,29 @@ describe('headcount', () => {
   it('adds nothing when every open request is for you, or none is open', () => {
     expect(headcount(roster([checkIn(2, 'help')], [], T + 10), ME)).toBe('1 person · 1 open request');
     expect(headcount(roster([checkIn(2, 'safe')], [], T + 10), ME)).toBe('1 person · 0 open requests');
+  });
+});
+
+describe('the line under a request for one reply', () => {
+  const ben = checkIn(2, 'help');
+  const mine = { ...coming(ben, ME), at: Date.now(), msgId: 77 };
+  const theirs = { ...coming(ben, 3), at: Date.now() };
+  const station = (queued: boolean, passed: boolean) => ({ id: ME, queued: () => queued, journal: { wasPassedOn: (id: number) => passed && id === 77 } }) as unknown as Station;
+  const by = (_src: number, nick: string) => nick;
+
+  it('says "waiting to send…" while our reply has not been on air, whatever else is known', () => {
+    expect(replyReceipt(station(true, false), mine)).toBe('waiting to send…');
+    expect(replyReceipt(station(true, true), mine)).toBe('waiting to send…');
+  });
+
+  it('says whether another phone has our reply once it has gone, and says nothing about anyone else\'s', () => {
+    expect(replyReceipt(station(false, false), mine)).toBe('sent, no other phone has passed it on yet');
+    expect(replyReceipt(station(false, true), mine)).toBe('another phone has it');
+    expect(replyReceipt(station(true, true), theirs)).toBe('');
+  });
+
+  it('is who, how long ago and the receipt, in one line', () => {
+    expect(replyLine(station(false, true), mine, by)).toBe('You are on the way · just now · another phone has it');
+    expect(replyLine(station(false, true), theirs, by)).toBe('n3 is on the way · just now');
   });
 });

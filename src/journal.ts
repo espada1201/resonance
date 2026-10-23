@@ -24,9 +24,10 @@ export interface FeedItem extends Meta {
   fileKey?: string;
   /** For direct messages. 'unknown': the app was closed while waiting for the receipt. */
   delivery?: 'sending' | 'acked' | 'failed' | 'unknown';
-  /** For our own broadcasts: another device was heard repeating it. */
-  passedOn?: boolean;
 }
+
+/** The safety log as saved, with the ids of our own messages another device was heard repeating. */
+export type SavedSafety = SafetySnapshot & { passedOn?: number[] };
 
 const FEED_KEPT = 400;
 const FEED_SAVED = 200;
@@ -35,6 +36,8 @@ export class Journal {
   /** Newest first. */
   feed: FeedItem[] = [];
   private log = new SafetyLog();
+  /** Ids of our own broadcasts and replies that another device was heard repeating. */
+  private passed = new Set<number>();
 
   constructor(
     private readonly self: number,
@@ -86,10 +89,13 @@ export class Journal {
 
   /** Another device repeated a broadcast of ours: a feed item, or a reply such as "On my way". */
   passedOn(msgId: number) {
-    const item = this.feed.find((i) => i.mine && i.msgId === msgId && i.dst === BROADCAST);
-    if (item) item.passedOn = true;
-    const reply = this.log.replies.find((r) => r.src === this.self && r.msgId === msgId);
-    if (reply) reply.passedOn = true;
+    const broadcast = this.feed.some((i) => i.mine && i.msgId === msgId && i.dst === BROADCAST);
+    if (broadcast || this.log.replies.some((r) => r.src === this.self && r.msgId === msgId)) this.passed.add(msgId);
+  }
+
+  /** Whether another device was heard repeating this message of ours. */
+  wasPassedOn(msgId: number) {
+    return this.passed.has(msgId);
   }
 
   /** Removes an item (one sent again took its place). */
@@ -117,17 +123,20 @@ export class Journal {
     return this.log.replies.filter((r) => r.body.src === src && r.body.msgId === msgId).sort((a, b) => writtenAt(a) - writtenAt(b));
   }
 
-  snapshot(): { safety: SafetySnapshot; feed: FeedItem[] } {
-    return { safety: this.log.snapshot(), feed: this.feed.slice(0, FEED_SAVED) };
+  snapshot(): { safety: SavedSafety; feed: FeedItem[] } {
+    return { safety: { ...this.log.snapshot(), ...(this.passed.size > 0 && { passedOn: [...this.passed] }) }, feed: this.feed.slice(0, FEED_SAVED) };
   }
 
-  restore(saved: { safety: SafetySnapshot | null; feed: FeedItem[] | null; resent: Set<string> }) {
+  restore(saved: { safety: SavedSafety | null; feed: FeedItem[] | null; resent: Set<string> }) {
     const retriesLost = (i: FeedItem) => i.delivery === 'sending' && !saved.resent.has(i.id);
     this.feed = (saved.feed ?? []).map((i) => (retriesLost(i) ? { ...i, delivery: 'unknown' } : i));
     this.log = new SafetyLog();
     if (saved.safety) this.log.restore(saved.safety);
     else this.rebuildLogFromFeed();
     this.log.prune(this.clock.now());
+    // A save from before the ids were kept marked the feed items and replies themselves.
+    const marked = (x: { msgId: number }) => (x as { passedOn?: boolean }).passedOn;
+    this.passed = new Set([...(saved.safety?.passedOn ?? []), ...[...this.feed, ...this.log.replies].filter(marked).map((x) => x.msgId)]);
   }
 
   private rebuildLogFromFeed() {
@@ -138,5 +147,6 @@ export class Journal {
   clear() {
     this.feed = [];
     this.log = new SafetyLog();
+    this.passed.clear();
   }
 }

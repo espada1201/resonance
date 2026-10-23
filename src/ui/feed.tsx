@@ -7,11 +7,11 @@ import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
 import { type RosterEntry, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, passedOnText } from './format';
+import { NEED_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
-import { replyReceipt } from './roster';
+import { replyLine } from './roster';
 
 export function who(station: Station, src: number, nick?: string) {
   if (src === station.id) return 'You';
@@ -61,7 +61,7 @@ function Delivery({ station, item }: { station: Station; item: FeedItem }) {
   const [err, setErr] = useState('');
   if (station.queued(item)) return <span class="delivery">waiting to send…</span>;
   if (item.mine && item.dst === BROADCAST) {
-    return item.passedOn ? (
+    return station.journal.wasPassedOn(item.msgId) ? (
       <span class="delivery ok">
         <Check size={14} /> sent · another phone has it
       </span>
@@ -371,9 +371,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
         {b.outside && <p class="muted small">For family outside: {b.outside}</p>}
         {replies.map((r) => (
           <p key={`${r.src}:${r.msgId}`} class="small reply">
-            {r.src === station.id ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${named(station, r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`}
-            {' · '}
-            {[ago(writtenAt(r)), replyReceipt(station, r)].filter(Boolean).join(' · ')}
+            {replyLine(station, r, (src, nick) => named(station, src, nick))}
           </p>
         ))}
       </Item>
