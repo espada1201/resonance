@@ -2,9 +2,9 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
-import { type Heard, type ReplyBody, type RosterEntry, needingYou, writtenAt } from '../roster';
+import { type Heard, type ReplyBody, type RosterEntry, needingYou, tookBack, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NOT_HEARD_YET, ago, joinParts, passedOnText } from './format';
+import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOOK_BACK_TEXT, ago, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Compass } from './icons';
 
@@ -18,7 +18,7 @@ export function relative(me: Geo | null, there: Geo | undefined): string {
 function state(e: RosterEntry): string {
   if (e.open) return e.coming ? 'Help on the way' : 'Waiting for help';
   if (e.stale) return 'No news for a day';
-  return e.resolved ? 'Resolved' : '';
+  return e.resolved && !e.cancelled ? 'Resolved' : '';
 }
 
 interface RosterProps {
@@ -35,10 +35,14 @@ interface RosterProps {
   /** A Find action for someone whose own device is in earshot, or null. */
   find: (e: RosterEntry) => (() => void) | null;
   readout?: (e: RosterEntry) => ComponentChildren;
+  /** This device's own name, so its row reads "You (Margaret)". */
+  nick?: string;
 }
 
-export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, nick: string) => string) =>
-  r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${by(r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`;
+export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, nick: string) => string) => {
+  const did = tookBack(r) ? TOOK_BACK_TEXT : REPLY_TEXT[r.body.what];
+  return r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : did}` : `${by(r.src, r.body.nick)} ${did}`;
+};
 
 /** What is known about whether our own reply, such as "On my way", was heard: empty for anyone else's. */
 export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
@@ -76,7 +80,7 @@ export function headcount(entries: RosterEntry[], self?: number) {
 }
 
 /** Everyone's latest check-in, in the order a responder works through them. */
-export function RosterList({ entries, me, self, name, by, reply, replyLine, find, readout }: RosterProps) {
+export function RosterList({ entries, me, self, name, by, reply, replyLine, find, readout, nick }: RosterProps) {
   // Resolved closes a request on every phone, and it sits beside On my way: it asks once more.
   // Keyed by the ask, so a new one from the same person never opens with the question showing.
   const [closing, setClosing] = useState<string | null>(null);
@@ -91,13 +95,15 @@ export function RosterList({ entries, me, self, name, by, reply, replyLine, find
         const confirming = reply && closing === `${src}:${msgId}`;
         const where = joinParts(' · ', b.place, relative(me, b.geo));
         return (
-          <li key={e.key} class={`s-${b.status}${e.open ? ' open' : ''}`}>
+          <li key={e.key} class={e.cancelled ? 'cancelled' : `s-${b.status}${e.open ? ' open' : ''}`}>
             <p class="status-line">
-              <span class="status-word">{STATUS_TEXT[b.status]}</span>
+              <span class="status-word">{e.cancelled ? CANCELLED_TEXT : STATUS_TEXT[b.status]}</span>
               <span class="who">{mine ? 'You' : name(e)}</span>
+              {mine && nick && ' '}
+              {mine && nick && <span class="who-nick">({nick})</span>}
               {state(e) && <span class="chip">{state(e)}</span>}
             </p>
-            {b.needs && (
+            {b.needs && !e.cancelled && (
               <p class="pills" aria-label="Needs">
                 {b.needs.map((n) => (
                   <span key={n} class="chip need">

@@ -103,3 +103,14 @@
   background: none;
   padding: 0;
 }
+.people li.cancelled {
+  --status: var(--muted);
+  opacity: 0.85;
+}
+.who-nick {
+  font-weight: 650;
+}
+/* The name box under the two first-screen buttons lines up with them. */
+.left > .name-field {
+  padding: 8px 16px 0;
+}

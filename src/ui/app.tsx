@@ -6,13 +6,14 @@ import type { ProfileId } from '../modem/profiles';
 import { type RosterEntry, needingYou } from '../roster';
 import type { Station } from '../station';
 import { AirPanel, AirStatus } from './air';
+import { NameField } from './checkin-form';
 import { Compose, focusCompose } from './compose';
 import { Feed, who } from './feed';
 import { STATUS_TEXT } from './format';
 import { rovingKeys, useMedia, useStation, useTicker } from './hooks';
 import { Mic } from './icons';
 import { People } from './people';
-import { Safety } from './safety';
+import { type Offer, Safety } from './safety';
 import { Settings } from './settings';
 import { TopBar } from './shell';
 
@@ -109,6 +110,17 @@ export function App({ station }: { station: Station }) {
   const [writing, setWriting] = useState(false);
   // A shortcut on the first screen sends what the Safety tab's button sends: the tab opens and does it.
   const [shortcut, setShortcut] = useState<Status | null>(null);
+  // Opened with no name: the box to give one stays on the first screen and on Safety for the whole visit, with what was typed.
+  const [nameOffered] = useState(() => !station.settings.nick);
+  // The call for help sent from here that can still be taken back; it outlives a visit to another tab.
+  const [offer, setOffer] = useState<Offer>(null);
+  // Said when a first-screen button moves you to Safety, which it does without any other sign.
+  const [opened, setOpened] = useState('');
+  useEffect(() => {
+    if (!opened) return;
+    const t = setTimeout(() => setOpened(''), 5000);
+    return () => clearTimeout(t);
+  }, [opened]);
   const tabs: Tab[] = wide ? ['feed', 'safety', 'people', 'settings'] : ['feed', 'safety', 'air', 'people', 'settings'];
   const current: Tab = !wide || tab !== 'air' ? tab : 'feed';
   const live = station.status === 'listening';
@@ -169,6 +181,9 @@ export function App({ station }: { station: Station }) {
       <p class="sr-only" aria-live="assertive">
         {said}
       </p>
+      <p class="sr-only" aria-live="polite">
+        {opened}
+      </p>
 
       <main class="main">
         <div class="left">
@@ -182,6 +197,9 @@ export function App({ station }: { station: Station }) {
                   onClick={() => {
                     setShortcut(s);
                     setTab('safety');
+                    setOpened('Opened Safety.');
+                    // The button is gone with the first screen: the keyboard goes to the tab it opened, not to the page.
+                    requestAnimationFrame(() => document.getElementById('tab-safety')?.focus());
                   }}
                 >
                   {s === 'safe' ? "I'm safe" : 'I need help'}
@@ -189,10 +207,11 @@ export function App({ station }: { station: Station }) {
               ))}
             </div>
           )}
+          {composing && <NameField station={station} offered={nameOffered} />}
           <div class="scroll" role="tabpanel" id="section" aria-labelledby={`tab-${current}`}>
             {!live && current !== 'settings' && current !== 'air' && <Gate station={station} />}
             {current === 'feed' && (live || station.journal.feed.length > 0) && <Feed station={station} onReply={live ? messageNode : undefined} />}
-            {current === 'safety' && <Safety station={station} shortcut={shortcut} onShortcut={() => setShortcut(null)} />}
+            {current === 'safety' && <Safety station={station} shortcut={shortcut} onShortcut={() => setShortcut(null)} nameOffered={nameOffered} offer={offer} setOffer={setOffer} />}
             {current === 'people' && <People station={station} onMessage={messageNode} />}
             {current === 'settings' && <Settings station={station} />}
             {current === 'air' && <AirPanel station={station} />}

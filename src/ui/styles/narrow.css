@@ -8,8 +8,12 @@
   .span2 {
     grid-column: auto;
   }
+  /* The name stays beside the id so a person can see that it went out, cut short with an ellipsis where it does not fit. */
   .node-chip b {
-    display: none;
+    max-width: 9ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .budget {
     margin-left: 0;

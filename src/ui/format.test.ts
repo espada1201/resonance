@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Station } from '../station';
-import { nameless } from './checkin-form';
+import { TAKE_BACK_MS, nameless, takeBackOffered } from './checkin-form';
 import { joinParts, passedOnText } from './format';
 
 describe('joinParts', () => {
@@ -32,5 +32,20 @@ describe('passedOnText', () => {
   it('counts the phones a message went through in plain numbers, not "once"', () => {
     expect(passedOnText(1)).toBe('passed along 1 time');
     expect(passedOnText(3)).toBe('passed along 3 times');
+  });
+});
+
+describe('takeBackOffered', () => {
+  const sent = { at: 1_000_000 };
+
+  it('offers the take-back from the moment the request went out until ten minutes later, and not after', () => {
+    expect(TAKE_BACK_MS).toBe(10 * 60_000);
+    expect(takeBackOffered(sent, sent.at)).toBe(true);
+    expect(takeBackOffered(sent, sent.at + TAKE_BACK_MS - 1)).toBe(true);
+    expect(takeBackOffered(sent, sent.at + TAKE_BACK_MS)).toBe(false);
+  });
+
+  it('offers nothing when no request was sent from here', () => {
+    expect(takeBackOffered(null, sent.at)).toBe(false);
   });
 });

@@ -256,15 +256,34 @@ test('a call for help sent by mistake from the first screen is taken back in one
   await expect(status).toContainText('No one has said they are coming yet.');
   await expect(b.getByRole('tab', { name: 'Safety, 1 waiting for you' })).toBeVisible();
   await a.getByRole('button', { name: 'Sent by mistake? Take it back' }).click();
-  await expect(a.getByRole('status').filter({ hasText: 'Taken back' })).toHaveText('Taken back. Others now see it as resolved.');
+  await expect(a.getByRole('status').filter({ hasText: 'Taken back' })).toHaveText('Taken back. Others now see it as cancelled: sent by mistake.');
   await expect(a.getByRole('button', { name: 'Sent by mistake? Take it back' })).toHaveCount(0);
   await expect(a.getByRole('button', { name: 'I need help' })).toBeFocused();
-  await expect(checkInRow(a, 'You')).toContainText('Resolved');
+  // A request taken back is cancelled, not a red call for help with a small "Resolved" beside it, on both phones.
+  const mine = checkInRow(a, 'You');
+  await expect(mine).toContainText('Cancelled: sent by mistake');
+  await expect(mine).not.toContainText('Needs help');
+  await expect(mine).not.toContainText('Resolved');
+  await expect(mine.getByRole('button', { name: 'I got help' })).toHaveCount(0);
+  // The form was opened for a request that no longer stands: it is closed again, and says Safe, not Needs help, when opened.
+  await expect(a.getByRole('radio', { name: 'Safe', exact: true })).toHaveCount(0);
+  await a.getByText('More detail').click();
+  await expect(a.getByRole('radio', { name: 'Needs help' })).not.toBeChecked();
+  await expect(a.getByRole('radio', { name: 'Safe', exact: true })).toBeChecked();
 
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await openTab(b, 'Safety');
-  await expect(checkInRow(b, 'Ana')).toContainText('Resolved');
+  await expect(checkInRow(b, 'Ana')).toContainText('Cancelled: sent by mistake');
+  await expect(checkInRow(b, 'Ana')).not.toContainText('Needs help');
   await expect(checkInRow(b, 'Ana')).not.toContainText('Waiting for help');
+  await expect(checkInRow(b, 'Ana')).not.toContainText('Resolved');
+  // The feed says the same, and its card is no longer red (the status colour is grey).
+  await openTab(b, 'Feed');
+  const card = feedItem(b, 'Cancelled: sent by mistake');
+  await expect(card).toHaveCount(1);
+  await expect(card).not.toContainText('Needs help');
+  await expect(card).toContainText('took it back: sent by mistake');
+  await expect(card).not.toHaveClass(/s-help/);
   await proof(a, 'taken-back');
 });
 
@@ -277,6 +296,112 @@ test('the one-tap help on the Safety tab offers the same way out, and a later ch
   await page.getByRole('button', { name: "I'm safe" }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Sent.');
   await expect(takeBack).toHaveCount(0);
+});
+
+test('the first screen offers a name box beside the two buttons, so the first send carries the name, and no send waits for it', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  const shortcuts = a.getByRole('group', { name: 'In an emergency' });
+  const name = a.getByLabel('Your name');
+  await expect(name).toBeVisible();
+  // Under the buttons, which stay first: someone in a hurry meets the buttons, not a form.
+  const [buttons, box] = [await shortcuts.boundingBox(), await name.boundingBox()];
+  expect(box!.y).toBeGreaterThan(buttons!.y + buttons!.height - 1);
+  await name.fill('Margaret');
+  await shortcuts.getByRole('button', { name: "I'm safe" }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toBeVisible();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).not.toContainText('Others see you');
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Margaret')).toContainText('Safe');
+  await expect(a.getByLabel('Your name')).toHaveValue('Margaret');
+});
+
+test('a tap on the first screen without a name still sends at once, and says how to add it', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+  const id = await nodeId(a);
+  await a.getByRole('group', { name: 'In an emergency' }).getByRole('button', { name: 'I need help' }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText(`Others see you as #${id}.`);
+  await expect(feedItem(b, 'Needs help')).toContainText(`#${id}`);
+});
+
+test('a first-screen button says it opened Safety and never leaves the keyboard on the page body while it sends', async ({ page }) => {
+  await joinAir(page, '/?air=sim', 'Ana');
+  const button = page.getByRole('group', { name: 'In an emergency' }).getByRole('button', { name: "I'm safe" });
+  await button.focus();
+  await page.evaluate(() => {
+    const w = window as unknown as { bodySamples: number };
+    w.bodySamples = 0;
+    setInterval(() => {
+      if (document.activeElement === document.body) w.bodySamples++;
+    }, 40);
+  });
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[aria-live="polite"]').filter({ hasText: 'Opened Safety.' })).toHaveCount(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toBeVisible();
+  await expect(page.getByRole('button', { name: "I'm safe" })).toBeFocused();
+  // About a tenth of a second at most, between the button going and the tab taking the keyboard.
+  expect(await page.evaluate(() => (window as unknown as { bodySamples: number }).bodySamples)).toBeLessThanOrEqual(3);
+});
+
+test('take it back is one Shift+Tab from Where and stays offered after leaving Safety and coming back', async ({ page }) => {
+  await joinAir(page, '/?air=sim', 'Ana');
+  await openTab(page, 'Safety');
+  await page.getByRole('button', { name: 'I need help' }).click();
+  const takeBack = page.getByRole('button', { name: 'Sent by mistake? Take it back' });
+  await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(takeBack).toBeFocused();
+  // Leaving the tab does not throw the way out away while the request is open.
+  await openTab(page, 'Feed');
+  await openTab(page, 'Safety');
+  await expect(takeBack).toBeVisible();
+  await takeBack.click();
+  await expect(checkInRow(page, 'You')).toContainText('Cancelled: sent by mistake');
+  await expect(takeBack).toHaveCount(0);
+  await openTab(page, 'Feed');
+  await openTab(page, 'Safety');
+  await expect(takeBack).toHaveCount(0);
+});
+
+test('a call answered or marked resolved no longer offers to be taken back', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  await openTab(a, 'Safety');
+  await a.getByRole('button', { name: 'I need help' }).click();
+  const takeBack = a.getByRole('button', { name: 'Sent by mistake? Take it back' });
+  await expect(takeBack).toBeVisible();
+  await a.getByRole('button', { name: 'I got help' }).click();
+  await expect(takeBack).toHaveCount(0);
+  await openTab(a, 'Feed');
+  await openTab(a, 'Safety');
+  await expect(takeBack).toHaveCount(0);
+});
+
+test.describe('on a small phone, naming yourself', () => {
+  test.use({ viewport: { width: 360, height: 640 }, hasTouch: true });
+
+  test('the own row reads You (Margaret), the header shows the name, and the name box stays when you come back to Safety', async ({ page }) => {
+    await joinAir(page);
+    await openTab(page, 'Safety');
+    await page.getByRole('button', { name: "I'm safe" }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Others see you as' })).toBeVisible();
+    await page.keyboard.type('Margaret');
+    await page.getByRole('button', { name: "I'm safe" }).click();
+    await expect(checkInRow(page, 'You')).toContainText('You (Margaret)');
+    // The header names the phone as well as its id, inside the screen.
+    const chip = page.getByRole('banner').getByText('Margaret', { exact: true });
+    await expect(chip).toBeVisible();
+    await expect(chip).toBeInViewport({ ratio: 1 });
+    await openTab(page, 'Feed');
+    await openTab(page, 'Safety');
+    await expect(page.getByLabel('Your name')).toHaveValue('Margaret');
+  });
 });
 
 test('a double tap on the first screen\'s help button cannot send a second, contradicting check-in', async ({ context }) => {

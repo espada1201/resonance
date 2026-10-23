@@ -5,6 +5,7 @@ Tabs and the list of needs follow the standard arrow-key pattern, and a short li
 ## Sub-features
 
 - `keyboard-tabs-hint` with the keyboard on a tab, `Arrow keys switch tabs` shows in its own line under the tab row, pushing the page down by that line instead of covering the top of it (checked at 360 and 1280 px); moving along the tabs moves nothing more. After a click it stays hidden.
+- `keyboard-shortcut-focus` a first-screen `I'm safe` / `I need help` opens Safety, says `Opened Safety.` in a polite live region, and puts the keyboard on the Safety tab at once (never on the page), then on the button or field that follows the send.
 - `keyboard-needs-hint` with the keyboard on a need, `Arrow keys move, Space picks` shows beside `What is needed?`; it is gone once focus moves on.
 
 ## How to get to it (user POV)

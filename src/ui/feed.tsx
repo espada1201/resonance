@@ -5,9 +5,9 @@ import { missing, received } from '../mesh/files';
 import { BROADCAST, nodeHex } from '../mesh/packet';
 import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
-import { type RosterEntry, writtenAt } from '../roster';
+import { type RosterEntry, tookBack, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NOT_HEARD_YET, ago, bytes, joinParts, passedOnText } from './format';
+import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -334,12 +334,13 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
   const delivery = <Delivery station={station} item={item} />;
   if (b.kind === 'checkin') {
     const replies = station.journal.repliesTo(item.src, item.msgId);
+    const cancelled = replies.some(tookBack);
     const answerable =
       request && station.status === 'listening' && !(item.mine && !b.about) && !request.replies.some((r) => r.src === station.id && r.body.what === 'coming');
     return (
       <Item
         {...shell}
-        kind={`checkin s-${b.status}`}
+        kind={cancelled ? 'checkin cancelled' : `checkin s-${b.status}`}
         actions={
           <>
             {delivery}
@@ -349,7 +350,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
         }
       >
         <p class="status-line">
-          <span class="status-word">{STATUS_TEXT[b.status]}</span>
+          <span class="status-word">{cancelled ? CANCELLED_TEXT : STATUS_TEXT[b.status]}</span>
           {b.about && (
             <span>
               <strong>{b.about}</strong>, reported by {item.mine ? 'you' : named(station, item.src, b.nick)}
@@ -358,7 +359,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
           {b.place && <span>{b.place}</span>}
           {b.note && <span>{b.note}</span>}
         </p>
-        {b.needs && (
+        {b.needs && !cancelled && (
           <p class="pills" aria-label="Needs">
             {b.needs.map((n) => (
               <span key={n} class="chip need">

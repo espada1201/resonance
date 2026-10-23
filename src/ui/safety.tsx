@@ -3,7 +3,7 @@ import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, ReplyKind, Status } from '../mesh/payloads';
 import { type CheckInBody, type Heard, type RosterEntry, rosterCsv, search } from '../roster';
 import type { Station } from '../station';
-import { ANY_FIX, CheckInFields, NO_FIX_NOTE, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, NO_FIX_NOTE, takeBackOffered, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
@@ -96,16 +96,21 @@ function sentText(station: Station, about: string | undefined, ask: boolean) {
 }
 
 /** Whether the request this device just sent is still open, so taking it back still means something. */
-function stillOpen(station: Station, sentAs: Heard<CheckInBody> | undefined) {
+function stillOpen(station: Station, sentAs: Offer | undefined) {
   return !!sentAs && station.journal.roster().some((e) => e.open && e.latest.src === sentAs.src && e.latest.msgId === sentAs.msgId);
 }
 
+/** The request this device just sent with one tap, which can be taken back for a while; kept above the tab so it survives leaving Safety. */
+export type Offer = Heard<CheckInBody> | null;
+
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
-function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shortcut: Status | null; onShortcut: () => void }) {
+function CheckInCard({ station, shortcut, onShortcut, nameOffered, offer, setOffer }: { station: Station; shortcut: Status | null; onShortcut: () => void; nameOffered: boolean; offer: Offer; setOffer: (o: Offer) => void }) {
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
   const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
   const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: string; sentAs?: Heard<CheckInBody>; takenBack?: boolean; noFix?: boolean } | null>(null);
+  // The first-screen button that opened this tab has the keyboard until the send is over, so it never falls to the page.
+  const viaShortcut = useRef(false);
   // A double tap on the first screen's button lands on this row a moment after the tab opened: it is no second check-in.
   const stray = useRef(0);
   const [err, setErr] = useState('');
@@ -122,6 +127,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
     setSending(label);
     setErr('');
     setSent(null);
+    setOffer(null);
     const geo = d.withGeo ? await checkInFix(station) : undefined;
     const fields = draftFields(d, geo);
     try {
@@ -132,6 +138,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
       const unnamed = nameless(station, fields.about);
       const sentAs = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === fields.about)?.latest;
       setSent({ about: fields.about, ask, unnamed, sentAs, noFix: d.withGeo && !geo });
+      if (ask && sentAs) setOffer(sentAs);
       // The status stays as sent: after a call for help, the form must not quietly say Safe.
       if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
       if (ask) {
@@ -149,7 +156,9 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
     setSending(null);
     // The pressed button turned itself off while sending, which drops the keyboard on the page: give it back.
     requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
+      const holding = document.activeElement;
+      if (holding !== document.body && !(viaShortcut.current && holding?.getAttribute('role') === 'tab')) return;
+      viaShortcut.current = false;
       const pressed = label === 'detail' ? more.current?.querySelector<HTMLElement>('button[type="submit"]') : quickRow.current?.querySelector<HTMLElement>(`.s-${label}`);
       pressed?.focus();
     });
@@ -161,13 +170,18 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
     void send({ ...d, status: asking(d.status) === asking(status) ? d.status : status, withGeo: true }, status);
   };
 
-  /** Says "resolved" to the request just sent: the same reply "I got help" sends. */
+  /** Says "resolved", flagged as a mistake, to the request just sent. */
   async function takeBack() {
-    if (!sent?.sentAs) return;
+    if (!offer) return;
     try {
-      await station.reply(sent.sentAs, 'resolved');
-      setSent({ ...sent, takenBack: true });
+      // Still "resolved" on air, so every phone closes it; the flag says it was a mistake, and phones that do not know it show resolved.
+      await station.reply(offer, 'resolved', { mistake: true });
+      setOffer(null);
+      setSent((s) => (s ? { ...s, takenBack: true } : { ask: false, unnamed: '', takenBack: true }));
       setErr('');
+      // The form was opened for a call for help that no longer stands: it goes back to Safe, and closes.
+      setDraft(newDraft(station.settings));
+      more.current!.open = false;
       // The button that was pressed is gone: the keyboard goes to the call for help, not back to the top.
       requestAnimationFrame(() => quickRow.current?.querySelector<HTMLElement>('.s-help')?.focus());
     } catch (e) {
@@ -179,14 +193,23 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
   useEffect(() => {
     if (!shortcut) return;
     onShortcut();
+    viaShortcut.current = true;
     stray.current = Date.now() + STRAY_TAP_MS;
     if (listening) quick(shortcut, true);
   }, []);
 
+  /* One tap sends at once, as an emergency must; this is the way out of a stray one. It is kept while the request is open and for ten
+     minutes, also after leaving this tab. With the details open (they open beside a call for help) it sits just before Where, where the keyboard is. */
+  const undo = listening && takeBackOffered(offer, Date.now()) && stillOpen(station, offer) && (
+    <button type="button" class="ghost small" onClick={() => void takeBack()}>
+      Sent by mistake? Take it back
+    </button>
+  );
+
   const { place, outside } = station.settings;
   return (
     <section class="checkin-card" aria-label="Check in" ref={card}>
-      <NameField station={station} prompt={!!sent?.unnamed} />
+      <NameField station={station} prompt={!!sent?.unnamed} offered={nameOffered} />
       <div class="quick" ref={quickRow}>
         <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => quick('safe')}>
           {sending === 'safe' ? 'Sending…' : "I'm safe"}
@@ -195,14 +218,9 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
           {sending === 'help' ? 'Sending…' : 'I need help'}
         </button>
       </div>
-      {sent && <p role="status">{sent.takenBack ? 'Taken back. Others now see it as resolved.' : joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed)}</p>}
+      {sent && <p role="status">{sent.takenBack ? 'Taken back. Others now see it as cancelled: sent by mistake.' : joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed)}</p>}
       {sent?.noFix && !sent.takenBack && <p class="muted small">{NO_FIX_NOTE}</p>}
-      {/* One tap sends at once, as an emergency must; this is the way out of a stray one. */}
-      {listening && sent?.ask && !sent.takenBack && stillOpen(station, sent.sentAs) && (
-        <button type="button" class="ghost small" onClick={() => void takeBack()}>
-          Sent by mistake? Take it back
-        </button>
-      )}
+      {!detailed && undo}
       <p class="muted small">
         One tap tells everyone near you, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at "${place}".`}
@@ -216,7 +234,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
             void send(draft, 'detail');
           }}
         >
-          <CheckInFields draft={draft} set={set} room={room} />
+          <CheckInFields draft={draft} set={set} room={room} beforeWhere={detailed && undo} />
           <button type="submit" class="primary" disabled={!listening || !!sending || room < 0}>
             {sending === 'detail' ? 'Sending…' : 'Send check-in'}
           </button>
@@ -242,7 +260,7 @@ function helpers(station: Station): Helper[] {
   return [...latest.values()];
 }
 
-export function Safety({ station, shortcut = null, onShortcut = () => undefined }: { station: Station; shortcut?: Status | null; onShortcut?: () => void }) {
+export function Safety({ station, shortcut = null, onShortcut = () => undefined, nameOffered, offer, setOffer }: { station: Station; shortcut?: Status | null; onShortcut?: () => void; nameOffered: boolean; offer: Offer; setOffer: (o: Offer) => void }) {
   const entries = station.journal.roster();
   const parcels = station.journal.parcels();
   const helping = helpers(station);
@@ -287,7 +305,7 @@ export function Safety({ station, shortcut = null, onShortcut = () => undefined 
   return (
     <div class="safety">
       {!shown.some(finding) && <FindPanel station={station} />}
-      <CheckInCard station={station} shortcut={shortcut} onShortcut={onShortcut} />
+      <CheckInCard station={station} shortcut={shortcut} onShortcut={onShortcut} nameOffered={nameOffered} offer={offer} setOffer={setOffer} />
 
       <section class="roster-section" aria-labelledby="roster-title">
         <div class="section-head">
@@ -329,6 +347,7 @@ export function Safety({ station, shortcut = null, onShortcut = () => undefined 
               return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;
             }}
             readout={(e) => finding(e) && <FindPanel station={station} />}
+            nick={station.settings.nick}
           />
         )}
       </section>

@@ -3,7 +3,7 @@ import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
 import { MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
 import type { Draft, Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NO_FIX_NOTE, NameField, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NO_FIX_NOTE, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { who } from './feed';
 import { SKILL_TEXT, bytes, errorText, fitInput, joinParts, seconds } from './format';
 import { rovingKeys } from './hooks';
@@ -201,7 +201,6 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
 
       {mode === 'checkin' && (
         <>
-          <NameField station={station} />
           <CheckInFields draft={checkin} set={(p) => setCheckin((d) => ({ ...d, ...p }))} room={room} />
         </>
       )}

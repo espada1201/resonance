@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { parseOutside } from '../courier';
 import { locateWithin } from '../geo';
@@ -77,15 +78,23 @@ export function draftProblem(d: CheckInDraft): string | null {
 export const nameless = (station: Station, about: string | undefined) =>
   station.settings.nick || about ? '' : `Others see you as #${nodeHex(station.id)}. Type your name in the box above, then send again.`;
 
-/** Asks for the name above the check-in buttons. `prompt`: a check-in just went out without one. */
-export function NameField({ station, prompt }: { station: Station; prompt?: boolean }) {
-  const [namelessAtOpen] = useState(!station.settings.nick);
-  if (!namelessAtOpen && station.settings.nick) return null;
+/** A call for help sent from here can be taken back for this long, as long as nobody has closed it. */
+export const TAKE_BACK_MS = 10 * 60_000;
+
+/** Whether the request sent at `sent.at` (ms) can still be taken back at `now`. */
+export const takeBackOffered = (sent: { at: number } | null, now: number) => !!sent && now - sent.at < TAKE_BACK_MS;
+
+/**
+ * Asks for the name beside the check-in buttons. `offered`: the page opened with no name, so the box stays
+ * for the whole visit, with whatever was typed in it, wherever the buttons are. `prompt`: a check-in just went out without a name.
+ */
+export function NameField({ station, prompt, offered }: { station: Station; prompt?: boolean; offered: boolean }) {
+  if (!offered && station.settings.nick) return null;
   return (
     <div class={prompt && !station.settings.nick ? 'name-field prompt' : 'name-field'}>
       <input
         value={station.settings.nick}
-        placeholder="Your name, so people know who checked in"
+        placeholder="Your name"
         aria-label="Your name"
         onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })}
       />
@@ -98,7 +107,7 @@ export function NameField({ station, prompt }: { station: Station; prompt?: bool
  * The fields of a check-in, shared by the Safety tab and the composer. `room` is how many bytes
  * the packet has left, so the note can never outgrow it.
  */
-export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: (patch: Partial<CheckInDraft>) => void; room: number }) {
+export function CheckInFields({ draft, set, room, beforeWhere }: { draft: CheckInDraft; set: (patch: Partial<CheckInDraft>) => void; room: number; beforeWhere?: ComponentChildren }) {
   const noteMax = room + new TextEncoder().encode(draft.note).length;
   const toggle = (n: Need) => set({ needs: draft.needs.includes(n) ? draft.needs.filter((x) => x !== n) : [...draft.needs, n] });
   const badOutside = draft.outside.trim() !== '' && !parseOutside(draft.outside);
@@ -114,6 +123,7 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
           </button>
         ))}
       </div>
+      {beforeWhere}
       <input value={draft.place} placeholder="Where: floor, room or street (optional)" aria-label="Where" onInput={(e) => set({ place: fitInput(e, MAX_PLACE) })} />
       <label class="field-with-count">
         <input value={draft.note} placeholder="Short note (optional)" aria-label="Note" onInput={(e) => set({ note: fitInput(e, Math.max(0, noteMax)) })} />

@@ -87,6 +87,10 @@ export const TOPIC_TEXT: Record<Topic, string> = {
 /** "Ben is on the way", "Ben marked it resolved", "Ben passed it on". */
 export const REPLY_TEXT: Record<ReplyKind, string> = { coming: 'is on the way', resolved: 'marked it resolved', passed: 'passed it on' };
 
+/** A request its sender took back: what everyone sees instead of a call for help. The protocol still says "resolved". */
+export const CANCELLED_TEXT = 'Cancelled: sent by mistake';
+export const TOOK_BACK_TEXT = 'took it back: sent by mistake';
+
 export const STRENGTH_TEXT: Record<Strength, string> = { strong: 'Strong signal', fair: 'Fair signal', weak: 'Weak signal' };
 
 export const PROFILE_NAME: Record<ProfileId, string> = { audible: 'Audible', fast: 'Fast', ultrasonic: 'Quiet' };
