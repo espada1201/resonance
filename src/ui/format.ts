@@ -10,6 +10,9 @@ export function fitInput(e: Event, max: number): string {
   return v;
 }
 
+/** The parts that are there, apart from `sep`: empty, false and missing parts are left out. */
+export const joinParts = (sep: string, ...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(sep);
+
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function ago(ms: number): string {

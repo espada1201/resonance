@@ -69,9 +69,9 @@ export function draftProblem(d: CheckInDraft): string | null {
   return null;
 }
 
-/** The line added after a check-in went out with no name. Empty once there is a name. */
-export const nameless = (station: Station) =>
-  station.settings.nick ? '' : `Others see you as #${nodeHex(station.id)}. Type your name in the box above, then send again.`;
+/** The line added after a check-in went out under no name: empty with a name, or for someone else (`about`), who is named in it. */
+export const nameless = (station: Station, about: string | undefined) =>
+  station.settings.nick || about ? '' : `Others see you as #${nodeHex(station.id)}. Type your name in the box above, then send again.`;
 
 /** Asks for the name above the check-in buttons. `prompt`: a check-in just went out without one. */
 export function NameField({ station, prompt }: { station: Station; prompt?: boolean }) {

@@ -5,7 +5,7 @@ import { MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh
 import type { Draft, Station } from '../station';
 import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { who } from './feed';
-import { SKILL_TEXT, bytes, errorText, fitInput, seconds } from './format';
+import { SKILL_TEXT, bytes, errorText, fitInput, joinParts, seconds } from './format';
 import { rovingKeys } from './hooks';
 import { FileIcon, Lock, Send } from './icons';
 import { NoticeFields, type NoticeDraft, newNotice } from './notices';
@@ -133,14 +133,14 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
     setSaid('');
     try {
       const target = dst === BROADCAST ? undefined : dst;
-      let unnamed = false;
+      let unnamedLine = '';
       if (mode === 'text') {
         await station.say({ kind: 'text', text: text.trim() }, target);
         setText('');
       } else if (mode === 'checkin') {
         const geo = checkin.withGeo ? await checkInFix(station, setError) : undefined;
         const fields = draftFields(checkin, geo);
-        unnamed = !station.settings.nick && !fields.about;
+        unnamedLine = nameless(station, fields.about);
         await station.say({ kind: 'checkin', ...fields });
         // The status stays as sent: after a call for help, the form must not quietly say Safe.
         setCheckin((d) => newDraft(station.settings, d.status));
@@ -155,7 +155,7 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
         await station.sendFile(picked.name, picked.mime, picked.data);
         setPicked(null);
       }
-      setSaid([dst === BROADCAST || toEveryone ? 'Sent to everyone in earshot.' : `Sent to ${who(station, dst)}.`, unnamed && nameless(station)].filter(Boolean).join(' '));
+      setSaid(joinParts(' ', dst === BROADCAST || toEveryone ? 'Sent to everyone in earshot.' : `Sent to ${who(station, dst)}.`, unnamedLine));
     } catch (err) {
       setError(errorText(err));
     } finally {

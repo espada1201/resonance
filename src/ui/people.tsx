@@ -1,7 +1,7 @@
 import { nodeHex } from '../mesh/packet';
 import type { Station } from '../station';
 import { who } from './feed';
-import { ago } from './format';
+import { ago, joinParts } from './format';
 import { FindPanel } from './find';
 import { Compass, Relay, Send } from './icons';
 import { linkWords } from './links';
@@ -47,7 +47,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
                   </span>
                 )}
               </span>
-              <span class="muted small">{[`#${nodeHex(n.id)}`, ago(n.lastHeard), linkWords(station, n.id)].filter(Boolean).join(' · ')}</span>
+              <span class="muted small">{joinParts(' · ', `#${nodeHex(n.id)}`, ago(n.lastHeard), linkWords(station, n.id))}</span>
               <span class="node-actions">
                 <button
                   type="button"

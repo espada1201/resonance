@@ -4,7 +4,7 @@ import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
 import { type Heard, type ReplyBody, type RosterEntry, needingYou, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, passedOnText } from './format';
+import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Compass } from './icons';
 
@@ -49,7 +49,7 @@ export function replyReceipt(station: Station, r: Heard<ReplyBody>): string {
 
 /** "Ben is on the way · 2 min ago", or for our own "You are on the way · just now · another phone has it". */
 export const replyLine = (station: Station, r: Heard<ReplyBody>, by: (src: number, nick: string) => string) =>
-  [replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r)].filter(Boolean).join(' · ');
+  joinParts(' · ', replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r));
 
 /** "3 people · 2 open requests (1 for you)": the tab's count is only the requests still for this device, so a heading that counts more says so. */
 export function headcount(entries: RosterEntry[], self?: number) {
@@ -74,7 +74,7 @@ export function RosterList({ entries, me, self, name, by, reply, replyLine, find
         const mine = src === self && !b.about;
         const findIt = e.open || e.stale ? find(e) : null;
         const confirming = reply && closing === `${src}:${msgId}`;
-        const where = [b.place, relative(me, b.geo)].filter(Boolean).join(' · ');
+        const where = joinParts(' · ', b.place, relative(me, b.geo));
         return (
           <li key={e.key} class={`s-${b.status}${e.open ? ' open' : ''}`}>
             <p class="status-line">
@@ -93,9 +93,7 @@ export function RosterList({ entries, me, self, name, by, reply, replyLine, find
             )}
             {b.note && <p class="text-body">{b.note}</p>}
             <p class="muted small">
-              {[where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? passedOnText(hops) : 'heard directly')]
-                .filter(Boolean)
-                .join(' · ')}
+              {joinParts(' · ', where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? passedOnText(hops) : 'heard directly'))}
             </p>
             {e.replies.map((r) => (
               <p key={`${r.src}:${r.msgId}`} class="small reply">

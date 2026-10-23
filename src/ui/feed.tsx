@@ -7,7 +7,7 @@ import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
 import { type RosterEntry, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, passedOnText } from './format';
+import { NEED_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
@@ -392,7 +392,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
         <span class="topic">{TOPIC_TEXT[b.topic]}</span>
         <p class="notice-text">{b.text}</p>
         <p class="muted small">
-          {[b.place, `for ${b.hours < 24 ? `${b.hours} hours` : `${b.hours / 24} day${b.hours > 24 ? 's' : ''}`}`].filter(Boolean).join(' · ')}
+          {joinParts(' · ', b.place, `for ${b.hours < 24 ? `${b.hours} hours` : `${b.hours / 24} day${b.hours > 24 ? 's' : ''}`}`)}
         </p>
       </Item>
     );

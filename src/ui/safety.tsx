@@ -7,7 +7,7 @@ import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, asking, checkInFi
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
-import { NEED_TEXT, STATUS_TEXT, errorText } from './format';
+import { NEED_TEXT, STATUS_TEXT, errorText, joinParts } from './format';
 import { Compass, Download, Pin } from './icons';
 import { type Helper, HelperList, RosterList, headcount, replyLine, replyText } from './roster';
 
@@ -119,8 +119,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
       // Saying it also remembers where you are and whom to tell outside, for your next check-ins.
       await station.say({ kind: 'checkin', ...fields });
       const ask = label === 'help' && !detailed;
-      // Only a check-in for oneself goes out under this device's name; one for someone else names them.
-      const unnamed = !station.settings.nick && !fields.about;
+      const unnamed = nameless(station, fields.about) !== '';
       setSent({ about: fields.about, ask, unnamed });
       // The status stays as sent: after a call for help, the form must not quietly say Safe.
       if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
@@ -168,7 +167,7 @@ function CheckInCard({ station, shortcut, onShortcut }: { station: Station; shor
           {sending === 'help' ? 'Sending…' : 'I need help'}
         </button>
       </div>
-      {sent && <p role="status">{[sentText(station, sent.about, sent.ask), sent.unnamed && nameless(station)].filter(Boolean).join(' ')}</p>}
+      {sent && <p role="status">{joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed && nameless(station, sent.about))}</p>}
       <p class="muted small">
         One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at "${place}".`}
