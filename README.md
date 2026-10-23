@@ -8,7 +8,7 @@ An offline mesh network made of sound, for when the phone network is down: a pow
 2. Get the code: `git clone https://github.com/espada1201/resonance.git && cd resonance`
 3. Start it: `npm install && npm start`. Your browser opens at http://localhost:4173.
 4. Click **Start listening** and allow the microphone. To try it without a second device, click **Try it in two tabs**.
-5. To leave a laptop in a hallway as a beacon, run `npm run beacon` instead. To put the native iPhone app on an iPhone plugged into the Mac, run `npm run iphone` (needs Xcode; a free Apple ID works, and the app then opens for 7 days before it needs running again).
+5. To leave a laptop in a hallway as a beacon, run `npm run beacon` instead. To put the native iPhone app on an iPhone plugged into the Mac, run `bash ios/install-on-iphone.sh` (needs Xcode; a free Apple ID works, and the app then opens for 7 days before it needs running again).
 
 ## What it does
 

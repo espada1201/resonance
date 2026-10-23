@@ -7,6 +7,8 @@ if ! xcrun -sdk iphoneos -show-sdk-path > /dev/null 2>&1; then
   echo "Install Xcode from the App Store, open it once to finish setting it up, then run this again."
   exit 1
 fi
+# On Apple-silicon Macs Homebrew lives here, and is on PATH only once its setup lines have run.
+[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
 if ! command -v brew > /dev/null; then
   echo "Install Homebrew from https://brew.sh first, then run this again."
   exit 1
