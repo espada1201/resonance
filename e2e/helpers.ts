@@ -35,7 +35,7 @@ export async function proof(page: Page, name: string) {
 /** The newest air log row ("IN"/"OUT") whose text contains every one of `what`. */
 export function airRow(page: Page, dir: 'IN' | 'OUT', ...what: Array<string | RegExp>) {
   let rows = page
-    .getByRole('list', { name: 'Air activity' })
+    .getByRole('list', { name: 'Sound activity' })
     .getByRole('listitem')
     .filter({ has: page.getByText(dir, { exact: true }) });
   for (const w of what) rows = rows.filter({ hasText: w });
@@ -70,7 +70,7 @@ export async function joinAir(page: Page, path = '/?air=sim', nick?: string) {
   // must tell stations apart use node ids instead.
   if (nick) await setNickname(page, nick);
   // Narrow layouts keep the air log behind its own tab.
-  const airTab = page.getByRole('tab', { name: 'Air', exact: true });
+  const airTab = page.getByRole('tab', { name: 'Sound', exact: true });
   const narrow = await airTab.isVisible();
   if (narrow) await airTab.click();
   await expect(airRow(page, 'OUT', 'hello')).toBeVisible({ timeout: 20_000 });
@@ -79,8 +79,8 @@ export async function joinAir(page: Page, path = '/?air=sim', nick?: string) {
   if (narrow) await openTab(page, 'Feed');
 }
 
-export async function openTab(page: Page, name: 'Feed' | 'Safety' | 'People' | 'Settings' | 'Air') {
-  // Safety's name grows a count of open requests ("Safety, 1 open request").
+export async function openTab(page: Page, name: 'Feed' | 'Safety' | 'People' | 'Settings' | 'Sound') {
+  // Safety's name grows a count of people waiting for you ("Safety, 1 waiting for you").
   await page.getByRole('tab', { name: new RegExp(`^${name}($|,)`) }).click();
 }
 

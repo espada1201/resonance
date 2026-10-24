@@ -17,7 +17,7 @@ A laptop opened on the beacon page listens all the time, repeats everything it h
 Preconditions: none beyond the baseline.
 
 - **Relay.** Run `verify.sh drive e2e/beacon.spec.ts 'a beacon hears a phone'`. The beacon's air log shows the message in and `message relayed for <id>` out, its counts rise, and the phone's log shows `echo of your message`.
-- **Desk.** Run `verify.sh drive e2e/safety.spec.ts 'a beacon at the shelter desk'`. The beacon's notice signed `Front desk` reaches the phone, and the phone's `I need help` appears on the beacon as `Waiting for help` under `Check-ins · 1 person · 1 open request`.
+- **Desk.** Run `verify.sh drive e2e/safety.spec.ts 'a beacon at the shelter desk'`. The beacon's notice signed `Front desk` reaches the phone, and the phone's `I need help` appears on the beacon as `Waiting for help` under `Check-ins · 1 person · 1 asking for help`.
 
 ## Gotchas
 

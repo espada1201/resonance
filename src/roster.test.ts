@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Need, ReplyKind, Status } from './mesh/payloads';
-import { type CheckInBody, type Heard, type ReplyBody, type RosterEntry, SafetyLog, roster, rosterCsv, search } from './roster';
+import { type CheckInBody, type Heard, type ReplyBody, type RosterEntry, SafetyLog, needingYou, roster, rosterCsv, search } from './roster';
 
 const T = 1_700_000_000;
 let ids = 0;
@@ -8,8 +8,8 @@ let ids = 0;
 function checkIn(src: number, status: Status, sentSec: number, extra: Partial<CheckInBody> = {}, heardMs = sentSec * 1000): Heard<CheckInBody> {
   return { src, msgId: ++ids, at: heardMs, hops: 1, encrypted: false, body: { kind: 'checkin', ts: sentSec, nick: `n${src}`, status, note: '', ...extra } };
 }
-function reply(to: Heard<CheckInBody>, what: ReplyKind, sentSec: number, by = 9, heardMs = sentSec * 1000): Heard<ReplyBody> {
-  return { src: by, msgId: ++ids, at: heardMs, hops: 0, encrypted: false, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId } };
+function reply(to: Heard<CheckInBody>, what: ReplyKind, sentSec: number, by = 9, heardMs = sentSec * 1000, mistake?: boolean): Heard<ReplyBody> {
+  return { src: by, msgId: ++ids, at: heardMs, hops: 0, encrypted: false, body: { kind: 'reply', ts: sentSec, nick: `n${by}`, what, src: to.src, msgId: to.msgId, ...(mistake && { mistake }) } };
 }
 const names = (es: RosterEntry[]) => es.map((e) => e.latest.body.about ?? e.latest.body.nick);
 
@@ -73,6 +73,23 @@ describe('safety roster', () => {
     expect([e.open, e.resolved]).toEqual([false, true]);
   });
 
+  it('tells a request its sender took back from one that was resolved: cancelled only when the sender\'s own mistake flag closed it', () => {
+    const ask = checkIn(1, 'help', T);
+    const [taken] = roster([ask], [reply(ask, 'resolved', T + 30, 1, undefined, true)], T + 60);
+    expect([taken.open, taken.resolved, taken.cancelled]).toEqual([false, true, true]);
+    // Help that came is resolved, and a flag from anyone but the sender is not a take-back.
+    const [helped] = roster([ask], [reply(ask, 'resolved', T + 30, 9)], T + 60);
+    expect([helped.resolved, helped.cancelled]).toEqual([true, false]);
+    const [odd] = roster([ask], [reply(ask, 'resolved', T + 30, 9, undefined, true)], T + 60);
+    expect(odd.cancelled).toBe(false);
+    // Taken back, then asked again and then helped: the last word is not the take-back.
+    const again = checkIn(1, 'help', T + 600);
+    const [later] = roster([ask, again], [reply(ask, 'resolved', T + 30, 1, undefined, true), reply(again, 'resolved', T + 700, 9)], T + 800);
+    expect([later.resolved, later.cancelled]).toEqual([true, false]);
+    // A request never closed is not cancelled.
+    expect(roster([ask], [], T + 60)[0].cancelled).toBe(false);
+  });
+
   it('counts a Resolved whatever the clock of the phone that sent it says', () => {
     // Ben's phone runs two minutes behind Ana's: his answer is dated before her ask.
     const ask = checkIn(1, 'help', T);
@@ -119,6 +136,39 @@ describe('safety roster', () => {
       [false, false, false, false],
       [false, false, false, false],
     ]);
+  });
+
+  it('counts the open requests that need this device, not its own', () => {
+    const ME = 1;
+    const own = checkIn(ME, 'help', T);
+    const other = checkIn(2, 'medical', T + 10);
+    const forSomeone = checkIn(ME, 'help', T + 20, { about: 'Maria' });
+    const answered = checkIn(3, 'help', T + 30);
+    const safe = checkIn(4, 'safe', T + 40);
+    const entries = roster([own, other, forSomeone, answered, safe], [reply(answered, 'coming', T + 50)], T + 60);
+    expect(entries.filter((e) => e.open)).toHaveLength(4);
+    expect(names(needingYou(entries, ME)).sort()).toEqual(['Maria', 'n2', 'n3']);
+    expect(needingYou(roster([own], [], T + 60), ME)).toEqual([]);
+  });
+
+  it('stops counting a request once this device has said "On my way", but not when someone else has', () => {
+    const ME = 1;
+    const ask = checkIn(2, 'help', T);
+    const other = checkIn(3, 'help', T + 10);
+    const mine = reply(ask, 'coming', T + 20, ME);
+    const theirs = reply(other, 'coming', T + 30, 4);
+    const entries = roster([ask, other], [mine, theirs], T + 60);
+    expect(names(needingYou(entries, ME))).toEqual(['n3']);
+    expect(needingYou(roster([ask], [], T + 60), ME)).toHaveLength(1);
+  });
+
+  it('counts a request again when its sender asks anew after this device answered an earlier ask', () => {
+    const ME = 1;
+    const first = checkIn(2, 'help', T);
+    const coming = reply(first, 'coming', T + 20, ME);
+    const resolved = reply(first, 'resolved', T + 30, 2);
+    const again = checkIn(2, 'help', T + 600);
+    expect(needingYou(roster([first, again], [coming, resolved], T + 700), ME)).toHaveLength(1);
   });
 
   it('keeps "On my way" when the person sends an update, and starts afresh after they were safe', () => {

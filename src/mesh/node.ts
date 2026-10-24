@@ -47,6 +47,10 @@ const DEFAULT_CONFIG: MeshConfig = {
   echoTimeoutMs: 20_000,
 };
 
+/** Longest an own broadcast waits before its first resend: the echo timeout, its random extra, and a frame's airtime. */
+const ECHO_JITTER_MS = 8000;
+export const FIRST_RESEND_MS = DEFAULT_CONFIG.echoTimeoutMs + ECHO_JITTER_MS + 2000;
+
 export interface StoredPacket {
   bytes: Uint8Array;
   firstHeard: number;
@@ -69,8 +73,10 @@ interface MeshEvents {
   transmit(bytes: Uint8Array, reason: 'origin' | 'relay' | 'carry' | 'answer' | 'ack' | 'retry'): void;
   /** A packet for this node (or everyone) arrived for the first time. */
   deliver(p: Packet): void;
-  /** A direct message was acknowledged, or gave up after maxAttempts. */
-  delivery?(msgId: number, ok: boolean): void;
+  /** A direct message was acknowledged, or gave up after maxAttempts. `from`: the device whose receipt it was. */
+  delivery?(msgId: number, ok: boolean, from?: number): void;
+  /** Another device was heard repeating something this node said. */
+  passedOn?(msgId: number): void;
   /** True while another node is on air; due relays wait so they can overhear it first. */
   channelBusy?(): boolean;
   /** Whether this node can open a packet; only readable direct messages are acknowledged. */
@@ -225,6 +231,7 @@ export class MeshNode {
     // Someone repeated our broadcast: it made it out.
     if (p.src === this.id) {
       this.echoes.delete(p.msgId);
+      if (p.type !== PacketType.Hello && p.type !== PacketType.Ack) this.events.passedOn?.(p.msgId);
       return p;
     }
     const now = this.clock.now();
@@ -285,12 +292,18 @@ export class MeshNode {
   private onAck(p: Packet) {
     const body = decodeBody(PacketType.Ack, p.body);
     if (body?.kind !== 'ack') return;
-    // The message reached its destination: anyone still holding a relay of it can stand down.
-    this.relays = this.relays.filter((r) => r.msgId !== body.msgId);
+    // A direct message reached its destination: anyone still holding a relay of it can stand down.
+    // A broadcast was acknowledged by one device only: everyone else's copies still have to go out.
+    this.relays = this.relays.filter((r) => r.msgId !== body.msgId || decodePacket(r.bytes)?.dst === BROADCAST);
     if (p.dst !== this.id) return;
     // Also after we gave up, or after a reload forgot the retry timer: it arrived all the same.
     this.acks.delete(body.msgId);
-    this.events.delivery?.(body.msgId, true);
+    this.events.delivery?.(body.msgId, true, p.src);
+  }
+
+  /** Tells the sender of a broadcast that this device has it, as a receipt does for a direct message. */
+  acknowledge(p: Packet) {
+    this.sendAck(p);
   }
 
   private onHello(p: Packet, newcomer: boolean) {
@@ -442,7 +455,7 @@ export class MeshNode {
   }
 
   private echoTimeout() {
-    return this.config.echoTimeoutMs + this.clock.random() * 8000;
+    return this.config.echoTimeoutMs + this.clock.random() * ECHO_JITTER_MS;
   }
 
   private ackTimeout(p: Packet) {

@@ -34,7 +34,7 @@ test('opens with no network once the service worker has cached it', async ({ pag
 
   await page.reload();
   // Either the cache has the whole app or it does not: no need to wait long.
-  await expect(page.getByRole('heading', { name: /^Messages that travel through the air/ })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('heading', { name: /^Messages that travel by sound/ })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: 'Start listening' })).toBeEnabled();
   await proof(page, 'offline');
 

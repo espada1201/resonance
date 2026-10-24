@@ -87,7 +87,7 @@ input[type='radio'] {
   margin: 0;
 }
 ::placeholder {
-  color: color-mix(in srgb, var(--muted) 80%, transparent);
+  color: var(--muted);
 }
 .chip {
   display: inline-flex;

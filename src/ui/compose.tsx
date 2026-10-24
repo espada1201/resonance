@@ -3,9 +3,9 @@ import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
 import { MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
 import type { Draft, Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, checkInFix, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NO_FIX_NOTE, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { who } from './feed';
-import { SKILL_TEXT, bytes, errorText, fitInput, seconds } from './format';
+import { SKILL_TEXT, bytes, errorText, fitInput, joinParts, seconds } from './format';
 import { rovingKeys } from './hooks';
 import { FileIcon, Lock, Send } from './icons';
 import { NoticeFields, type NoticeDraft, newNotice } from './notices';
@@ -51,7 +51,22 @@ interface ContactDraft {
   skills: Skill[];
 }
 
-export function Compose({ station, dst, setDst }: { station: Station; dst: number; setDst: (d: number) => void }) {
+/** Where the keyboard goes in the composer: the message box, else the choice of what to send. */
+export function focusCompose() {
+  const field = document.querySelector<HTMLElement>('#compose textarea') ?? document.querySelector<HTMLElement>('#compose [role="radio"][aria-checked="true"]');
+  field?.focus();
+}
+
+interface ComposeProps {
+  station: Station;
+  dst: number;
+  setDst: (d: number) => void;
+  /** Someone asked to write to `dst` (Reply, Message): open the message box, put the keyboard in it, then call `wrote`. */
+  writing: boolean;
+  wrote: () => void;
+}
+
+export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) {
   const [mode, setMode] = useState<Mode>('text');
   const [text, setText] = useState('');
   const [checkin, setCheckin] = useState<CheckInDraft>(() => newDraft(station.settings));
@@ -60,6 +75,13 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   const [picked, setPicked] = useState<Picked | null>(null);
   const [error, setError] = useState('');
   const [working, setWorking] = useState(false);
+  const [said, setSaid] = useState('');
+  useEffect(() => {
+    if (!writing) return;
+    setMode('text');
+    requestAnimationFrame(focusCompose);
+    wrote();
+  }, [writing]);
   // A picked photo's preview lives until another is picked or it is sent.
   useEffect(() => () => void (picked?.preview && URL.revokeObjectURL(picked.preview)), [picked?.preview]);
 
@@ -108,15 +130,22 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
     if (problem) return setError(problem);
     setWorking(true);
     setError('');
+    setSaid('');
     try {
       const target = dst === BROADCAST ? undefined : dst;
+      let unnamedLine = '';
+      let noFixLine = '';
       if (mode === 'text') {
         await station.say({ kind: 'text', text: text.trim() }, target);
         setText('');
       } else if (mode === 'checkin') {
-        const geo = checkin.withGeo ? await checkInFix(station, setError) : undefined;
-        await station.say({ kind: 'checkin', ...draftFields(checkin, geo) });
-        setCheckin(newDraft(station.settings));
+        const geo = checkin.withGeo ? await checkInFix(station) : undefined;
+        if (checkin.withGeo && !geo) noFixLine = NO_FIX_NOTE;
+        const fields = draftFields(checkin, geo);
+        unnamedLine = nameless(station, fields.about);
+        await station.say({ kind: 'checkin', ...fields });
+        // The status stays as sent: after a call for help, the form must not quietly say Safe.
+        setCheckin((d) => newDraft(station.settings, d.status));
       } else if (mode === 'notice') {
         await station.say({ kind: 'notice', ...notice, place: notice.place.trim(), text: notice.text.trim() });
         setNotice(newNotice());
@@ -128,10 +157,13 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
         await station.sendFile(picked.name, picked.mime, picked.data);
         setPicked(null);
       }
+      setSaid(joinParts(' ', dst === BROADCAST || toEveryone ? 'Sent to everyone near you.' : `Sent to ${who(station, dst)}.`, noFixLine, unnamedLine));
     } catch (err) {
       setError(errorText(err));
     } finally {
       setWorking(false);
+      // Send turned itself off while sending, which drops the keyboard on the page: bring it back.
+      if (document.activeElement === document.body || !document.activeElement) focusCompose();
     }
   }
 
@@ -140,7 +172,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
   const toggleSkill = (s: Skill) => setContact((c) => ({ ...c, skills: c.skills.includes(s) ? c.skills.filter((x) => x !== s) : [...c.skills, s] }));
 
   return (
-    <form class="compose" onSubmit={submit} aria-label="Compose">
+    <form class="compose" id="compose" onSubmit={submit} aria-label="Compose">
       <div class="seg" role="radiogroup" aria-label="What to send" onKeyDown={rovingKeys(MODE_IDS, mode, setMode)}>
         {MODES.map(([m, label]) => (
           <button key={m} type="button" role="radio" aria-checked={mode === m} tabIndex={mode === m ? 0 : -1} onClick={() => setMode(m)}>
@@ -155,7 +187,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           <textarea
             rows={2}
             value={text}
-            placeholder={dst === BROADCAST ? 'Say something to everyone in earshot…' : `Say something to ${who(station, dst)}…`}
+            placeholder={dst === BROADCAST ? 'Say something to everyone near you…' : `Say something to ${who(station, dst)}…`}
             onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -169,7 +201,6 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
 
       {mode === 'checkin' && (
         <>
-          <NameField station={station} />
           <CheckInFields draft={checkin} set={(p) => setCheckin((d) => ({ ...d, ...p }))} room={room} />
         </>
       )}
@@ -227,6 +258,7 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
             {dst !== BROADCAST && !station.mesh.neighbors.has(dst) && <option value={String(dst)}>{who(station, dst)}</option>}
           </select>
         </label>
+        {!toEveryone && neighbors.length === 0 && <span class="muted small">People appear here once their phone is heard.</span>}
         <span class="budget small">
           {(mode === 'text' || mode === 'contact') && <span class={room < 0 ? 'over' : ''}>{room} bytes left · </span>}
           {eta > 0 && (mode === 'file' ? <>about {seconds(eta)} to send</> : <>about {seconds(eta)} on air</>)}
@@ -251,6 +283,9 @@ export function Compose({ station, dst, setDst }: { station: Station; dst: numbe
           {error}
         </p>
       )}
+      <p class="sr-only" aria-live="polite">
+        {said}
+      </p>
     </form>
   );
 }

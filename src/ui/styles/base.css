@@ -78,6 +78,18 @@ label.button:has(input:focus-visible) {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
 }
+.skip {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 10;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.skip:focus {
+  top: 8px;
+}
 .sr-only {
   position: absolute;
   width: 1px;

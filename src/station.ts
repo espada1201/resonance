@@ -4,7 +4,7 @@ import type { AirTransport } from './audio/transport';
 import { type FeedItem, Journal, type Meta } from './journal';
 import { type Circle, SEAL_OVERHEAD, deriveCircle, open, seal } from './mesh/crypto';
 import { FILE_REQUEST_TTL, type FileRequest, FileTransfer, chunkFile } from './mesh/files';
-import { MeshNode, isLasting, storeKey } from './mesh/node';
+import { FIRST_RESEND_MS, MeshNode, isLasting, storeKey } from './mesh/node';
 import { BROADCAST, HEADER_LEN, PACKET_LABEL, type Packet, PacketType, decodePacket, nodeHex, peekType, randomNodeId, randomU32 } from './mesh/packet';
 import { type Body, type ContentBody, type Geo, type ReplyKind, decodeBody, encodeBody, isContent, nowSec, typeOf } from './mesh/payloads';
 import { TxQueue } from './mesh/radio';
@@ -59,6 +59,8 @@ const LISTEN_AFTER_SEND_MS = 400;
 const HELLO_MS: Record<Role, number> = { phone: 5 * 60_000, beacon: 60_000 };
 /** Hellos are at least this far apart; a neighbour who just turned up gets one back within seconds. */
 const GREET_GAP_MS = 30_000;
+/** A receipt for an answer to our request is said again after this long, and up to as long again. */
+const ACK_AGAIN_MS = 8_000;
 
 export class Station {
   readonly id: number;
@@ -88,6 +90,8 @@ export class Station {
   private lastHello = 0;
   private greeting: ReturnType<typeof setTimeout> | null = null;
   private frameInFlight: DecodedFrame | null = null;
+  /** Whether the frame in flight was heard just now, rather than found in a recording. */
+  private frameLive = false;
   private readonly saved: SavedState;
 
   constructor(
@@ -130,8 +134,14 @@ export class Station {
     this.mesh = new MeshNode(this.id, clock, {
       transmit: (bytes, reason) => this.radio.enqueue(bytes, reason === 'ack'),
       deliver: (p) => void this.onDeliver(p),
-      delivery: (msgId, ok) => {
-        this.journal.delivered(msgId, ok);
+      delivery: (msgId, ok, from) => {
+        this.journal.delivered(msgId, ok, from);
+        this.changed();
+      },
+      passedOn: (msgId) => {
+        // A recording can hold our own sound: only a copy heard on the air is another phone's.
+        if (!this.frameLive) return;
+        this.journal.passedOn(msgId);
         this.changed();
       },
       channelBusy: () => this.busy,
@@ -296,6 +306,7 @@ export class Station {
       clockRatio: f.clockRatio,
     });
     this.frameInFlight = f;
+    this.frameLive = live;
     this.mesh.receive(f.payload);
     this.frameInFlight = null;
     this.changed();
@@ -362,9 +373,10 @@ export class Station {
     if (body.kind === 'checkin' && !body.about) this.update({ place: body.place ?? '', outside: body.outside ?? '' });
   }
 
-  /** Answers a check-in, sealed exactly when it was: a circle's request is answered inside the circle, an open one in the open. */
-  async reply(to: Heard<CheckInBody>, what: ReplyKind) {
-    await this.transmit({ kind: 'reply', ts: nowSec(), nick: this.settings.nick, what, src: to.src, msgId: to.msgId }, { sealed: to.encrypted });
+  /** Answers a check-in, sealed exactly when it was (`mistake`: the sender takes its own request back): a circle's request is answered inside the circle, an open one in the open. */
+  async reply(to: Heard<CheckInBody>, what: ReplyKind, opts: { mistake?: boolean } = {}) {
+    const body = { kind: 'reply' as const, ts: nowSec(), nick: this.settings.nick, what, src: to.src, msgId: to.msgId };
+    await this.transmit(opts.mistake ? { ...body, mistake: true } : body, { sealed: to.encrypted });
   }
 
   /** "Send again" for a direct message with no receipt: a fresh packet, sealed as the first was, in place of the old item. */
@@ -379,6 +391,11 @@ export class Station {
   /** Whether something we said is still to go on air: it waits for clear air, or for this device's audio to come back. */
   queued(said: { src: number; msgId: number }) {
     return this.mesh.store.get(storeKey(said))?.queued ?? false;
+  }
+
+  /** Whether something we said has been out long enough for its first resend to have come and gone. */
+  firstResendPassed(said: { at: number }) {
+    return Date.now() - said.at > FIRST_RESEND_MS;
   }
 
   /** Bytes left in the packet (below 0: over by that many) and seconds on air, for the draft as it would go now. */
@@ -453,6 +470,7 @@ export class Station {
 
   private async onDeliver(p: Packet) {
     const frame = this.frameInFlight;
+    const live = this.frameLive;
     const meta = met(p);
     let plain: Uint8Array | null = p.body;
     if (p.encrypted) plain = this.circle ? await open(this.circle, p) : null;
@@ -469,8 +487,16 @@ export class Station {
       void this.ranger.onPacket(p, body, frame);
     } else {
       this.record(meta, p, body, frame?.airtimeSec);
+      // An answer to our own request goes to everyone, so the one who gave it cannot tell it reached us: say so.
+      if (body.kind === 'reply' && body.src === this.id && p.src !== this.id && live) this.acknowledgeReply(p);
     }
     this.changed();
+  }
+
+  /** Says we have the answer, and says it once more a little later: the first may be lost in the noise, and the one who answered cannot ask again. */
+  private acknowledgeReply(p: Packet) {
+    this.mesh.acknowledge(p);
+    setTimeout(() => this.mesh.acknowledge(p), ACK_AGAIN_MS * (1 + Math.random()));
   }
 
   private record(meta: Meta, p: Packet, body: Body, airtimeSec = 0) {

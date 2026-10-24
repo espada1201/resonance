@@ -15,7 +15,7 @@ The real capture path: the microphone feeds an audio worklet, the decoder worker
 
 Preconditions: Chromium's fake capture device plays `e2e/.out/fake-mic.wav`, which the suite's global setup renders before any test.
 
-- **Each mode.** Run `verify.sh drive e2e/microphone.spec.ts 'decodes the'`. Three tests pass, one per mode, each showing the `fake mic` message with `heard directly`.
+- **Each mode.** Run `verify.sh drive e2e/microphone.spec.ts 'decodes the'`. Three tests pass, one per mode, each showing the `fake mic` message with `heard from their own phone`.
 - **One tab.** Run `verify.sh drive e2e/microphone.spec.ts 'a second tab'`. The second page shows the alert naming the other tab and stays on the start screen; after the first page closes, `Start listening` opens its feed.
 
 ## Gotchas

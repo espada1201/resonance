@@ -19,8 +19,9 @@ export function useTicker(ms: number) {
 const STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
 
 /**
- * Keyboard for a tablist or radiogroup: arrows, Home and End move the choice and the focus
- * (ARIA "roving tabindex": only the chosen option sits in the Tab order).
+ * Keyboard for a tablist, radiogroup or toolbar of toggles: arrows, Home and End move the choice
+ * (for a toolbar, only which toggle has focus) and the focus. ARIA "roving tabindex": only one
+ * option sits in the Tab order.
  */
 export function rovingKeys<T>(options: T[], current: T, choose: (o: T) => void) {
   return (e: KeyboardEvent) => {
@@ -30,8 +31,15 @@ export function rovingKeys<T>(options: T[], current: T, choose: (o: T) => void) 
     if (next < 0) return;
     e.preventDefault();
     choose(options[next]);
-    (e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"], [role="radio"]')[next]?.focus();
+    (e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"], [role="radio"], [aria-pressed]')[next]?.focus();
   };
+}
+
+/** A button about to go: the keyboard moves on to the next button beside it, not back to the top of the page. */
+export function handFocusOn(button: HTMLElement) {
+  let next = button.nextElementSibling;
+  while (next && !(next instanceof HTMLButtonElement)) next = next.nextElementSibling;
+  (next as HTMLElement | null)?.focus();
 }
 
 export function useMedia(query: string) {

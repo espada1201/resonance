@@ -1,7 +1,7 @@
 import { nodeHex } from '../mesh/packet';
 import type { Station } from '../station';
 import { who } from './feed';
-import { ago } from './format';
+import { ago, joinParts } from './format';
 import { FindPanel } from './find';
 import { Compass, Relay, Send } from './icons';
 import { linkWords } from './links';
@@ -11,12 +11,12 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
   const ns = [...station.mesh.neighbors.values()].sort((a, b) => b.lastHeard - a.lastHeard);
   const s = station.mesh.stats;
   const stats: Array<[string, number, string]> = [
-    ['Heard', s.heard, 'packets decoded off the air'],
+    ['Heard', s.heard, 'messages picked up by the microphone'],
     ['Delivered', s.delivered, 'new messages for you or everyone'],
-    ['Relayed', s.relayed, 'packets this device repeated for others'],
-    ['Held back', s.suppressed, 'relays skipped because enough neighbours already repeated them'],
-    ['Carried', s.carried, 'stored packets sent again for newcomers who lacked them'],
-    ['Stored', station.mesh.store.size, 'packets kept to pass on to people who arrive later'],
+    ['Passed on', s.relayed, 'messages this device repeated for others'],
+    ['Held back', s.suppressed, 'not repeated, because enough neighbours already had'],
+    ['Sent again', s.carried, 'saved messages played again for newcomers who had missed them'],
+    ['Saved', station.mesh.store.size, 'messages kept to pass on to people who arrive later'],
   ];
   return (
     <div class="people-tab">
@@ -47,7 +47,7 @@ export function People({ station, onMessage }: { station: Station; onMessage: (i
                   </span>
                 )}
               </span>
-              <span class="muted small">{[`#${nodeHex(n.id)}`, ago(n.lastHeard), linkWords(station, n.id)].filter(Boolean).join(' · ')}</span>
+              <span class="muted small">{joinParts(' · ', `#${nodeHex(n.id)}`, ago(n.lastHeard), linkWords(station, n.id))}</span>
               <span class="node-actions">
                 <button
                   type="button"

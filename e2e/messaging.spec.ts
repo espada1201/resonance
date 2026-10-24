@@ -12,11 +12,52 @@ test('two stations trade messages over the air', async ({ context }) => {
   await joinAir(b);
 
   await sendText(a, 'Water and blankets at the north stairwell');
-  await expect(feedItem(b, 'Water and blankets at the north stairwell')).toContainText('heard directly');
+  await expect(feedItem(b, 'Water and blankets at the north stairwell')).toContainText('heard from their own phone');
 
   await sendText(b, 'On my way, bringing a torch');
-  await expect(feedItem(a, 'On my way, bringing a torch')).toContainText('heard directly');
+  await expect(feedItem(a, 'On my way, bringing a torch')).toContainText('heard from their own phone');
   await proof(a, 'messages');
+});
+
+test('a message to everyone says once another phone has passed it on, and the keyboard stays in the box', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b);
+
+  await a.getByRole('link', { name: 'Skip to the message box' }).focus();
+  await a.keyboard.press('Enter');
+  const box = a.getByPlaceholder('Say something');
+  await expect(box).toBeFocused();
+  await a.keyboard.type('Water and blankets at the north stairwell');
+  await a.keyboard.press('Tab');
+  await a.keyboard.press('Tab');
+  await expect(a.getByRole('button', { name: 'Send', exact: true })).toBeFocused();
+  await a.keyboard.press('Enter');
+  await expect(box).toBeEmpty();
+  await expect(box).toBeFocused();
+  await expect(a.locator('#compose [aria-live="polite"]')).toHaveText('Sent to everyone near you.');
+  await expect(feedItem(a, 'Water and blankets')).toContainText('heard by a phone nearby');
+  await proof(a, 'passed-on');
+});
+
+test('Reply on a message addresses the answer to whoever wrote it', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  await sendText(b, 'Anyone on floor 3?');
+  await feedItem(a, 'Anyone on floor 3?').getByRole('button', { name: 'Reply to Ben' }).click();
+  await expect(a.getByPlaceholder('Say something to Ben')).toBeFocused();
+  await expect(a.getByRole('combobox', { name: 'To' })).toHaveValue(String(parseInt(await nodeId(b), 16)));
+  await a.keyboard.type('Yes, flat 3C');
+  await a.keyboard.press('Enter');
+  await expect(feedItem(b, 'Yes, flat 3C')).toContainText('direct to you');
+  // Coming back to the feed later leaves the keyboard where it was: the box is not opened again.
+  await openTab(a, 'Safety');
+  await openTab(a, 'Feed');
+  await expect(a.getByRole('tab', { name: 'Feed' })).toBeFocused();
 });
 
 test('a direct message shows only to its addressee and comes back delivered', async ({ context }) => {
@@ -28,7 +69,7 @@ test('a direct message shows only to its addressee and comes back delivered', as
   await a.getByRole('button', { name: `Message #${await nodeId(b)} directly` }).click();
   await sendText(a, text);
   // Its frame takes a few seconds to play.
-  await expect(feedItem(a, text)).toContainText('waiting to go on air…');
+  await expect(feedItem(a, text)).toContainText('waiting to send…');
   await expect(feedItem(b, text)).toContainText('direct to you');
   await expect(feedItem(a, text)).toContainText('delivered');
   await expect(c.getByText(text)).toHaveCount(0);

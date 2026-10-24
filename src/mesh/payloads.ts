@@ -32,8 +32,11 @@ export type Body =
    */
   | { kind: 'checkin'; ts: number; nick: string; status: Status; geo?: Geo; note: string; needs?: Need[]; place?: string; about?: string; outside?: string }
   | { kind: 'contact'; ts: number; name: string; phone: string; note: string; skills?: Skill[] }
-  /** Refers to the check-in `src`:`msgId`. */
-  | { kind: 'reply'; ts: number; nick: string; what: ReplyKind; src: number; msgId: number }
+  /**
+   * Refers to the check-in `src`:`msgId`. `mistake`: a "resolved" from the sender who took the request back, not help that came.
+   * It is one byte after everything an older phone reads, which ignores it and shows the request resolved.
+   */
+  | { kind: 'reply'; ts: number; nick: string; what: ReplyKind; src: number; msgId: number; mistake?: boolean }
   /** Pinned news (water, charging, a blocked road) that stays up for `hours`. */
   | { kind: 'notice'; ts: number; nick: string; topic: Topic; hours: number; place: string; text: string }
   | { kind: 'file'; fileId: number; index: number; total: number; meta?: FileMeta; data: Uint8Array }
@@ -138,6 +141,10 @@ class Reader {
   rest() {
     return this.raw(this.b.length - this.o);
   }
+  /** Whether anything is left to read. */
+  more() {
+    return this.o < this.b.length;
+  }
   text() {
     return new TextDecoder().decode(this.rest());
   }
@@ -185,7 +192,8 @@ export function encodeBody(body: Body): Uint8Array {
     case 'contact':
       return w.u32(body.ts).str(body.name, MAX_CONTACT_NAME).str(body.phone, MAX_CONTACT_PHONE).u8(toBits(SKILLS, body.skills)).text(body.note).done();
     case 'reply':
-      return w.u32(body.ts).u8(REPLIES.indexOf(body.what)).u24(body.src).u32(body.msgId).str(body.nick, MAX_NICK).done();
+      w.u32(body.ts).u8(REPLIES.indexOf(body.what)).u24(body.src).u32(body.msgId).str(body.nick, MAX_NICK);
+      return (body.mistake ? w.u8(1) : w).done();
     case 'notice':
       return w.u32(body.ts).u8(TOPICS.indexOf(body.topic)).u8(body.hours).str(body.nick, MAX_NICK).str(body.place, MAX_PLACE).text(body.text).done();
     case 'file':
@@ -234,7 +242,8 @@ export function decodeBody(type: PacketType, bytes: Uint8Array): Body | null {
         return { kind: 'contact', ts: r.u32(), name: r.str(MAX_CONTACT_NAME), phone: r.str(MAX_CONTACT_PHONE), skills: fromBits(SKILLS, r.u8()), note: r.text() };
       case PacketType.Reply: {
         const reply = { kind: 'reply' as const, ts: r.u32(), what: REPLIES[r.u8()], src: r.u24(), msgId: r.u32(), nick: r.str(MAX_NICK) };
-        return reply.what ? reply : null;
+        if (!reply.what) return null;
+        return r.more() && r.u8() === 1 ? { ...reply, mistake: true } : reply;
       }
       case PacketType.Notice:
         return { kind: 'notice', ts: r.u32(), topic: TOPICS[r.u8()] ?? 'info', hours: r.u8(), nick: r.str(MAX_NICK), place: r.str(MAX_PLACE), text: r.text() };
