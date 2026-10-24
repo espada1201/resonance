@@ -2,13 +2,13 @@ import { useEffect, useState } from 'preact/hooks';
 import { MAX_NICK } from '../mesh/payloads';
 import { PROFILES, type ProfileId, rawBitrate } from '../modem/profiles';
 import type { Station } from '../station';
-import { fitInput } from './format';
+import { PROFILE_NAME, fitInput } from './format';
 import { Compass, Lock, Relay, Upload } from './icons';
 
 const PROFILE_TEXT: Record<ProfileId, string> = {
-  audible: 'Chirps you can hear. They carry across a room or down a corridor, and through walls with the volume up.',
+  audible: 'Chirps you can hear. They carry across a room or down a corridor, and through walls with the volume up. Longest range, and slow.',
   fast: 'A short burst of hiss for devices close together in a quiet room. A full frame takes 1.2 s instead of 13 s. In our tests, a 4 KB photo crossed a room in about 3 minutes instead of 14.',
-  ultrasonic: 'Near the top of human hearing: quiet for most adults, short range, best for devices on the same table. Some speakers cannot play it.',
+  ultrasonic: 'A very high pitch, at the edge of what people hear: quiet for most adults, short range, best for devices on the same table. Some speakers cannot play it.',
 };
 
 /** Rough, but the threat is real: anyone who records a sealed message can try guesses offline, at leisure. */
@@ -48,12 +48,12 @@ export function Settings({ station }: { station: Station }) {
 
   const importFile = async (file: File | undefined) => {
     if (!file) return;
-    setImportMsg('Decoding…');
+    setImportMsg('Reading…');
     try {
       const n = await station.importRecording(await file.arrayBuffer());
-      setImportMsg(n ? `Found ${n} packet${n > 1 ? 's' : ''}. New ones are in your feed.` : 'No Resonance packets found in that recording.');
+      setImportMsg(n ? `Found ${n} message${n > 1 ? 's' : ''}. New ones are in your feed.` : 'No Resonance messages found in that recording.');
     } catch {
-      setImportMsg('This browser could not decode that file as audio.');
+      setImportMsg('This browser could not read that file as audio.');
     }
   };
 
@@ -65,14 +65,14 @@ export function Settings({ station }: { station: Station }) {
       </label>
 
       <fieldset class="field">
-        <legend class="label">Transmit on</legend>
+        <legend class="label">Send using</legend>
         {(Object.keys(PROFILES) as ProfileId[]).map((id) => (
           <label key={id} class="radio-card">
             <input type="radio" name="profile" checked={s.profile === id} onChange={() => station.update({ profile: id })} />
             <span>
-              <strong>{PROFILES[id].label}</strong>
+              <strong>{PROFILE_NAME[id]}</strong>
               <span class="muted small">
-                {PROFILE_TEXT[id]} Raw rate {Math.round(rawBitrate(PROFILES[id]))} bit/s before error correction.
+                {PROFILE_TEXT[id]} Top speed about {Math.round(rawBitrate(PROFILES[id]))} bits a second.
               </span>
               {!station.playable(id) && (
                 <span class="hint-warn small">
@@ -83,11 +83,11 @@ export function Settings({ station }: { station: Station }) {
             </span>
           </label>
         ))}
-        <p class="muted small">This device always listens on all three.</p>
+        <p class="muted small">This device always listens for all three.</p>
       </fieldset>
 
       <label class="field">
-        <span class="label">Transmit volume · {Math.round(s.volume * 100)}%</span>
+        <span class="label">Volume when sending · {Math.round(s.volume * 100)}%</span>
         <input type="range" min={0.1} max={1} step={0.05} value={s.volume} onInput={(e) => station.update({ volume: Number((e.target as HTMLInputElement).value) })} />
       </label>
 
@@ -141,13 +141,13 @@ export function Settings({ station }: { station: Station }) {
       </form>
 
       <div class="field">
-        <span class="label">Decode a recording</span>
+        <span class="label">Read a recording</span>
         <label class="button ghost">
           <Upload size={16} /> Open an audio file
           <input type="file" accept="audio/*,.wav,.m4a,.mp3,.ogg,.webm" class="sr-only" onChange={(e) => void importFile((e.target as HTMLInputElement).files?.[0])} />
         </label>
         <span class="muted small">
-          Choose a voice memo or any full-range recording that caught Resonance chirps. Phone calls, voicemail and walkie-talkies cut the tones it needs. {importMsg}
+          Choose a voice memo or any recording that caught Resonance chirps. Phone calls, voicemail and walkie-talkies cut the sound it needs. {importMsg}
         </span>
       </div>
 
@@ -158,7 +158,7 @@ export function Settings({ station }: { station: Station }) {
         </a>
         <span class="muted small">
           Beacon mode is a full-screen relay. It keeps listening, repeats everything, keeps check-ins and notices for three days, and hands what it
-          holds to every phone that comes within earshot.
+          holds to every phone that comes near.
         </span>
       </div>
 

@@ -430,15 +430,87 @@ describe('what people say', () => {
     await s.say({ kind: 'text', text: 'Water at the north stairwell' });
     await s.say({ kind: 'text', text: 'Are you hurt?' }, CAL);
     const [broadcast] = s.journal.feed.filter((i) => i.dst === BROADCAST);
-    expect(broadcast.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(false);
     // A recording of the air can hold our own sound: that is no other phone.
     s.onFrame(relayed(out[0].bytes, 1), false);
-    expect(broadcast.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(false);
     s.onFrame(relayed(out[1].bytes, 1));
-    expect(broadcast.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(false);
     s.onFrame(relayed(out[0].bytes, 1));
-    expect(broadcast.passedOn).toBe(true);
-    expect(s.journal.feed.find((i) => i.dst === CAL)!.passedOn).toBeFalsy();
+    expect(s.journal.wasPassedOn(broadcast.msgId)).toBe(true);
+    expect(s.journal.wasPassedOn(s.journal.feed.find((i) => i.dst === CAL)!.msgId)).toBe(false);
+  });
+
+  it('marks our "On my way" once another device is heard passing it on, and only then', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    const ask = { src: BEN, msgId: 7, at: Date.now(), hops: 0, encrypted: false, body: { kind: 'checkin' as const, ts: nowSec(), nick: 'Ben', status: 'help' as const, note: '' } };
+    s.journal.addToLog({ src: ask.src, msgId: ask.msgId, at: ask.at, hops: 0, encrypted: false, dst: BROADCAST }, ask.body);
+    await s.reply(ask, 'coming');
+    const sent = () => s.journal.repliesTo(BEN, 7).find((r) => r.src === s.id)!;
+    expect(s.journal.wasPassedOn(sent().msgId)).toBe(false);
+    // A recording of the air can hold our own sound: that is no other phone.
+    s.onFrame(relayed(out[0].bytes, 1), false);
+    expect(s.journal.wasPassedOn(sent().msgId)).toBe(false);
+    s.onFrame(relayed(out[0].bytes, 1));
+    expect(s.journal.wasPassedOn(sent().msgId)).toBe(true);
+  });
+
+  it('tells the one who answers our request that we have the answer, once, and only for an answer heard on the air', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    await s.say({ kind: 'checkin', status: 'help', note: '' });
+    const ask = s.journal.roster()[0].latest;
+    const answer = (msgId: number, src = s.id, to = ask.msgId) => heard(BEN, msgId, { kind: 'reply', ts: nowSec(), nick: 'Ben', what: 'coming', src, msgId: to }, { hops: 1 });
+    const acks = () => out.filter((o) => o.p.type === PacketType.Ack).map((o) => [o.p.dst, decodeBody(o.p.type, o.p.body)]);
+    // A recording is no phone that answered; an answer to someone else's request is not ours to confirm.
+    s.onFrame(answer(500), false);
+    s.onFrame(answer(501, CAL, 9));
+    expect(acks()).toEqual([]);
+    s.onFrame(answer(502));
+    s.onFrame(answer(502));
+    const receipt = [BEN, { kind: 'ack', msgId: 502, attempt: 0 }];
+    expect(acks()).toEqual([receipt]);
+    // Sound is lossy and the one who answered cannot tell: the receipt goes once more, a little later, and not again.
+    vi.advanceTimersByTime(7_000);
+    expect(acks()).toEqual([receipt]);
+    vi.advanceTimersByTime(10_000);
+    expect(acks()).toEqual([receipt, receipt]);
+    vi.advanceTimersByTime(60_000);
+    expect(acks()).toEqual([receipt, receipt]);
+  });
+
+  it('marks our "On my way" as in the hands of the one who asked once that phone says so, and not for anyone else\'s receipt', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    const ask = { src: BEN, msgId: 7, at: Date.now(), hops: 0, encrypted: false, body: { kind: 'checkin' as const, ts: nowSec(), nick: 'Ben', status: 'help' as const, note: '' } };
+    s.journal.addToLog({ src: ask.src, msgId: ask.msgId, at: ask.at, hops: 0, encrypted: false, dst: BROADCAST }, ask.body);
+    await s.reply(ask, 'coming');
+    const sent = s.journal.repliesTo(BEN, 7).find((r) => r.src === s.id)!;
+    const receipt = (from: number) =>
+      frame(encodePacket({ type: PacketType.Ack, encrypted: false, ackRequested: false, msgId: 900 + from, src: from, dst: s.id, ttl: 5, hops: 0, attempt: 0, channel: 0, body: encodeBody({ kind: 'ack', msgId: sent.msgId, attempt: 0 }) }));
+    s.onFrame(relayed(out[0].bytes, 1));
+    s.onFrame(receipt(CAL));
+    expect(s.journal.reachedAsker(sent.msgId)).toBe(false);
+    s.onFrame(receipt(BEN));
+    expect(s.journal.reachedAsker(sent.msgId)).toBe(true);
+  });
+
+  it('sends a take-back as a resolved with the mistake flag, which the sender and a neighbour both read as cancelled', async () => {
+    const s = new Station(air, 'phone', null);
+    const out = outbox(s);
+    await s.say({ kind: 'checkin', status: 'help', note: '' });
+    const ask = s.journal.roster()[0].latest;
+    expect(s.journal.roster()[0].open).toBe(true);
+    await s.reply(ask, 'resolved', { mistake: true });
+    const [entry] = s.journal.roster();
+    expect([entry.open, entry.resolved, entry.cancelled]).toEqual([false, true, true]);
+    const sent = decodePacket(out.at(-1)!.bytes)!;
+    expect(decodeBody(sent.type, sent.body)).toMatchObject({ kind: 'reply', what: 'resolved', mistake: true, src: s.id, msgId: ask.msgId });
+    // Plain "I got help" is resolved, not cancelled.
+    await s.say({ kind: 'checkin', status: 'help', note: '' });
+    await s.reply(s.journal.roster()[0].latest, 'resolved');
+    expect(s.journal.roster()[0].cancelled).toBe(false);
   });
 
   it('measures the very packet that goes: a draft with 0 bytes left fits, one more byte does not, and a seal costs its overhead', async () => {

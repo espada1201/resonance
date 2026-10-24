@@ -2,8 +2,9 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { offset } from '../geo';
 import { type Geo, type ReplyKind, SKILLS, type Skill } from '../mesh/payloads';
-import { type Heard, type ReplyBody, type RosterEntry, writtenAt } from '../roster';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, ago } from './format';
+import { type Heard, type ReplyBody, type RosterEntry, needingYou, tookBack, writtenAt } from '../roster';
+import type { Station } from '../station';
+import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, REPLY_TEXT, SENDING_TEXT, SKILL_TEXT, STATUS_TEXT, TOOK_BACK_TEXT, ago, askerHasIt, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Compass } from './icons';
 
@@ -17,7 +18,7 @@ export function relative(me: Geo | null, there: Geo | undefined): string {
 function state(e: RosterEntry): string {
   if (e.open) return e.coming ? 'Help on the way' : 'Waiting for help';
   if (e.stale) return 'No news for a day';
-  return e.resolved ? 'Resolved' : '';
+  return e.resolved && !e.cancelled ? 'Resolved' : '';
 }
 
 interface RosterProps {
@@ -29,22 +30,62 @@ interface RosterProps {
   by: (src: number, nick: string) => string;
   /** Null while replies cannot be sent (not listening). */
   reply: ((e: RosterEntry, what: ReplyKind) => void) | null;
+  /** One reply as a line: who, how long ago, and for our own what is known about whether it was heard. `askerNick`: the name on the request it answers. */
+  replyLine: (r: Heard<ReplyBody>, askerNick: string) => string;
   /** A Find action for someone whose own device is in earshot, or null. */
   find: (e: RosterEntry) => (() => void) | null;
   readout?: (e: RosterEntry) => ComponentChildren;
+  /** This device's own name, so its row reads "You (Margaret)". */
+  nick?: string;
 }
 
-export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, nick: string) => string) =>
-  r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${by(r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`;
+export const replyText = (r: Heard<ReplyBody>, self: number, by: (src: number, nick: string) => string) => {
+  const did = tookBack(r) ? TOOK_BACK_TEXT : REPLY_TEXT[r.body.what];
+  return r.src === self ? `You ${r.body.what === 'coming' ? 'are on the way' : did}` : `${by(r.src, r.body.nick)} ${did}`;
+};
 
-/** "3 people · 1 open request" */
-export function headcount(entries: RosterEntry[]) {
-  const open = entries.filter((e) => e.open).length;
-  return `${entries.length} ${entries.length === 1 ? 'person' : 'people'} · ${open} open ${open === 1 ? 'request' : 'requests'}`;
+/**
+ * What is known about whether our own reply, such as "On my way", was heard: empty for anyone else's.
+ * Best news first: the phone that asked has it, then some phone has it, then still on its way, then not heard.
+ */
+export function replyReceipt(station: Station, r: Heard<ReplyBody>, asker: string): string {
+  if (r.src !== station.id) return '';
+  if (station.queued(r)) return 'waiting to send…';
+  if (station.journal.reachedAsker(r.msgId)) return askerHasIt(asker);
+  if (station.journal.wasPassedOn(r.msgId)) return HEARD_BY_NEARBY;
+  return station.firstResendPassed(r) ? `sent, ${NOT_HEARD_YET}` : SENDING_TEXT;
+}
+
+/** "Ben is on the way · 2 min ago", or for our own "You are on the way · just now · Ben's phone has it". */
+export const replyLine = (station: Station, r: Heard<ReplyBody>, by: (src: number, nick: string) => string, askerNick: string) =>
+  joinParts(' · ', replyText(r, station.id, by), ago(writtenAt(r)), replyReceipt(station, r, by(r.body.src, askerNick)));
+
+/**
+ * "3 people · 3 asking for help · 1 waiting for you · you are on your way to 1": what is true, in the words a
+ * stranger would use. It never says "none for you" while someone is still waiting, which read as "nobody needs you".
+ * The tab's count is the "waiting for you" part: other people's open requests this device has not answered.
+ */
+export function headcount(entries: RosterEntry[], self?: number) {
+  const open = entries.filter((e) => e.open);
+  const people = `${entries.length} ${entries.length === 1 ? 'person' : 'people'}`;
+  if (!open.length) return `${people} · no one is asking for help`;
+  const asking = `${open.length} asking for help`;
+  if (self === undefined) return `${people} · ${asking}`;
+  const forYou = needingYou(entries, self).length;
+  const onWay = open.filter((e) => e.replies.some((r) => r.src === self && r.body.what === 'coming')).length;
+  const own = open.find((e) => e.latest.src === self && !e.latest.body.about);
+  return joinParts(
+    ' · ',
+    people,
+    asking,
+    forYou > 0 && `${forYou} waiting for you`,
+    onWay > 0 && `you are on your way to ${onWay}`,
+    own && (own.coming ? 'someone is coming to you' : 'you are waiting for someone'),
+  );
 }
 
 /** Everyone's latest check-in, in the order a responder works through them. */
-export function RosterList({ entries, me, self, name, by, reply, find, readout }: RosterProps) {
+export function RosterList({ entries, me, self, name, by, reply, replyLine, find, readout, nick }: RosterProps) {
   // Resolved closes a request on every phone, and it sits beside On my way: it asks once more.
   // Keyed by the ask, so a new one from the same person never opens with the question showing.
   const [closing, setClosing] = useState<string | null>(null);
@@ -57,15 +98,17 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
         const mine = src === self && !b.about;
         const findIt = e.open || e.stale ? find(e) : null;
         const confirming = reply && closing === `${src}:${msgId}`;
-        const where = [b.place, relative(me, b.geo)].filter(Boolean).join(' · ');
+        const where = joinParts(' · ', b.place, relative(me, b.geo));
         return (
-          <li key={e.key} class={`s-${b.status}${e.open ? ' open' : ''}`}>
+          <li key={e.key} class={e.cancelled ? 'cancelled' : `s-${b.status}${e.open ? ' open' : ''}`}>
             <p class="status-line">
-              <span class="status-word">{STATUS_TEXT[b.status]}</span>
+              <span class="status-word">{e.cancelled ? CANCELLED_TEXT : STATUS_TEXT[b.status]}</span>
               <span class="who">{mine ? 'You' : name(e)}</span>
+              {mine && nick && ' '}
+              {mine && nick && <span class="who-nick">({nick})</span>}
               {state(e) && <span class="chip">{state(e)}</span>}
             </p>
-            {b.needs && (
+            {b.needs && !e.cancelled && (
               <p class="pills" aria-label="Needs">
                 {b.needs.map((n) => (
                   <span key={n} class="chip need">
@@ -76,13 +119,11 @@ export function RosterList({ entries, me, self, name, by, reply, find, readout }
             )}
             {b.note && <p class="text-body">{b.note}</p>}
             <p class="muted small">
-              {[where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? `${hops} hop${hops > 1 ? 's' : ''}` : 'heard directly')]
-                .filter(Boolean)
-                .join(' · ')}
+              {joinParts(' · ', where, b.about && `reported by ${by(src, b.nick)}`, `sent ${ago(writtenAt(e.latest))}`, src !== self && (hops ? passedOnText(hops) : HEARD_FROM_SENDER))}
             </p>
             {e.replies.map((r) => (
               <p key={`${r.src}:${r.msgId}`} class="small reply">
-                {replyText(r, self, by)} · {ago(writtenAt(r))}
+                {replyLine(r, b.nick)}
               </p>
             ))}
             {(e.open || e.stale) && confirming && (

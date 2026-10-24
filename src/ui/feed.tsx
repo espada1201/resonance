@@ -5,12 +5,13 @@ import { missing, received } from '../mesh/files';
 import { BROADCAST, nodeHex } from '../mesh/packet';
 import type { Geo } from '../mesh/payloads';
 import type { FeedItem } from '../journal';
-import { type RosterEntry, writtenAt } from '../roster';
+import { type RosterEntry, tookBack, writtenAt } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, REPLY_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes } from './format';
+import { CANCELLED_TEXT, HEARD_BY_NEARBY, HEARD_FROM_SENDER, NEED_TEXT, NOT_HEARD_YET, REPLACED_TEXT, SENDING_TEXT, SKILL_TEXT, STATUS_TEXT, TOPIC_TEXT, ago, bytes, joinParts, passedOnText } from './format';
 import { handFocusOn } from './hooks';
 import { Check, Cross, Download, FileIcon, Lock, Pin, WaveFile } from './icons';
 import { NoticeBoard } from './notices';
+import { replyLine } from './roster';
 
 export function who(station: Station, src: number, nick?: string) {
   if (src === station.id) return 'You';
@@ -50,7 +51,7 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
           <Lock size={12} /> circle
         </span>
       )}
-      {!item.mine && <span class="chip">{item.hops === 0 ? 'heard directly' : `${item.hops} hop${item.hops > 1 ? 's' : ''}`}</span>}
+      {!item.mine && <span class="chip">{item.hops === 0 ? HEARD_FROM_SENDER : passedOnText(item.hops)}</span>}
       <time dateTime={new Date(writtenAt(item)).toISOString()}>{ago(writtenAt(item))}</time>
     </header>
   );
@@ -58,14 +59,14 @@ function Meta({ station, item }: { station: Station; item: FeedItem }) {
 
 function Delivery({ station, item }: { station: Station; item: FeedItem }) {
   const [err, setErr] = useState('');
-  if (station.queued(item)) return <span class="delivery">waiting to go on air…</span>;
+  if (station.queued(item)) return <span class="delivery">waiting to send…</span>;
   if (item.mine && item.dst === BROADCAST) {
-    return item.passedOn ? (
+    return station.journal.wasPassedOn(item.msgId) ? (
       <span class="delivery ok">
-        <Check size={14} /> sent · another phone has it
+        <Check size={14} /> sent · {HEARD_BY_NEARBY}
       </span>
     ) : (
-      <span class="delivery">sent · no other phone has passed it on yet</span>
+      <span class="delivery">{station.firstResendPassed(item) ? `sent · ${NOT_HEARD_YET}` : SENDING_TEXT}</span>
     );
   }
   const state = item.delivery;
@@ -130,7 +131,7 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
       <button
         type="button"
         class="ghost small"
-        title="Save this packet as a sound file. Play it from any speaker near a Resonance device (phone calls and walkie-talkies cut the tones it needs)."
+        title="Save this message as an audio file. Play it from any speaker near a phone running Resonance (phone calls and walkie-talkies cut the sound it needs)."
         onClick={() => {
           try {
             saveSound(station, item);
@@ -139,7 +140,7 @@ function SoundFileButton({ station, item }: { station: Station; item: FeedItem }
           }
         }}
       >
-        <WaveFile size={14} /> Sound file
+        <WaveFile size={14} /> Save as audio
       </button>
       {err && (
         <span class="error small" role="alert">
@@ -304,10 +305,12 @@ interface ItemProps {
   position: Geo | null;
   /** The open request this check-in makes, if it is one. */
   request?: RosterEntry;
+  /** A newer check-in from the same phone about the same person has taken this one's place. */
+  replaced?: boolean;
   onReply?: (src: number) => void;
 }
 
-function FeedItemView({ station, item, position, request, onReply }: ItemProps) {
+function FeedItemView({ station, item, position, request, replaced, onReply }: ItemProps) {
   const shell = { station, item };
   if (item.locked) {
     return (
@@ -333,22 +336,24 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
   const delivery = <Delivery station={station} item={item} />;
   if (b.kind === 'checkin') {
     const replies = station.journal.repliesTo(item.src, item.msgId);
+    const cancelled = replies.some(tookBack);
+    const earlier = replaced && !cancelled;
     const answerable =
       request && station.status === 'listening' && !(item.mine && !b.about) && !request.replies.some((r) => r.src === station.id && r.body.what === 'coming');
     return (
       <Item
         {...shell}
-        kind={`checkin s-${b.status}`}
+        kind={cancelled ? 'checkin cancelled' : earlier ? 'checkin replaced' : `checkin s-${b.status}`}
         actions={
           <>
-            {delivery}
+            {!earlier && delivery}
             {answerable && <OnMyWay station={station} request={request} />}
             {sound}
           </>
         }
       >
         <p class="status-line">
-          <span class="status-word">{STATUS_TEXT[b.status]}</span>
+          <span class="status-word">{cancelled ? CANCELLED_TEXT : earlier ? REPLACED_TEXT : STATUS_TEXT[b.status]}</span>
           {b.about && (
             <span>
               <strong>{b.about}</strong>, reported by {item.mine ? 'you' : named(station, item.src, b.nick)}
@@ -357,7 +362,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
           {b.place && <span>{b.place}</span>}
           {b.note && <span>{b.note}</span>}
         </p>
-        {b.needs && (
+        {b.needs && !cancelled && (
           <p class="pills" aria-label="Needs">
             {b.needs.map((n) => (
               <span key={n} class="chip need">
@@ -370,9 +375,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
         {b.outside && <p class="muted small">For family outside: {b.outside}</p>}
         {replies.map((r) => (
           <p key={`${r.src}:${r.msgId}`} class="small reply">
-            {r.src === station.id ? `You ${r.body.what === 'coming' ? 'are on the way' : REPLY_TEXT[r.body.what]}` : `${named(station, r.src, r.body.nick)} ${REPLY_TEXT[r.body.what]}`}
-            {' · '}
-            {ago(writtenAt(r))}
+            {replyLine(station, r, (src, nick) => named(station, src, nick), b.nick)}
           </p>
         ))}
       </Item>
@@ -393,7 +396,7 @@ function FeedItemView({ station, item, position, request, onReply }: ItemProps) 
         <span class="topic">{TOPIC_TEXT[b.topic]}</span>
         <p class="notice-text">{b.text}</p>
         <p class="muted small">
-          {[b.place, `for ${b.hours < 24 ? `${b.hours} hours` : `${b.hours / 24} day${b.hours > 24 ? 's' : ''}`}`].filter(Boolean).join(' · ')}
+          {joinParts(' · ', b.place, `for ${b.hours < 24 ? `${b.hours} hours` : `${b.hours / 24} day${b.hours > 24 ? 's' : ''}`}`)}
         </p>
       </Item>
     );
@@ -451,7 +454,7 @@ export function Feed({ station, onReply }: { station: Station; onReply?: (src: n
         {notices}
         <p class="empty-title">No messages yet.</p>
         <p>
-          Messages from any device within earshot appear here, including ones that other phones passed on. Say something below
+          Messages from any device near you appear here, including ones that other phones passed on. Say something below
           {station.transport.kind === 'simulated' ? (
             <>
               , or open{' '}
@@ -467,6 +470,7 @@ export function Feed({ station, onReply }: { station: Station; onReply?: (src: n
       </div>
     );
   }
+  const replaced = station.journal.replacedCheckIns();
   const open = new Map(
     station.journal
       .roster()
@@ -477,7 +481,7 @@ export function Feed({ station, onReply }: { station: Station; onReply?: (src: n
     <div class="feed">
       {notices}
       {station.journal.feed.map((item) => (
-        <FeedItemView key={item.id} station={station} item={item} position={station.position} request={open.get(item.id)} onReply={onReply} />
+        <FeedItemView key={item.id} station={station} item={item} position={station.position} request={open.get(item.id)} replaced={replaced.has(item.id)} onReply={onReply} />
       ))}
     </div>
   );

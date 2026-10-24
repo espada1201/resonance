@@ -96,6 +96,8 @@ export interface RosterEntry {
   /** Like open, but nothing new for over a day: shown, not counted. */
   stale: boolean;
   resolved: boolean;
+  /** Resolved because the sender took the request back as a mistake, not because help came. */
+  cancelled: boolean;
   /** Someone replied "On my way". */
   coming: boolean;
 }
@@ -103,6 +105,16 @@ export interface RosterEntry {
 /** A request with no news for this long stops counting as open. */
 export const STALE_AFTER_SEC = 24 * 3600;
 export const URGENT: Status[] = ['help', 'medical'];
+
+/**
+ * The open requests this device still has to act on: not its own call for help (one it made for
+ * someone without a phone is still someone's), and not one it has answered "On my way".
+ */
+export const needingYou = (entries: RosterEntry[], self: number) =>
+  entries.filter((e) => e.open && !(e.latest.src === self && !e.latest.body.about) && !e.replies.some((r) => r.src === self && r.body.what === 'coming'));
+
+/** A "resolved" from the request's own sender with the mistake flag: a take-back. Anyone else's flag is only a resolved. */
+export const tookBack = (r: Heard<ReplyBody>) => r.body.what === 'resolved' && !!r.body.mistake && r.src === r.body.src;
 
 const ref = (h: Pick<Heard, 'src' | 'msgId'>) => `${h.src}:${h.msgId}`;
 export const fold = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -145,6 +157,8 @@ export function roster(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody>
     let closed = -1;
     run.forEach((c, i) => answersTo(c).some((r) => r.body.what === 'resolved') && (closed = i));
     const asks = run.slice(closed + 1);
+    // What closed the request last decides how it ended: a take-back, or help that came.
+    const closer = closed >= 0 ? answersTo(run[closed]).filter((r) => r.body.what === 'resolved').sort((a, b) => writtenAt(a) - writtenAt(b)).at(-1) : undefined;
     askedAt.set(key, writtenSec(asks[0] ?? latest));
     const answers = (asks.length ? asks : run).flatMap(answersTo).sort((a, b) => writtenAt(a) - writtenAt(b));
     const old = nowSec - writtenSec(latest) > STALE_AFTER_SEC;
@@ -155,6 +169,7 @@ export function roster(checkins: Heard<CheckInBody>[], replies: Heard<ReplyBody>
       open: asks.length > 0 && !old,
       stale: asks.length > 0 && old,
       resolved: run.length > 0 && asks.length === 0,
+      cancelled: run.length > 0 && asks.length === 0 && !!closer && tookBack(closer),
       coming: answers.some((r) => r.body.what === 'coming'),
     };
   });
@@ -193,7 +208,7 @@ export function rosterCsv(
   const iso = (sec: number) => new Date(sec * 1000).toISOString();
   const rows = entries.map((e) => {
     const { body: b, src, hops } = e.latest;
-    const state = e.open ? 'open' : e.stale ? 'no news for a day' : e.resolved ? 'resolved' : '';
+    const state = e.open ? 'open' : e.stale ? 'no news for a day' : e.cancelled ? 'cancelled (sent by mistake)' : e.resolved ? 'resolved' : '';
     return [
       text.name(e),
       b.about ? text.by(src, b.nick) : '',
@@ -207,7 +222,7 @@ export function rosterCsv(
       b.geo ? Math.round(b.geo.accuracyM) : '',
       iso(b.ts),
       hops,
-      e.replies.map((r) => `${text.by(r.src, r.body.nick)} ${r.body.what === 'coming' ? 'on the way' : r.body.what === 'resolved' ? 'resolved' : 'passed on'} ${iso(r.body.ts)}`).join('; '),
+      e.replies.map((r) => `${text.by(r.src, r.body.nick)} ${r.body.what === 'coming' ? 'on the way' : r.body.what === 'resolved' ? (tookBack(r) ? 'took it back' : 'resolved') : 'passed on'} ${iso(r.body.ts)}`).join('; '),
       b.outside ?? '',
     ].map(cell);
   });

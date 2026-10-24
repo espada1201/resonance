@@ -3,9 +3,9 @@ import { MAX_FILE_BYTES } from '../mesh/files';
 import { BROADCAST } from '../mesh/packet';
 import { MAX_CONTACT_NAME, MAX_CONTACT_PHONE, SKILLS, type Skill } from '../mesh/payloads';
 import type { Draft, Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, checkInFix, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, type CheckInDraft, NO_FIX_NOTE, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { who } from './feed';
-import { SKILL_TEXT, bytes, errorText, fitInput, seconds } from './format';
+import { SKILL_TEXT, bytes, errorText, fitInput, joinParts, seconds } from './format';
 import { rovingKeys } from './hooks';
 import { FileIcon, Lock, Send } from './icons';
 import { NoticeFields, type NoticeDraft, newNotice } from './notices';
@@ -133,12 +133,17 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
     setSaid('');
     try {
       const target = dst === BROADCAST ? undefined : dst;
+      let unnamedLine = '';
+      let noFixLine = '';
       if (mode === 'text') {
         await station.say({ kind: 'text', text: text.trim() }, target);
         setText('');
       } else if (mode === 'checkin') {
-        const geo = checkin.withGeo ? await checkInFix(station, setError) : undefined;
-        await station.say({ kind: 'checkin', ...draftFields(checkin, geo) });
+        const geo = checkin.withGeo ? await checkInFix(station) : undefined;
+        if (checkin.withGeo && !geo) noFixLine = NO_FIX_NOTE;
+        const fields = draftFields(checkin, geo);
+        unnamedLine = nameless(station, fields.about);
+        await station.say({ kind: 'checkin', ...fields });
         // The status stays as sent: after a call for help, the form must not quietly say Safe.
         setCheckin((d) => newDraft(station.settings, d.status));
       } else if (mode === 'notice') {
@@ -152,7 +157,7 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
         await station.sendFile(picked.name, picked.mime, picked.data);
         setPicked(null);
       }
-      setSaid(dst === BROADCAST || toEveryone ? 'Sent to everyone in earshot.' : `Sent to ${who(station, dst)}.`);
+      setSaid(joinParts(' ', dst === BROADCAST || toEveryone ? 'Sent to everyone near you.' : `Sent to ${who(station, dst)}.`, noFixLine, unnamedLine));
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -182,7 +187,7 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
           <textarea
             rows={2}
             value={text}
-            placeholder={dst === BROADCAST ? 'Say something to everyone in earshot…' : `Say something to ${who(station, dst)}…`}
+            placeholder={dst === BROADCAST ? 'Say something to everyone near you…' : `Say something to ${who(station, dst)}…`}
             onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -196,7 +201,6 @@ export function Compose({ station, dst, setDst, writing, wrote }: ComposeProps) 
 
       {mode === 'checkin' && (
         <>
-          <NameField station={station} />
           <CheckInFields draft={checkin} set={(p) => setCheckin((d) => ({ ...d, ...p }))} room={room} />
         </>
       )}

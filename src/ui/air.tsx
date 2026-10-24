@@ -175,12 +175,12 @@ function AirStats({ station }: { station: Station }) {
   const goodput = t.rxSec > 0 ? `${Math.round(t.rxBits / t.rxSec)} bps` : '—';
   const last = station.air.find((e) => e.dir === 'rx');
   const cells: Array<[string, string, string?]> = [
-    ['Measured in', goodput, 'payload bits divided by seconds on air, over every frame decoded'],
-    ['Sent', t.txSec ? seconds(t.txSec) : '—', 'total time this device spent transmitting'],
-    ['Tone SNR', last?.toneSnrDb !== undefined ? `${last.toneSnrDb.toFixed(0)} dB` : '—'],
+    ['Speed', goodput, 'message bits per second of sound, over everything heard'],
+    ['Sent', t.txSec ? seconds(t.txSec) : '—', 'total time this device spent playing messages'],
+    ['Clarity', last?.toneSnrDb !== undefined ? `${last.toneSnrDb.toFixed(0)} dB` : '—', 'how much louder the last message was than the background noise'],
     ['Heard', `${m.heard}`],
-    ['Relayed', `${m.relayed}`, 'packets this device repeated for others'],
-    ['Lost', `${t.lost}`, 'frames detected but too damaged to repair'],
+    ['Passed on', `${m.relayed}`, 'messages this device repeated for others'],
+    ['Lost', `${t.lost}`, 'messages heard but too damaged to read'],
   ];
   return <StatGrid cells={cells} />;
 }
@@ -189,10 +189,10 @@ const DIR_TEXT: Record<AirEvent['dir'], string> = { rx: 'IN', tx: 'OUT', sync: '
 
 export function AirLog({ events, limit = 60 }: { events: AirEvent[]; limit?: number }) {
   if (!events.length) {
-    return <p class="empty small">Nothing on the air yet. Decoded frames, relays and failed attempts will show up here.</p>;
+    return <p class="empty small">Nothing heard yet. Messages this device hears, passes on or cannot read will show up here.</p>;
   }
   return (
-    <ol class="airlog" aria-label="Air activity">
+    <ol class="airlog" aria-label="Sound activity">
       {events.slice(0, limit).map((e) => (
         <li key={e.id} class={e.dir}>
           <span class="dir">{DIR_TEXT[e.dir]}</span>
@@ -218,15 +218,15 @@ export function AirLog({ events, limit = 60 }: { events: AirEvent[]; limit?: num
 
 export function AirPanel({ station, announce = false }: { station: Station; announce?: boolean }) {
   return (
-    <section class="airpanel" aria-label="Air">
+    <section class="airpanel" aria-label="Sound">
       <div class="air-head">
-        <span class="label">The air</span>
+        <span class="label">Sound around you</span>
         <AirStatus station={station} announce={announce} />
       </div>
       {station.status === 'listening' && <LinkDoctor station={station} />}
       <Waterfall station={station} />
       <AirStats station={station} />
-      <div class="air-log-wrap" tabIndex={station.air.length ? 0 : undefined} role="region" aria-label="Air log">
+      <div class="air-log-wrap" tabIndex={station.air.length ? 0 : undefined} role="region" aria-label="Sound log">
         <AirLog events={station.air} />
       </div>
     </section>

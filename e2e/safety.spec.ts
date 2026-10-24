@@ -35,12 +35,21 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(ana).toContainText('Waiting for help');
   await expect(ana).toContainText('Trapped');
   await expect(ana).toContainText('Floor 4, room 412');
-  await expect(b.getByRole('tab', { name: 'Safety, 1 open request' })).toBeVisible();
+  await expect(b.getByRole('tab', { name: 'Safety, 1 waiting for you' })).toBeVisible();
+  // Unanswered: the heading says someone is asking and that it is waiting for this phone.
+  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · 1 waiting for you' })).toBeVisible();
   await ana.getByRole('button', { name: 'On my way' }).click();
   await expect(ana).toContainText('You are on the way');
+  // The phone that asked says it has the answer, and the line names her, not "a phone nearby".
+  await expect(ana).toContainText("Ana's phone has it");
+  // Ben has answered it, so it is nothing more for him to act on and the count goes, but the heading still says a person is asking.
+  await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
+  await expect(b).toHaveTitle('Resonance');
+  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · you are on your way to 1' })).toBeVisible();
+  await expect(a.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · someone is coming to you' })).toBeVisible();
 
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
-  await expect(checkInRow(a, 'You')).not.toContainText('heard directly');
+  await expect(checkInRow(a, 'You')).not.toContainText('heard from their own phone');
   // Resolved closes the request on every phone, so it asks once more.
   await ana.getByRole('button', { name: 'Resolved', exact: true }).click();
   await expect(ana.getByRole('group', { name: 'Resolved for everyone?' })).toBeVisible();
@@ -56,6 +65,8 @@ test('a call for help travels with its details, gets an answer, and closes when 
   await expect(ana).not.toContainText('Waiting for help');
   await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
   await expect(b).toHaveTitle('Resonance');
+  // Nobody asking: the third state of the heading.
+  await expect(b.getByRole('heading', { name: 'Check-ins · 1 person · no one is asking for help' })).toBeVisible();
   await proof(b, 'call-for-help');
 });
 
@@ -68,9 +79,18 @@ test('one tap for help goes on air within seconds while the location prompt wait
   await openTab(page, 'Safety');
   await page.getByRole('button', { name: 'I need help' }).click();
   await expect(checkInRow(page, 'You')).toContainText('Waiting for help', { timeout: 8_000 });
+  await expect(page.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
+  await expect(page.locator('.tabs .badge')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Check-ins · 1 person · 1 asking for help · you are waiting for someone' })).toBeVisible();
+  await expect(page).toHaveTitle('Resonance');
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
+  // No position is not an error: one calm line, not red and not an alert, and it goes with the next send.
+  const noFix = page.getByText('Location not found yet — add where you are in words if you can.');
+  await expect(noFix).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(noFix).toHaveCSS('color', await page.locator('.muted').first().evaluate((el) => getComputedStyle(el).color));
   // Its rows hold nothing to tab to, so the log itself takes focus for the keyboard to scroll it.
-  await expect(page.getByRole('region', { name: 'Air log' })).toHaveAttribute('tabindex', '0');
+  await expect(page.getByRole('region', { name: 'Sound log' })).toHaveAttribute('tabindex', '0');
   await proof(page, 'help-without-fix');
 });
 
@@ -84,7 +104,8 @@ test('a check-in from the compose bar goes out without a position when GPS fails
   await page.getByLabel('Attach my GPS position').check();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByRole('alert')).toHaveText('Could not get a location fix. Sent without a position.');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('Sent to everyone near you. Location not found yet — add where you are in words if you can.')).toBeVisible();
   await openTab(page, 'Safety');
   await expect(checkInRow(page, 'You')).toContainText('Safe');
   await proof(page, 'compose-without-fix');
@@ -106,15 +127,15 @@ test('the big help button sends the details open beside it, then says whether an
   await expect(mine).toContainText('Trapped');
   await expect(mine).toContainText('Leg stuck under a beam');
   await expect(a.getByLabel('Note')).toBeEmpty();
-  await expect(a.getByText('Waiting to go on air…')).toBeVisible();
-  await expect(a.getByText('Sent. Another phone has it. No one has said they are coming yet.')).toBeVisible();
+  await expect(a.getByText('Waiting to send…')).toBeVisible();
+  await expect(a.getByText('Sent. Heard by a phone nearby. No one has said they are coming yet.')).toBeVisible();
 
   await openTab(b, 'Safety');
   const ana = checkInRow(b, 'Ana');
   await expect(ana).toContainText('Trapped');
   await expect(ana).toContainText('Leg stuck under a beam');
   await ana.getByRole('button', { name: 'On my way' }).click();
-  await expect(a.getByText(/^Sent\.( Another phone has it\.)? Ben is on the way\.$/)).toBeVisible();
+  await expect(a.getByText(/^Sent\.( Heard by a phone nearby\.)? Ben is on the way\.$/)).toBeVisible();
   await proof(a, 'big-button-details');
 });
 
@@ -129,19 +150,61 @@ test('a call for help in the feed is answered from the feed', async ({ context }
   const request = feedItem(b, 'Needs help');
   await request.getByRole('button', { name: 'On my way' }).click();
   await expect(request).toContainText('You are on the way');
+  await expect(request).toContainText(/You are on the way · .+ · Ana's phone has it/);
   await expect(request.getByRole('button', { name: 'On my way' })).toHaveCount(0);
   // The button that was pressed is gone; the keyboard lands on the next one, not back at the top.
-  await expect(request.getByRole('button', { name: 'Sound file' })).toBeFocused();
+  await expect(request.getByRole('button', { name: 'Save as audio' })).toBeFocused();
   await expect(checkInRow(a, 'You')).toContainText('Ben is on the way');
   await proof(b, 'on-my-way-from-feed');
 });
 
-test('one tap for help, nameless, says how others see you and then asks where and what', async ({ page }) => {
+test('a request sent in one tap and then again with details is one request on the Feed, the first marked as replaced', async ({ context }) => {
+  test.setTimeout(240_000);
+  const mei = await context.newPage();
+  await joinAir(mei, '/?air=sim', 'Mei');
+  const jonas = await context.newPage();
+  await joinAir(jonas, '/?air=sim', 'Jonas');
+
+  await openTab(mei, 'Safety');
+  await mei.getByRole('button', { name: 'I need help' }).click();
+  // Jonas has it and has passed it on, so the room is quiet when the details go.
+  await expect(feedItem(jonas, 'Needs help')).toBeVisible();
+  await expect(mei.getByText('Sent. Heard by a phone nearby. No one has said they are coming yet.')).toBeVisible();
+  // The one tap asks for details; the request goes again with them.
+  if (!(await mei.getByRole('button', { name: 'Water' }).isVisible())) await mei.getByText('More detail').click();
+  await mei.getByRole('button', { name: 'Water' }).click();
+  await mei.getByRole('button', { name: 'Send check-in' }).click();
+
+  await expect(feedItem(jonas, 'Water')).toBeVisible();
+  const earlier = feedItem(jonas, 'Earlier check-in, replaced by a newer one');
+  await expect(earlier).toHaveCount(1);
+  await expect(earlier).not.toContainText('Needs help');
+  await expect(earlier.getByRole('button', { name: 'On my way' })).toHaveCount(0);
+  // One request to answer, and it is the one with what is needed.
+  const request = feedItem(jonas, 'Water');
+  await expect(request).not.toContainText('Earlier check-in');
+  await expect(request).toContainText('Needs help');
+  await expect(jonas.getByRole('button', { name: 'On my way' })).toHaveCount(1);
+  await request.getByRole('button', { name: 'On my way' }).click();
+  await expect(request).toContainText("Mei's phone has it");
+  await proof(jonas, 'one-request-on-the-feed');
+});
+
+test('a check-in sent without a name goes at once, then asks for the name with the box ready, and sends again with it', async ({ page }) => {
   await joinAir(page);
   await openTab(page, 'Safety');
-  await expect(page.getByText(`Without a name, others see you as #${await nodeId(page)}.`)).toBeVisible();
+  const id = await nodeId(page);
+  await expect(page.getByText(`Without a name, others see you as #${id}.`)).toBeVisible();
   await page.getByRole('button', { name: "I'm safe" }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toBeVisible();
+  const status = page.getByRole('status').filter({ hasText: 'Sent' });
+  await expect(status).toContainText(`Sent. Others see you as #${id}. Type your name in the box above, then send again.`);
+  await expect(page.getByLabel('Your name')).toBeFocused();
+  await page.keyboard.type('Ana');
+  // The line stays until the next send: typing the name does not make it vanish under the person's fingers.
+  await expect(page.getByLabel('Your name')).toHaveValue('Ana');
+  await expect(status).toContainText(`Others see you as #${id}. Type your name in the box above, then send again.`);
+  await page.getByRole('button', { name: "I'm safe" }).click();
+  await expect(status).not.toContainText('Others see you');
   // It turned itself off while sending; the keyboard comes back to it, not to the top of the page.
   await expect(page.getByRole('button', { name: "I'm safe" })).toBeFocused();
   await page.getByRole('button', { name: 'I need help' }).click();
@@ -150,6 +213,259 @@ test('one tap for help, nameless, says how others see you and then asks where an
   await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
   // The one tap sent a position; the details sent after it must not quietly drop it.
   await expect(page.getByLabel('Attach my GPS position')).toBeChecked();
+});
+
+test('a call for help without a name is never held back for one: it goes, then says how to add the name', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+  await openTab(a, 'Safety');
+  const id = await nodeId(a);
+  await a.getByRole('button', { name: 'I need help' }).click();
+  // Where stays the first thing asked for in an emergency; the name is said beside it, not instead of it.
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText(`Others see you as #${id}. Type your name in the box above, then send again.`);
+  await expect(a.getByLabel('Where', { exact: true })).toBeFocused();
+  await expect(a.getByLabel('Your name')).toBeVisible();
+  await expect(feedItem(b, 'Needs help')).toContainText(`#${id}`);
+  await a.getByLabel('Your name').fill('Ana');
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Others see you');
+  await a.getByRole('button', { name: "I'm safe" }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).not.toContainText('Others see you');
+});
+
+test('a call for help sent from the open form without a name leaves the keyboard off the name box, and "I\'m safe" still goes to it', async ({ page }) => {
+  await joinAir(page);
+  await openTab(page, 'Safety');
+  const name = page.getByLabel('Your name');
+  const status = page.getByRole('status').filter({ hasText: 'Sent' });
+  await page.getByText('More detail').click();
+  await page.getByRole('radio', { name: 'Needs medical help' }).click();
+  await page.getByRole('button', { name: 'Send check-in' }).click();
+  await expect(status).toContainText('Others see you as');
+  await expect(name).not.toBeFocused();
+  await expect(page.getByRole('button', { name: 'Send check-in' })).toBeFocused();
+
+  await page.getByRole('button', { name: 'I need help' }).click();
+  await expect(status).toContainText('Others see you as');
+  await expect(name).not.toBeFocused();
+  await expect(page.getByRole('button', { name: 'I need help' })).toBeFocused();
+
+  await page.getByRole('button', { name: "I'm safe" }).click();
+  await expect(status).toContainText('Others see you as');
+  await expect(name).toBeFocused();
+});
+
+test('the first screen has I\'m safe and I need help, and they do what the Safety tab buttons do', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  const shortcuts = a.getByRole('group', { name: 'In an emergency' });
+  await shortcuts.getByRole('button', { name: "I'm safe" }).click();
+  await expect(a.getByRole('tab', { name: 'Safety', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Sent.');
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Ana')).toContainText('Safe');
+
+  await openTab(a, 'Feed');
+  await shortcuts.getByRole('button', { name: 'I need help' }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('No one has said they are coming yet. Add where you are and what you need, and send again.');
+  await expect(a.getByLabel('Where', { exact: true })).toBeFocused();
+  await expect(checkInRow(b, 'Ana')).toContainText('Waiting for help');
+  await expect(shortcuts).toHaveCount(0);
+});
+
+test('a call for help sent by mistake from the first screen is taken back in one tap, and others see it resolved', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  // One tap still sends at once: nothing asks "are you sure" first.
+  await a.getByRole('group', { name: 'In an emergency' }).getByRole('button', { name: 'I need help' }).click();
+  const status = a.getByRole('status').filter({ hasText: 'Sent' });
+  await expect(status).toContainText('No one has said they are coming yet.');
+  await expect(b.getByRole('tab', { name: 'Safety, 1 waiting for you' })).toBeVisible();
+  await a.getByRole('button', { name: 'Sent by mistake? Take it back' }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Taken back' })).toHaveText('Taken back. Others now see it as cancelled: sent by mistake.');
+  await expect(a.getByRole('button', { name: 'Sent by mistake? Take it back' })).toHaveCount(0);
+  await expect(a.getByRole('button', { name: 'I need help' })).toBeFocused();
+  // A request taken back is cancelled, not a red call for help with a small "Resolved" beside it, on both phones.
+  const mine = checkInRow(a, 'You');
+  await expect(mine).toContainText('Cancelled: sent by mistake');
+  await expect(mine).not.toContainText('Needs help');
+  await expect(mine).not.toContainText('Resolved');
+  await expect(mine.getByRole('button', { name: 'I got help' })).toHaveCount(0);
+  // The form was opened for a request that no longer stands: it is closed again, and says Safe, not Needs help, when opened.
+  await expect(a.getByRole('radio', { name: 'Safe', exact: true })).toHaveCount(0);
+  await a.getByText('More detail').click();
+  await expect(a.getByRole('radio', { name: 'Needs help' })).not.toBeChecked();
+  await expect(a.getByRole('radio', { name: 'Safe', exact: true })).toBeChecked();
+
+  await expect(b.getByRole('tab', { name: 'Safety', exact: true })).toBeVisible();
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Ana')).toContainText('Cancelled: sent by mistake');
+  await expect(checkInRow(b, 'Ana')).not.toContainText('Needs help');
+  await expect(checkInRow(b, 'Ana')).not.toContainText('Waiting for help');
+  await expect(checkInRow(b, 'Ana')).not.toContainText('Resolved');
+  // The feed says the same, and its card is no longer red (the status colour is grey).
+  await openTab(b, 'Feed');
+  const card = feedItem(b, 'Cancelled: sent by mistake');
+  await expect(card).toHaveCount(1);
+  await expect(card).not.toContainText('Needs help');
+  await expect(card).toContainText('took it back: sent by mistake');
+  await expect(card).not.toHaveClass(/s-help/);
+  await proof(a, 'taken-back');
+});
+
+test('the one-tap help on the Safety tab offers the same way out, and a later check-in takes the offer away', async ({ page }) => {
+  await joinAir(page, '/?air=sim', 'Ana');
+  await openTab(page, 'Safety');
+  await page.getByRole('button', { name: 'I need help' }).click();
+  const takeBack = page.getByRole('button', { name: 'Sent by mistake? Take it back' });
+  await expect(takeBack).toBeVisible();
+  await page.getByRole('button', { name: "I'm safe" }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toContainText('Sent.');
+  await expect(takeBack).toHaveCount(0);
+});
+
+test('the first screen offers a name box beside the two buttons, so the first send carries the name, and no send waits for it', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  const shortcuts = a.getByRole('group', { name: 'In an emergency' });
+  const name = a.getByLabel('Your name');
+  await expect(name).toBeVisible();
+  // Under the buttons, which stay first: someone in a hurry meets the buttons, not a form.
+  const [buttons, box] = [await shortcuts.boundingBox(), await name.boundingBox()];
+  expect(box!.y).toBeGreaterThan(buttons!.y + buttons!.height - 1);
+  await name.fill('Margaret');
+  await shortcuts.getByRole('button', { name: "I'm safe" }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toBeVisible();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).not.toContainText('Others see you');
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Margaret')).toContainText('Safe');
+  await expect(a.getByLabel('Your name')).toHaveValue('Margaret');
+});
+
+test('a tap on the first screen without a name still sends at once, and says how to add it', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a);
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+  const id = await nodeId(a);
+  await a.getByRole('group', { name: 'In an emergency' }).getByRole('button', { name: 'I need help' }).click();
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText(`Others see you as #${id}.`);
+  await expect(feedItem(b, 'Needs help')).toContainText(`#${id}`);
+});
+
+test('a first-screen button says it opened Safety and never leaves the keyboard on the page body while it sends', async ({ page }) => {
+  await joinAir(page, '/?air=sim', 'Ana');
+  const button = page.getByRole('group', { name: 'In an emergency' }).getByRole('button', { name: "I'm safe" });
+  await button.focus();
+  await page.evaluate(() => {
+    const w = window as unknown as { bodySamples: number };
+    w.bodySamples = 0;
+    setInterval(() => {
+      if (document.activeElement === document.body) w.bodySamples++;
+    }, 40);
+  });
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[aria-live="polite"]').filter({ hasText: 'Opened Safety.' })).toHaveCount(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Sent' })).toBeVisible();
+  await expect(page.getByRole('button', { name: "I'm safe" })).toBeFocused();
+  // About a tenth of a second at most, between the button going and the tab taking the keyboard.
+  expect(await page.evaluate(() => (window as unknown as { bodySamples: number }).bodySamples)).toBeLessThanOrEqual(3);
+});
+
+test('take it back is one Shift+Tab from Where and stays offered after leaving Safety and coming back', async ({ page }) => {
+  await joinAir(page, '/?air=sim', 'Ana');
+  await openTab(page, 'Safety');
+  await page.getByRole('button', { name: 'I need help' }).click();
+  const takeBack = page.getByRole('button', { name: 'Sent by mistake? Take it back' });
+  await expect(page.getByLabel('Where', { exact: true })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(takeBack).toBeFocused();
+  // Leaving the tab does not throw the way out away while the request is open.
+  await openTab(page, 'Feed');
+  await openTab(page, 'Safety');
+  await expect(takeBack).toBeVisible();
+  await takeBack.click();
+  await expect(checkInRow(page, 'You')).toContainText('Cancelled: sent by mistake');
+  await expect(takeBack).toHaveCount(0);
+  await openTab(page, 'Feed');
+  await openTab(page, 'Safety');
+  await expect(takeBack).toHaveCount(0);
+});
+
+test('a call answered or marked resolved no longer offers to be taken back', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  await openTab(a, 'Safety');
+  await a.getByRole('button', { name: 'I need help' }).click();
+  const takeBack = a.getByRole('button', { name: 'Sent by mistake? Take it back' });
+  await expect(takeBack).toBeVisible();
+  await a.getByRole('button', { name: 'I got help' }).click();
+  await expect(takeBack).toHaveCount(0);
+  await openTab(a, 'Feed');
+  await openTab(a, 'Safety');
+  await expect(takeBack).toHaveCount(0);
+});
+
+test.describe('on a small phone, naming yourself', () => {
+  test.use({ viewport: { width: 360, height: 640 }, hasTouch: true });
+
+  test('the own row reads You (Margaret), the header shows the name, and the name box stays when you come back to Safety', async ({ page }) => {
+    await joinAir(page);
+    await openTab(page, 'Safety');
+    await page.getByRole('button', { name: "I'm safe" }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Others see you as' })).toBeVisible();
+    await page.keyboard.type('Margaret');
+    await page.getByRole('button', { name: "I'm safe" }).click();
+    await expect(checkInRow(page, 'You')).toContainText('You (Margaret)');
+    // The header names the phone as well as its id, inside the screen.
+    const chip = page.getByRole('banner').getByText('Margaret', { exact: true });
+    await expect(chip).toBeVisible();
+    await expect(chip).toBeInViewport({ ratio: 1 });
+    await openTab(page, 'Feed');
+    await openTab(page, 'Safety');
+    await expect(page.getByLabel('Your name')).toHaveValue('Margaret');
+  });
+});
+
+test('a double tap on the first screen\'s help button cannot send a second, contradicting check-in', async ({ context }) => {
+  const a = await context.newPage();
+  await joinAir(a, '/?air=sim', 'Ana');
+  const b = await context.newPage();
+  await joinAir(b, '/?air=sim', 'Ben');
+
+  // The second tap lands on Safety's own row as soon as it can be pressed. This needs the clock of a real tap, so it runs in the page.
+  const waited = await a.evaluate(async () => {
+    const button = (selector: string) => document.querySelector<HTMLButtonElement>(selector);
+    const t0 = performance.now();
+    button('.shortcuts .s-help')!.click();
+    // Safety's row is pressable again only once the first tap has been sent and its answer shown.
+    while (!button('.checkin-card [role="status"]') || button('.quick .s-safe')?.disabled !== false) await new Promise((r) => setTimeout(r, 0));
+    const waited = performance.now() - t0;
+    button('.quick .s-safe')!.click();
+    return waited;
+  });
+  expect(waited, 'the second tap came within the guard window').toBeLessThan(400);
+
+  // A check-in sent by the second tap would take a moment to show; give it that, then look.
+  await a.waitForTimeout(1500);
+  await expect(a.getByRole('status').filter({ hasText: 'Sent' })).toContainText('No one has said they are coming yet.');
+  await expect(checkInRow(a, 'You')).toContainText('Waiting for help');
+  await openTab(b, 'Safety');
+  await expect(checkInRow(b, 'Ana')).toContainText('Waiting for help');
+
+  // After the moment has passed, the same button works.
+  await a.getByRole('button', { name: "I'm safe" }).click();
+  await expect(checkInRow(a, 'You')).toContainText('Safe');
 });
 
 test('a check-in keeps the status sent but not its needs, and the keyboard meets its fields in the order they are typed', async ({ page }) => {
@@ -166,12 +482,15 @@ test('a check-in keeps the status sent but not its needs, and the keyboard meets
   // The needs are one stop: arrows move along them, Space switches one on, Tab goes on past them all.
   const needs = page.getByRole('toolbar', { name: 'What is needed' });
   await expect(needs.getByRole('button').first()).toBeFocused();
+  const hint = page.getByText('Arrow keys move, Space picks');
+  await expect(hint).toBeVisible();
   await page.keyboard.press('ArrowRight');
   await expect(needs.getByRole('button', { name: 'Injured' })).toBeFocused();
   await page.keyboard.press('Space');
   await expect(needs.getByRole('button', { name: 'Injured' })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Tab');
   await expect(page.getByText('Someone without a phone, family outside, GPS')).toBeFocused();
+  await expect(hint).toBeHidden();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(airRow(page, 'OUT', 'check-in')).toBeVisible({ timeout: 8_000 });
   await expect(page.getByLabel('Note')).toBeEmpty();
@@ -318,7 +637,7 @@ test('a sealed message and file heard before joining the circle open once you jo
   await a.getByRole('button', { name: 'Send', exact: true }).click();
   await openTab(b, 'Feed');
   await expect(feedItem(b, 'Sealed for a circle you are not in')).toBeVisible();
-  const chunks = b.getByRole('list', { name: 'Air activity' }).getByRole('listitem').filter({ hasText: 'file chunk from' });
+  const chunks = b.getByRole('list', { name: 'Sound activity' }).getByRole('listitem').filter({ hasText: 'file chunk from' });
   await expect(chunks).toHaveCount(2, { timeout: 120_000 });
   await expect(feedItem(b, 'route.txt')).toHaveCount(0);
 
@@ -351,6 +670,6 @@ test('a beacon at the shelter desk posts notices under its own name and lists wh
   await openTab(phone, 'Safety');
   await phone.getByRole('button', { name: 'I need help' }).click();
   await expect(checkInRow(beacon, 'Ana')).toContainText('Waiting for help');
-  await expect(beacon.getByRole('heading', { name: /Check-ins · 1 person · 1 open request/ })).toBeVisible();
+  await expect(beacon.getByRole('heading', { name: /Check-ins · 1 person · 1 asking for help/ })).toBeVisible();
   await proof(beacon, 'beacon-desk');
 });

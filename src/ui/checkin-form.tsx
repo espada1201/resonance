@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { parseOutside } from '../courier';
 import { locateWithin } from '../geo';
@@ -5,7 +6,7 @@ import { nodeHex } from '../mesh/packet';
 import { type Geo, MAX_CONTACT_NAME, MAX_NICK, MAX_OUTSIDE, MAX_PLACE, NEEDS, type Need, STATUSES, type Status } from '../mesh/payloads';
 import type { CheckInBody } from '../roster';
 import type { Station } from '../station';
-import { NEED_TEXT, STATUS_TEXT, errorText, fitInput } from './format';
+import { NEED_TEXT, STATUS_TEXT, fitInput } from './format';
 import { rovingKeys } from './hooks';
 import { Pin } from './icons';
 
@@ -52,13 +53,17 @@ export function draftFields(d: CheckInDraft, geo?: Geo): Omit<CheckInBody, 'kind
   };
 }
 
-export async function checkInFix(station: Station, missed: (why: string) => void): Promise<Geo | undefined> {
+/** A check-in goes out with or without a position; no position is said calmly, once, and is nothing to fix. */
+export const NO_FIX_NOTE = 'Location not found yet — add where you are in words if you can.';
+
+/** The position to send, or undefined if there is none yet: the check-in goes either way. */
+export async function checkInFix(station: Station): Promise<Geo | undefined> {
   try {
     const geo = await locateWithin(3000);
     station.setPosition(geo);
     return geo;
-  } catch (e) {
-    missed(`${errorText(e)} Sent without a position.`);
+  } catch {
+    return undefined;
   }
 }
 
@@ -69,14 +74,27 @@ export function draftProblem(d: CheckInDraft): string | null {
   return null;
 }
 
-export function NameField({ station }: { station: Station }) {
-  const [namelessAtOpen] = useState(!station.settings.nick);
-  if (!namelessAtOpen) return null;
+/** The line added after a check-in went out under no name: empty with a name, or for someone else (`about`), who is named in it. */
+export const nameless = (station: Station, about: string | undefined) =>
+  station.settings.nick || about ? '' : `Others see you as #${nodeHex(station.id)}. Type your name in the box above, then send again.`;
+
+/** A call for help sent from here can be taken back for this long, as long as nobody has closed it. */
+export const TAKE_BACK_MS = 10 * 60_000;
+
+/** Whether the request sent at `sent.at` (ms) can still be taken back at `now`. */
+export const takeBackOffered = (sent: { at: number } | null, now: number) => !!sent && now - sent.at < TAKE_BACK_MS;
+
+/**
+ * Asks for the name beside the check-in buttons. `offered`: the page opened with no name, so the box stays
+ * for the whole visit, with whatever was typed in it, wherever the buttons are. `prompt`: a check-in just went out without a name.
+ */
+export function NameField({ station, prompt, offered }: { station: Station; prompt?: boolean; offered: boolean }) {
+  if (!offered && station.settings.nick) return null;
   return (
-    <div class="name-field">
+    <div class={prompt && !station.settings.nick ? 'name-field prompt' : 'name-field'}>
       <input
         value={station.settings.nick}
-        placeholder="Your name, so people know who checked in"
+        placeholder="Your name"
         aria-label="Your name"
         onInput={(e) => station.update({ nick: fitInput(e, MAX_NICK) })}
       />
@@ -89,7 +107,7 @@ export function NameField({ station }: { station: Station }) {
  * The fields of a check-in, shared by the Safety tab and the composer. `room` is how many bytes
  * the packet has left, so the note can never outgrow it.
  */
-export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: (patch: Partial<CheckInDraft>) => void; room: number }) {
+export function CheckInFields({ draft, set, room, beforeWhere }: { draft: CheckInDraft; set: (patch: Partial<CheckInDraft>) => void; room: number; beforeWhere?: ComponentChildren }) {
   const noteMax = room + new TextEncoder().encode(draft.note).length;
   const toggle = (n: Need) => set({ needs: draft.needs.includes(n) ? draft.needs.filter((x) => x !== n) : [...draft.needs, n] });
   const badOutside = draft.outside.trim() !== '' && !parseOutside(draft.outside);
@@ -105,6 +123,7 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
           </button>
         ))}
       </div>
+      {beforeWhere}
       <input value={draft.place} placeholder="Where: floor, room or street (optional)" aria-label="Where" onInput={(e) => set({ place: fitInput(e, MAX_PLACE) })} />
       <label class="field-with-count">
         <input value={draft.note} placeholder="Short note (optional)" aria-label="Note" onInput={(e) => set({ note: fitInput(e, Math.max(0, noteMax)) })} />
@@ -115,9 +134,10 @@ export function CheckInFields({ draft, set, room }: { draft: CheckInDraft; set: 
       {/* After the boxes, not between them: someone tabbing on to type must not land on a need and switch it on. */}
       {asking(draft.status) && (
         <div class="needs">
-          <span class="small" aria-hidden="true">
-            What is needed?
-          </span>
+          <div class="needs-head" aria-hidden="true">
+            <span class="small">What is needed?</span>
+            <span class="key-hint">Arrow keys move, Space picks</span>
+          </div>
           {/* One Tab stop, so eight needs do not stand between the note and Send. */}
           <div class="pills" role="toolbar" aria-label="What is needed" onKeyDown={rovingKeys(NEEDS, needAt, setNeedAt)}>
             {NEEDS.map((n) => (

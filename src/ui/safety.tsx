@@ -1,20 +1,22 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { bearingDeg, distanceM, locate } from '../geo';
 import type { Geo, ReplyKind, Status } from '../mesh/payloads';
-import { type RosterEntry, rosterCsv, search } from '../roster';
+import { type CheckInBody, type Heard, type RosterEntry, rosterCsv, search } from '../roster';
 import type { Station } from '../station';
-import { ANY_FIX, CheckInFields, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, newDraft } from './checkin-form';
+import { ANY_FIX, CheckInFields, NO_FIX_NOTE, takeBackOffered, type CheckInDraft, NameField, asking, checkInFix, draftFields, draftProblem, nameless, newDraft } from './checkin-form';
 import { CourierList } from './courier';
 import { download, named, who } from './feed';
 import { FindPanel } from './find';
-import { NEED_TEXT, STATUS_TEXT, errorText } from './format';
+import { NEED_TEXT, STATUS_TEXT, errorText, joinParts } from './format';
 import { Compass, Download, Pin } from './icons';
-import { type Helper, HelperList, RosterList, headcount, replyText } from './roster';
+import { type Helper, HelperList, RosterList, headcount, replyLine, replyText } from './roster';
 
 const NICE = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000];
 const ringLabel = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${+(m / 1000).toFixed(1)} km`);
 /** Find needs the person's own device in earshot: heard directly this recently. */
 const FINDABLE_MS = 10 * 60_000;
+/** A tap this soon after a first-screen button opened the Safety tab is the same tap again. */
+const STRAY_TAP_MS = 400;
 
 type OrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 
@@ -82,9 +84,9 @@ function Radar({ me, people, heading, name }: { me: Geo; people: RosterEntry[]; 
 /** `ask`: the one-tap call for help went with no details, so this asks for them. */
 function sentText(station: Station, about: string | undefined, ask: boolean) {
   const mine = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === about);
-  if (mine && station.queued(mine.latest)) return 'Waiting to go on air…';
+  if (mine && station.queued(mine.latest)) return 'Waiting to send…';
   const item = mine && station.journal.feed.find((i) => i.mine && i.msgId === mine.latest.msgId);
-  const sent = item?.passedOn ? 'Sent. Another phone has it.' : 'Sent.';
+  const sent = item && station.journal.wasPassedOn(item.msgId) ? 'Sent. Heard by a phone nearby.' : 'Sent.';
   if (!mine || !asking(mine.latest.body.status)) return sent;
   const answer = mine.replies.at(-1);
   if (answer) return `${sent} ${replyText(answer, station.id, (src, nick) => who(station, src, nick))}.`;
@@ -93,15 +95,28 @@ function sentText(station: Station, about: string | undefined, ask: boolean) {
   return ask ? `${waiting} Add ${mine.latest.body.place ? 'what you need' : 'where you are and what you need'}, and send again.` : waiting;
 }
 
+/** Whether the request this device just sent is still open, so taking it back still means something. */
+function stillOpen(station: Station, sentAs: Offer | undefined) {
+  return !!sentAs && station.journal.roster().some((e) => e.open && e.latest.src === sentAs.src && e.latest.msgId === sentAs.msgId);
+}
+
+/** The request this device just sent with one tap, which can be taken back for a while; kept above the tab so it survives leaving Safety. */
+export type Offer = Heard<CheckInBody> | null;
+
 /** One tap for "I'm safe" or "I need help"; everything else a check-in can carry, a click away. */
-function CheckInCard({ station }: { station: Station }) {
+function CheckInCard({ station, shortcut, onShortcut, nameOffered, offer, setOffer }: { station: Station; shortcut: Status | null; onShortcut: () => void; nameOffered: boolean; offer: Offer; setOffer: (o: Offer) => void }) {
   const [draft, setDraft] = useState<CheckInDraft>(() => newDraft(station.settings));
   const [detailed, setDetailed] = useState(false);
   const [sending, setSending] = useState<Status | 'detail' | null>(null);
-  const [sent, setSent] = useState<{ about?: string; ask: boolean } | null>(null);
+  const [sent, setSent] = useState<{ about?: string; ask: boolean; unnamed: string; sentAs?: Heard<CheckInBody>; takenBack?: boolean; noFix?: boolean } | null>(null);
+  // The first-screen button that opened this tab has the keyboard until the send is over, so it never falls to the page.
+  const viaShortcut = useRef(false);
+  // A double tap on the first screen's button lands on this row a moment after the tab opened: it is no second check-in.
+  const stray = useRef(0);
   const [err, setErr] = useState('');
   const more = useRef<HTMLDetailsElement>(null);
   const quickRow = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLElement>(null);
   const listening = station.status === 'listening';
   const set = (patch: Partial<CheckInDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const room = station.budget({ kind: 'checkin', ...draftFields(draft, ANY_FIX) }).left;
@@ -112,13 +127,18 @@ function CheckInCard({ station }: { station: Station }) {
     setSending(label);
     setErr('');
     setSent(null);
-    const geo = d.withGeo ? await checkInFix(station, setErr) : undefined;
+    setOffer(null);
+    const geo = d.withGeo ? await checkInFix(station) : undefined;
     const fields = draftFields(d, geo);
     try {
       // Saying it also remembers where you are and whom to tell outside, for your next check-ins.
       await station.say({ kind: 'checkin', ...fields });
       const ask = label === 'help' && !detailed;
-      setSent({ about: fields.about, ask });
+      // Said now and kept as said: typing the name must not take the line away before the next send.
+      const unnamed = nameless(station, fields.about);
+      const sentAs = station.journal.roster().find((e) => e.latest.src === station.id && e.latest.body.about === fields.about)?.latest;
+      setSent({ about: fields.about, ask, unnamed, sentAs, noFix: d.withGeo && !geo });
+      if (ask && sentAs) setOffer(sentAs);
       // The status stays as sent: after a call for help, the form must not quietly say Safe.
       if (label === 'detail' || detailed) setDraft(newDraft(station.settings, d.status));
       if (ask) {
@@ -126,6 +146,9 @@ function CheckInCard({ station }: { station: Station }) {
         setDraft({ ...newDraft(station.settings, 'help'), withGeo: d.withGeo });
         more.current!.open = true;
         requestAnimationFrame(() => more.current?.querySelector<HTMLInputElement>('input[aria-label="Where"]')?.focus());
+      } else if (unnamed && !asking(d.status)) {
+        // After a request for help the keyboard stays where the details are: the name is said beside it, not instead of it.
+        requestAnimationFrame(() => card.current?.querySelector<HTMLInputElement>('.name-field input')?.focus());
       }
     } catch (e) {
       setErr(errorText(e));
@@ -133,21 +156,60 @@ function CheckInCard({ station }: { station: Station }) {
     setSending(null);
     // The pressed button turned itself off while sending, which drops the keyboard on the page: give it back.
     requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
+      const holding = document.activeElement;
+      if (holding !== document.body && !(viaShortcut.current && holding?.getAttribute('role') === 'tab')) return;
+      viaShortcut.current = false;
       const pressed = label === 'detail' ? more.current?.querySelector<HTMLElement>('button[type="submit"]') : quickRow.current?.querySelector<HTMLElement>(`.s-${label}`);
       pressed?.focus();
     });
   }
 
-  const quick = (status: Status) => {
+  const quick = (status: Status, fromShortcut = false) => {
+    if (!fromShortcut && Date.now() < stray.current) return;
     const d = detailed ? draft : newDraft(station.settings);
     void send({ ...d, status: asking(d.status) === asking(status) ? d.status : status, withGeo: true }, status);
   };
 
+  /** Says "resolved", flagged as a mistake, to the request just sent. */
+  async function takeBack() {
+    if (!offer) return;
+    try {
+      // Still "resolved" on air, so every phone closes it; the flag says it was a mistake, and phones that do not know it show resolved.
+      await station.reply(offer, 'resolved', { mistake: true });
+      setOffer(null);
+      setSent((s) => (s ? { ...s, takenBack: true } : { ask: false, unnamed: '', takenBack: true }));
+      setErr('');
+      // The form was opened for a call for help that no longer stands: it goes back to Safe, and closes.
+      setDraft(newDraft(station.settings));
+      more.current!.open = false;
+      // The button that was pressed is gone: the keyboard goes to the call for help, not back to the top.
+      requestAnimationFrame(() => quickRow.current?.querySelector<HTMLElement>('.s-help')?.focus());
+    } catch (e) {
+      setErr(errorText(e));
+    }
+  }
+
+  // A tap on the first screen's button opened this tab: do what the button here does, once.
+  useEffect(() => {
+    if (!shortcut) return;
+    onShortcut();
+    viaShortcut.current = true;
+    stray.current = Date.now() + STRAY_TAP_MS;
+    if (listening) quick(shortcut, true);
+  }, []);
+
+  /* One tap sends at once, as an emergency must; this is the way out of a stray one. It is kept while the request is open and for ten
+     minutes, also after leaving this tab. With the details open (they open beside a call for help) it sits just before Where, where the keyboard is. */
+  const undo = listening && takeBackOffered(offer, Date.now()) && stillOpen(station, offer) && (
+    <button type="button" class="ghost small" onClick={() => void takeBack()}>
+      Sent by mistake? Take it back
+    </button>
+  );
+
   const { place, outside } = station.settings;
   return (
-    <section class="checkin-card" aria-label="Check in">
-      <NameField station={station} />
+    <section class="checkin-card" aria-label="Check in" ref={card}>
+      <NameField station={station} prompt={!!sent?.unnamed} offered={nameOffered} />
       <div class="quick" ref={quickRow}>
         <button type="button" class="big s-safe" disabled={!listening || !!sending} onClick={() => quick('safe')}>
           {sending === 'safe' ? 'Sending…' : "I'm safe"}
@@ -156,9 +218,11 @@ function CheckInCard({ station }: { station: Station }) {
           {sending === 'help' ? 'Sending…' : 'I need help'}
         </button>
       </div>
-      {sent && <p role="status">{sentText(station, sent.about, sent.ask)}</p>}
+      {sent && <p role="status">{sent.takenBack ? 'Taken back. Others now see it as cancelled: sent by mistake.' : joinParts(' ', sentText(station, sent.about, sent.ask), sent.unnamed)}</p>}
+      {sent?.noFix && !sent.takenBack && <p class="muted small">{NO_FIX_NOTE}</p>}
+      {!detailed && undo}
       <p class="muted small">
-        One tap tells everyone in earshot, with your GPS position if you allow it. Other devices pass it on.
+        One tap tells everyone near you, with your GPS position if you allow it. Other devices pass it on.
         {place && ` It says you are at "${place}".`}
         {outside && ` Whoever gets signal first can tell ${outside}.`}
       </p>
@@ -170,7 +234,7 @@ function CheckInCard({ station }: { station: Station }) {
             void send(draft, 'detail');
           }}
         >
-          <CheckInFields draft={draft} set={set} room={room} />
+          <CheckInFields draft={draft} set={set} room={room} beforeWhere={detailed && undo} />
           <button type="submit" class="primary" disabled={!listening || !!sending || room < 0}>
             {sending === 'detail' ? 'Sending…' : 'Send check-in'}
           </button>
@@ -196,7 +260,7 @@ function helpers(station: Station): Helper[] {
   return [...latest.values()];
 }
 
-export function Safety({ station }: { station: Station }) {
+export function Safety({ station, shortcut = null, onShortcut = () => undefined, nameOffered, offer, setOffer }: { station: Station; shortcut?: Status | null; onShortcut?: () => void; nameOffered: boolean; offer: Offer; setOffer: (o: Offer) => void }) {
   const entries = station.journal.roster();
   const parcels = station.journal.parcels();
   const helping = helpers(station);
@@ -241,12 +305,12 @@ export function Safety({ station }: { station: Station }) {
   return (
     <div class="safety">
       {!shown.some(finding) && <FindPanel station={station} />}
-      <CheckInCard station={station} />
+      <CheckInCard station={station} shortcut={shortcut} onShortcut={onShortcut} nameOffered={nameOffered} offer={offer} setOffer={setOffer} />
 
       <section class="roster-section" aria-labelledby="roster-title">
         <div class="section-head">
           <h2 class="label" id="roster-title">
-            Check-ins{entries.length > 0 && ` · ${headcount(entries)}`}
+            Check-ins{entries.length > 0 && ` · ${headcount(entries, station.id)}`}
           </h2>
           {entries.length > 0 && (
             <div class="row">
@@ -277,11 +341,13 @@ export function Safety({ station }: { station: Station }) {
             name={name}
             by={by}
             reply={listening ? (e, what) => void answer(e.latest, what) : null}
+            replyLine={(r, askerNick) => replyLine(station, r, by, askerNick)}
             find={(e) => {
               const n = e.latest.body.about ? undefined : station.mesh.neighbors.get(e.latest.src);
               return listening && n && Date.now() - n.lastHeard < FINDABLE_MS ? () => station.ranger.start(n.id) : null;
             }}
             readout={(e) => finding(e) && <FindPanel station={station} />}
+            nick={station.settings.nick}
           />
         )}
       </section>

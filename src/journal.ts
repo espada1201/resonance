@@ -2,7 +2,7 @@ import { type Parcel, parcels } from './courier';
 import { BROADCAST } from './mesh/packet';
 import { type ContentBody, isContent } from './mesh/payloads';
 import { activeNotices } from './notices';
-import { type Heard, type NoticeBody, type ReplyBody, type RosterEntry, SafetyLog, type SafetySnapshot, roster, writtenAt } from './roster';
+import { type Heard, type NoticeBody, type ReplyBody, type RosterEntry, SafetyLog, type SafetySnapshot, roster, superseded, writtenAt } from './roster';
 
 // Everything said on the mesh that this device knows, heard or sent: the feed people read, and the
 // safety log responders act on. The station hands it what it opened (or could not open); the
@@ -24,9 +24,10 @@ export interface FeedItem extends Meta {
   fileKey?: string;
   /** For direct messages. 'unknown': the app was closed while waiting for the receipt. */
   delivery?: 'sending' | 'acked' | 'failed' | 'unknown';
-  /** For our own broadcasts: another device was heard repeating it. */
-  passedOn?: boolean;
 }
+
+/** The safety log as saved, with the ids of our own messages another device was heard repeating. */
+export type SavedSafety = SafetySnapshot & { passedOn?: number[]; reachedAsker?: number[] };
 
 const FEED_KEPT = 400;
 const FEED_SAVED = 200;
@@ -35,6 +36,10 @@ export class Journal {
   /** Newest first. */
   feed: FeedItem[] = [];
   private log = new SafetyLog();
+  /** Ids of our own broadcasts and replies that another device was heard repeating. */
+  private passed = new Set<number>();
+  /** Ids of our own replies that the device that asked acknowledged itself. */
+  private reached = new Set<number>();
 
   constructor(
     private readonly self: number,
@@ -78,16 +83,28 @@ export class Journal {
     this.feed = [{ id, src, msgId, at, hops, mine: src === this.self, encrypted, locked: false, dst, fileKey: key }, ...this.feed].slice(0, FEED_KEPT);
   }
 
-  /** A receipt came back for our direct message, or it gave up after its retries. */
-  delivered(msgId: number, ok: boolean) {
+  /** A receipt came back for our direct message, or it gave up after its retries. `from`: the device that sent the receipt. */
+  delivered(msgId: number, ok: boolean, from?: number) {
     const item = this.feed.find((i) => i.mine && i.msgId === msgId);
     if (item) item.delivery = ok ? 'acked' : 'failed';
+    // A reply is for everyone, but the one that asked is the one who most needs it: its own receipt counts.
+    if (ok && from !== undefined && this.log.replies.some((r) => r.src === this.self && r.msgId === msgId && r.body.src === from)) this.reached.add(msgId);
   }
 
-  /** Another device repeated a broadcast of ours. */
+  /** Another device repeated a broadcast of ours: a feed item, or a reply such as "On my way". */
   passedOn(msgId: number) {
-    const item = this.feed.find((i) => i.mine && i.msgId === msgId && i.dst === BROADCAST);
-    if (item) item.passedOn = true;
+    const broadcast = this.feed.some((i) => i.mine && i.msgId === msgId && i.dst === BROADCAST);
+    if (broadcast || this.log.replies.some((r) => r.src === this.self && r.msgId === msgId)) this.passed.add(msgId);
+  }
+
+  /** Whether another device was heard repeating this message of ours. */
+  wasPassedOn(msgId: number) {
+    return this.passed.has(msgId);
+  }
+
+  /** Whether the device that asked said it has this reply of ours. */
+  reachedAsker(msgId: number) {
+    return this.reached.has(msgId);
   }
 
   /** Removes an item (one sent again took its place). */
@@ -98,6 +115,11 @@ export class Journal {
   /** Everyone's latest check-in, in the order a responder works through them. */
   roster(): RosterEntry[] {
     return roster(this.log.checkins, this.log.replies, Math.floor(this.clock.now() / 1000));
+  }
+
+  /** Ids (`src:msgId`) of check-ins that a newer one from the same phone about the same person has taken the place of. */
+  replacedCheckIns(): Set<string> {
+    return new Set(superseded(this.log.checkins).map((c) => `${c.src}:${c.msgId}`));
   }
 
   /** Check-ins naming someone outside, newest first, marked once someone passed them on. */
@@ -115,17 +137,21 @@ export class Journal {
     return this.log.replies.filter((r) => r.body.src === src && r.body.msgId === msgId).sort((a, b) => writtenAt(a) - writtenAt(b));
   }
 
-  snapshot(): { safety: SafetySnapshot; feed: FeedItem[] } {
-    return { safety: this.log.snapshot(), feed: this.feed.slice(0, FEED_SAVED) };
+  snapshot(): { safety: SavedSafety; feed: FeedItem[] } {
+    return { safety: { ...this.log.snapshot(), ...(this.passed.size > 0 && { passedOn: [...this.passed] }), ...(this.reached.size > 0 && { reachedAsker: [...this.reached] }) }, feed: this.feed.slice(0, FEED_SAVED) };
   }
 
-  restore(saved: { safety: SafetySnapshot | null; feed: FeedItem[] | null; resent: Set<string> }) {
+  restore(saved: { safety: SavedSafety | null; feed: FeedItem[] | null; resent: Set<string> }) {
     const retriesLost = (i: FeedItem) => i.delivery === 'sending' && !saved.resent.has(i.id);
     this.feed = (saved.feed ?? []).map((i) => (retriesLost(i) ? { ...i, delivery: 'unknown' } : i));
     this.log = new SafetyLog();
     if (saved.safety) this.log.restore(saved.safety);
     else this.rebuildLogFromFeed();
     this.log.prune(this.clock.now());
+    // A save from before the ids were kept marked the feed items and replies themselves.
+    const marked = (x: { msgId: number }) => (x as { passedOn?: boolean }).passedOn;
+    this.reached = new Set(saved.safety?.reachedAsker ?? []);
+    this.passed = new Set([...(saved.safety?.passedOn ?? []), ...[...this.feed, ...this.log.replies].filter(marked).map((x) => x.msgId)]);
   }
 
   private rebuildLogFromFeed() {
@@ -136,5 +162,7 @@ export class Journal {
   clear() {
     this.feed = [];
     this.log = new SafetyLog();
+    this.passed.clear();
+    this.reached.clear();
   }
 }

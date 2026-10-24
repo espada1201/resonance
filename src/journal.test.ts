@@ -81,6 +81,70 @@ describe('journal', () => {
     expect(ids()).toEqual([`${ME}:8`]);
   });
 
+  it('remembers which of our own broadcasts and replies another phone passed on, and nothing else', () => {
+    j.add(met(ME, 10), text('Water at the stairwell', 'Ana'));
+    j.add(met(ME, 11, { dst: BEN }), text('Are you hurt?', 'Ana'));
+    j.add(met(CAL, 2), help);
+    j.add(met(BEN, 3), answer('coming'));
+    expect([10, 11, 2, 3].map((id) => j.wasPassedOn(id))).toEqual([false, false, false, false]);
+    for (const id of [10, 11, 2, 3]) j.passedOn(id);
+    expect([10, 11, 2, 3].map((id) => j.wasPassedOn(id))).toEqual([true, false, false, false]);
+  });
+
+  it('marks only the reply that was passed on, not another reply of ours to the same request', () => {
+    j.add(met(CAL, 2), help);
+    j.add(met(ME, 20), { ...answer('coming'), nick: 'Ana' });
+    j.add(met(ME, 21), { ...answer('resolved'), nick: 'Ana' });
+    j.passedOn(20);
+    expect(j.wasPassedOn(20)).toBe(true);
+    expect(j.wasPassedOn(21)).toBe(false);
+  });
+
+  it('keeps what was passed on across a reload, including a save that marked the items themselves', () => {
+    j.add(met(ME, 10), text('Water at the stairwell', 'Ana'));
+    j.passedOn(10);
+    const reloaded = new Journal(ME, clock);
+    reloaded.restore({ ...JSON.parse(JSON.stringify(j.snapshot())), resent: new Set() });
+    expect(reloaded.wasPassedOn(10)).toBe(true);
+
+    const flagged = { ...j.feed[0], passedOn: true } as FeedItem;
+    const old = new Journal(ME, clock);
+    old.restore({ safety: null, feed: [flagged], resent: new Set() });
+    expect(old.wasPassedOn(10)).toBe(true);
+    j.clear();
+    expect(j.wasPassedOn(10)).toBe(false);
+  });
+
+  it("remembers that the phone that asked has our reply, only when that phone's own receipt says so", () => {
+    j.add(met(CAL, 2), help);
+    j.add(met(ME, 20), { ...answer('coming'), nick: 'Ana' });
+    expect(j.reachedAsker(20)).toBe(false);
+    // Another phone's receipt, a failure and a message that is no reply of ours say nothing about the asker.
+    j.delivered(20, true, BEN);
+    j.delivered(20, false, CAL);
+    j.delivered(99, true, CAL);
+    expect(j.reachedAsker(20)).toBe(false);
+    j.delivered(20, true, CAL);
+    expect(j.reachedAsker(20)).toBe(true);
+    const reloaded = new Journal(ME, clock);
+    reloaded.restore({ ...JSON.parse(JSON.stringify(j.snapshot())), resent: new Set() });
+    expect(reloaded.reachedAsker(20)).toBe(true);
+    j.clear();
+    expect(j.reachedAsker(20)).toBe(false);
+  });
+
+  it('says which check-ins a newer one from the same phone about the same person has replaced', () => {
+    const detail: CheckInBody = { ...help, ts: TS + 20, needs: ['water'] };
+    j.add(met(CAL, 2), help);
+    j.add(met(BEN, 5), { ...help, nick: 'Ben', ts: TS + 5 });
+    expect(j.replacedCheckIns()).toEqual(new Set());
+    now += 20_000;
+    j.add(met(CAL, 6), detail);
+    // Ben's is his own person's; a check-in about someone else is another person's too.
+    j.add(met(CAL, 7), { ...help, ts: TS + 21, about: 'Mr Ito' });
+    expect(j.replacedCheckIns()).toEqual(new Set([`${CAL}:2`]));
+  });
+
   it('keeps the newest 400 items and saves 200, while the log keeps what responders need', () => {
     j.add(met(CAL, 2), help);
     for (let i = 0; i < 450; i++) j.add(met(BEN, 100 + i), text(`chat ${i}`));
