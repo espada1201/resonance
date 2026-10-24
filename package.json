@@ -16,7 +16,9 @@
     "serve": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "ios:web": "npm run build && rm -rf ios/Sources/Resonance/Web && cp -R dist ios/Sources/Resonance/Web",
+    "iphone": "bash ios/install-on-iphone.sh"
   },
   "dependencies": {
     "preact": "^10.27.2"

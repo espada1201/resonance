@@ -1,0 +1,4 @@
+version: 1
+bundleID: io.github.espada1201.resonance
+infoPath: Info.plist
+iconPath: Resources/AppIcon.png

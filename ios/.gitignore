@@ -1,0 +1,5 @@
+Sources/Resonance/Web/
+.build/
+xtool/
+build/
+*.xcodeproj/
